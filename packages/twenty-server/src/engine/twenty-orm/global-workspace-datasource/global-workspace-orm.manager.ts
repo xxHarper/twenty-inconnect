@@ -4,6 +4,7 @@ import { type ObjectLiteral } from 'typeorm';
 
 import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/workspace-auth-context.storage';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
 import { buildObjectIdByNameMaps } from 'src/engine/metadata-modules/flat-object-metadata/utils/build-object-id-by-name-maps.util';
 import { GlobalWorkspaceDataSource } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource';
 import { GlobalWorkspaceDataSourceService } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource.service';
@@ -22,6 +23,7 @@ export class GlobalWorkspaceOrmManager {
   constructor(
     private readonly globalWorkspaceDataSourceService: GlobalWorkspaceDataSourceService,
     private readonly workspaceCacheService: WorkspaceCacheService,
+    private readonly inconnectRecordAccessService: InconnectRecordAccessService,
   ) {}
 
   async getRepository<T extends ObjectLiteral>(
@@ -94,6 +96,7 @@ export class GlobalWorkspaceOrmManager {
       ORMEntityMetadatas: entityMetadatas,
       userWorkspaceRoleMap,
       apiKeyRoleMap,
+      flatRoleMaps,
       flatRowLevelPermissionPredicateMaps,
       flatRowLevelPermissionPredicateGroupMaps,
     } = await this.workspaceCacheService.getOrRecompute(workspaceId, [
@@ -105,12 +108,20 @@ export class GlobalWorkspaceOrmManager {
       'ORMEntityMetadatas',
       'userWorkspaceRoleMap',
       'apiKeyRoleMap',
+      'flatRoleMaps',
       'flatRowLevelPermissionPredicateMaps',
       'flatRowLevelPermissionPredicateGroupMaps',
     ]);
 
     const { idByNameSingular: objectIdByNameSingular } =
       buildObjectIdByNameMaps(flatObjectMetadataMaps);
+    const inconnectRecordAccessPolicy =
+      this.inconnectRecordAccessService.resolveWorkspacePolicy({
+        workspaceId,
+        flatRoleMaps,
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+      });
 
     return {
       authContext,
@@ -119,6 +130,7 @@ export class GlobalWorkspaceOrmManager {
       flatIndexMaps,
       flatRowLevelPermissionPredicateMaps,
       flatRowLevelPermissionPredicateGroupMaps,
+      inconnectRecordAccessPolicy,
       objectIdByNameSingular,
       featureFlagsMap,
       permissionsPerRoleId,
@@ -136,15 +148,28 @@ export class GlobalWorkspaceOrmManager {
     const {
       flatObjectMetadataMaps,
       flatFieldMetadataMaps,
+      flatRoleMaps,
+      userWorkspaceRoleMap,
+      apiKeyRoleMap,
       ORMEntityMetadatas: entityMetadatas,
     } = await this.workspaceCacheService.getOrRecompute(workspaceId, [
       'flatObjectMetadataMaps',
       'flatFieldMetadataMaps',
+      'flatRoleMaps',
+      'userWorkspaceRoleMap',
+      'apiKeyRoleMap',
       'ORMEntityMetadatas',
     ]);
 
     const { idByNameSingular: objectIdByNameSingular } =
       buildObjectIdByNameMaps(flatObjectMetadataMaps);
+    const inconnectRecordAccessPolicy =
+      this.inconnectRecordAccessService.resolveWorkspacePolicy({
+        workspaceId,
+        flatRoleMaps,
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+      });
 
     return {
       authContext,
@@ -165,12 +190,13 @@ export class GlobalWorkspaceOrmManager {
         universalIdentifierById: {},
         universalIdentifiersByApplicationId: {},
       },
+      inconnectRecordAccessPolicy,
       objectIdByNameSingular,
       featureFlagsMap: {} as ORMWorkspaceContext['featureFlagsMap'],
       permissionsPerRoleId: {},
       entityMetadatas,
-      userWorkspaceRoleMap: {},
-      apiKeyRoleMap: {},
+      userWorkspaceRoleMap,
+      apiKeyRoleMap,
     };
   }
 }

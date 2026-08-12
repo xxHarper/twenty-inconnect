@@ -3,6 +3,8 @@ import { isDefined } from 'twenty-shared/utils';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
+import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
+import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { validateOperationIsPermittedOrThrow } from 'src/engine/twenty-orm/repository/permissions.utils';
 import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/workspace-internal-context.interface';
 import { renderRowLevelPermissionFilterToSql } from 'src/engine/twenty-orm/utils/render-row-level-permission-filter-to-sql.util';
@@ -63,6 +65,7 @@ export class WorkspaceRepositoryV2 {
 
   private onBeforeExecute(queryBuilder: WorkspaceSelectQueryBuilderV2): void {
     this.applyRowLevelPermissionPredicates(queryBuilder);
+    this.applyInconnectRecordAccess(queryBuilder);
     this.validateQueryIsPermitted(queryBuilder);
   }
 
@@ -170,6 +173,77 @@ export class WorkspaceRepositoryV2 {
 
     if (alias === queryBuilder.alias) {
       queryBuilder.andWhere(
+        renderedCondition.sql,
+        renderedCondition.parameters,
+      );
+
+      return;
+    }
+
+    queryBuilder.addJoinCondition(alias, renderedCondition.sql);
+    queryBuilder.setParameters(renderedCondition.parameters);
+  }
+
+  private applyInconnectRecordAccess(
+    queryBuilder: WorkspaceSelectQueryBuilderV2,
+  ): void {
+    this.applyInconnectRecordAccessForAlias({
+      queryBuilder,
+      alias: queryBuilder.alias,
+      flatObjectMetadata: this.options.flatObjectMetadata,
+    });
+
+    for (const joinAttribute of queryBuilder.expressionMap.joinAttributes) {
+      const joinedTableShape = queryBuilder.getJoinedTableShape(
+        joinAttribute.alias.name,
+      );
+
+      if (!isDefined(joinedTableShape)) {
+        continue;
+      }
+
+      this.applyInconnectRecordAccessForAlias({
+        queryBuilder,
+        alias: joinAttribute.alias.name,
+        flatObjectMetadata: this.options.flatObjectMetadataByObjectMetadataId(
+          joinedTableShape.objectMetadataId,
+        ),
+      });
+    }
+  }
+
+  private applyInconnectRecordAccessForAlias({
+    queryBuilder,
+    alias,
+    flatObjectMetadata,
+  }: {
+    queryBuilder: WorkspaceSelectQueryBuilderV2;
+    alias: string;
+    flatObjectMetadata: FlatObjectMetadata;
+  }): void {
+    if (!queryBuilder.markInconnectRecordAccessApplied(alias)) {
+      return;
+    }
+
+    const decision = resolveInconnectRecordAccessDecision({
+      policy: this.options.internalContext.inconnectRecordAccessPolicy,
+      authContext: this.options.authContext,
+      objectMetadataId: flatObjectMetadata.id,
+      userWorkspaceRoleMap: this.options.internalContext.userWorkspaceRoleMap,
+      apiKeyRoleMap: this.options.internalContext.apiKeyRoleMap,
+    });
+
+    if (decision.kind === 'unrestricted') {
+      return;
+    }
+
+    const renderedCondition = renderInconnectRecordAccessCondition({
+      decision,
+      tableAlias: alias,
+    });
+
+    if (alias === queryBuilder.alias) {
+      queryBuilder.prependInconnectRecordAccessWhere(
         renderedCondition.sql,
         renderedCondition.parameters,
       );

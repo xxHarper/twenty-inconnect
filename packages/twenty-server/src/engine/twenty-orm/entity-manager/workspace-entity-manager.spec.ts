@@ -235,6 +235,7 @@ describe('WorkspaceEntityManager', () => {
         universalIdentifierById: {},
         universalIdentifiersByApplicationId: {},
       },
+      inconnectRecordAccessPolicy: { status: 'not-configured' },
       objectIdByNameSingular: {
         'test-entity': 'test-entity-id',
       },
@@ -311,6 +312,7 @@ describe('WorkspaceEntityManager', () => {
         mockInternalContext.flatRowLevelPermissionPredicateMaps,
       flatRowLevelPermissionPredicateGroupMaps:
         mockInternalContext.flatRowLevelPermissionPredicateGroupMaps,
+      inconnectRecordAccessPolicy: { status: 'not-configured' },
       objectIdByNameSingular: mockInternalContext.objectIdByNameSingular,
       featureFlagsMap: mockInternalContext.featureFlagsMap,
       permissionsPerRoleId: mockDataSource.permissionsPerRoleId,

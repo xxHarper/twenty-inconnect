@@ -66,6 +66,7 @@ export class WorkspaceSelectQueryBuilderV2 implements WhereExpressionLike {
   private includeDeleted = false;
   private explicitSelection?: string[];
   private readonly aliasesWithRowLevelPermissionApplied = new Set<string>();
+  private readonly aliasesWithInconnectRecordAccessApplied = new Set<string>();
 
   constructor(alias: string, context: QueryBuilderV2Context) {
     this.alias = alias;
@@ -112,6 +113,9 @@ export class WorkspaceSelectQueryBuilderV2 implements WhereExpressionLike {
     for (const alias of this.aliasesWithRowLevelPermissionApplied) {
       cloned.aliasesWithRowLevelPermissionApplied.add(alias);
     }
+    for (const alias of this.aliasesWithInconnectRecordAccessApplied) {
+      cloned.aliasesWithInconnectRecordAccessApplied.add(alias);
+    }
 
     return cloned;
   }
@@ -123,6 +127,7 @@ export class WorkspaceSelectQueryBuilderV2 implements WhereExpressionLike {
     this.whereClauses.length = 0;
     this.aliasesWithRowLevelPermissionApplied.delete(this.alias);
 
+    this.aliasesWithInconnectRecordAccessApplied.delete(this.alias);
     return this.appendWhere('and', condition, parameters);
   }
 
@@ -381,6 +386,36 @@ export class WorkspaceSelectQueryBuilderV2 implements WhereExpressionLike {
     return true;
   }
 
+  markInconnectRecordAccessApplied(alias: string): boolean {
+    if (this.aliasesWithInconnectRecordAccessApplied.has(alias)) {
+      return false;
+    }
+
+    this.aliasesWithInconnectRecordAccessApplied.add(alias);
+
+    return true;
+  }
+
+  prependInconnectRecordAccessWhere(
+    condition: string,
+    parameters: Record<string, unknown>,
+  ): this {
+    const existingWhereExpression = this.buildWhereExpression({
+      includeSoftDeletePredicate: false,
+    });
+
+    this.whereClauses.length = 0;
+    this.whereClauses.push({ operator: 'and', sql: '(' + condition + ')' });
+
+    if (existingWhereExpression.length > 0) {
+      this.whereClauses.push({
+        operator: 'and',
+        sql: '(' + existingWhereExpression + ')',
+      });
+    }
+
+    return this.setParameters(parameters);
+  }
   getReferencedColumnNamesByAlias(): Record<string, string[]> {
     return collectReferencedColumnNames({
       mainAlias: this.alias,

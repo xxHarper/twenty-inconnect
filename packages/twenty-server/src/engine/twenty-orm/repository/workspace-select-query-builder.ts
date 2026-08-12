@@ -2,6 +2,7 @@ import { isNonEmptyString } from '@sniptt/guards';
 import { type ObjectsPermissions } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
 import {
+  Brackets,
   type EntityTarget,
   type ObjectLiteral,
   SelectQueryBuilder,
@@ -13,6 +14,8 @@ import { type FeatureFlagMap } from 'src/engine/core-modules/feature-flag/interf
 import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/workspace-internal-context.interface';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
+import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps.util';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import {
@@ -39,6 +42,10 @@ type JoinAttributeWithRowLevelPermissionMarker = JoinAttribute & {
   hasRowLevelPermissionPredicateApplied?: true;
 };
 
+type JoinAttributeWithInconnectRecordAccessMarker = JoinAttribute & {
+  hasInconnectRecordAccessApplied?: true;
+};
+
 const hasRowLevelPermissionPredicateApplied = (
   joinAttribute: JoinAttribute,
 ): boolean =>
@@ -51,6 +58,20 @@ const markRowLevelPermissionPredicateApplied = (
   (
     joinAttribute as JoinAttributeWithRowLevelPermissionMarker
   ).hasRowLevelPermissionPredicateApplied = true;
+};
+
+const hasInconnectRecordAccessApplied = (
+  joinAttribute: JoinAttribute,
+): boolean =>
+  (joinAttribute as JoinAttributeWithInconnectRecordAccessMarker)
+    .hasInconnectRecordAccessApplied === true;
+
+const markInconnectRecordAccessApplied = (
+  joinAttribute: JoinAttribute,
+): void => {
+  (
+    joinAttribute as JoinAttributeWithInconnectRecordAccessMarker
+  ).hasInconnectRecordAccessApplied = true;
 };
 
 const andWithExistingJoinCondition = (
@@ -374,6 +395,7 @@ export class WorkspaceSelectQueryBuilder<
 
   private validatePermissions(): void {
     this.applyRowLevelPermissionPredicatesToMainAliasAndJoinedRelations();
+    this.applyInconnectRecordAccessToMainAliasAndJoinedRelations();
     validateQueryIsPermittedOrThrow({
       expressionMap: this.expressionMap,
       objectsPermissions: this.objectRecordsPermissions,
@@ -387,6 +409,123 @@ export class WorkspaceSelectQueryBuilder<
   applyRowLevelPermissionPredicatesToMainAliasAndJoinedRelations(): void {
     this.applyRowLevelPermissionPredicates();
     this.applyRowLevelPermissionPredicatesToJoinedRelations();
+  }
+
+  private applyInconnectRecordAccessToMainAliasAndJoinedRelations(): void {
+    this.applyInconnectRecordAccessToMainAlias();
+    this.applyInconnectRecordAccessToJoinedRelations();
+  }
+
+  private applyInconnectRecordAccessToMainAlias(): void {
+    if (this.expressionMap.mainAlias?.subQuery) {
+      return;
+    }
+
+    const objectMetadata = getObjectMetadataFromEntityTarget(
+      this.getMainAliasTarget(),
+      this.internalContext,
+    );
+    const decision = resolveInconnectRecordAccessDecision({
+      policy: this.internalContext.inconnectRecordAccessPolicy,
+      authContext: this.authContext,
+      objectMetadataId: objectMetadata.id,
+      userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
+      apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+    });
+
+    if (decision.kind === 'unrestricted') {
+      return;
+    }
+
+    const mainAlias = this.expressionMap.mainAlias?.name;
+
+    if (!isDefined(mainAlias)) {
+      throw new TwentyORMException(
+        'Main alias is missing',
+        TwentyORMExceptionCode.MISSING_MAIN_ALIAS_TARGET,
+      );
+    }
+
+    const renderedCondition = renderInconnectRecordAccessCondition({
+      decision,
+      tableAlias: mainAlias,
+    });
+    const isAlreadyApplied = this.expressionMap.wheres.some(
+      (whereClause) =>
+        (
+          whereClause as typeof whereClause & {
+            inconnectRecordAccessMarker?: string;
+          }
+        ).inconnectRecordAccessMarker === renderedCondition.marker,
+    );
+
+    if (isAlreadyApplied) {
+      this.setParameters(renderedCondition.parameters);
+
+      return;
+    }
+
+    const existingWhereClauses = [...this.expressionMap.wheres];
+    const mandatoryWhereClause = Object.assign(
+      {
+        type: 'and' as const,
+        condition: renderedCondition.sql,
+      },
+      { inconnectRecordAccessMarker: renderedCondition.marker },
+    );
+
+    this.expressionMap.wheres = [mandatoryWhereClause];
+
+    if (existingWhereClauses.length > 0) {
+      this.andWhere(
+        new Brackets((queryBuilder) => {
+          (queryBuilder as SelectQueryBuilder<T>).expressionMap.wheres =
+            existingWhereClauses;
+        }),
+      );
+    }
+
+    this.setParameters(renderedCondition.parameters);
+  }
+
+  private applyInconnectRecordAccessToJoinedRelations(): void {
+    for (const joinAttribute of this.expressionMap.joinAttributes) {
+      if (hasInconnectRecordAccessApplied(joinAttribute)) {
+        continue;
+      }
+
+      const joinedObjectMetadata =
+        this.getJoinedObjectMetadataOrUndefined(joinAttribute);
+
+      if (!isDefined(joinedObjectMetadata)) {
+        continue;
+      }
+
+      const decision = resolveInconnectRecordAccessDecision({
+        policy: this.internalContext.inconnectRecordAccessPolicy,
+        authContext: this.authContext,
+        objectMetadataId: joinedObjectMetadata.id,
+        userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
+        apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+      });
+
+      if (decision.kind === 'unrestricted') {
+        markInconnectRecordAccessApplied(joinAttribute);
+        continue;
+      }
+
+      const renderedCondition = renderInconnectRecordAccessCondition({
+        decision,
+        tableAlias: joinAttribute.alias.name,
+      });
+
+      joinAttribute.condition = andWithExistingJoinCondition(
+        joinAttribute.condition,
+        renderedCondition.sql,
+      );
+      this.setParameters(renderedCondition.parameters);
+      markInconnectRecordAccessApplied(joinAttribute);
+    }
   }
 
   private getMainAliasTarget(): EntityTarget<T> {
