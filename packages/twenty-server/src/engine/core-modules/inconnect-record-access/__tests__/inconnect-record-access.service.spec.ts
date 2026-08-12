@@ -119,6 +119,7 @@ describe('InconnectRecordAccessService', () => {
           roleId: ROLE_ID,
           objectMetadataId: LEAD_OBJECT_ID,
           ownerFieldMetadataId: OWNER_FIELD_ID,
+          ownerFieldName: 'propietarioDeLead',
           ownerJoinColumnName: 'propietarioDeLeadId',
         },
       ],
@@ -187,6 +188,7 @@ describe('InconnectRecordAccessService', () => {
     expect(decision).toEqual({
       kind: 'scoped',
       ownerFieldMetadataId: OWNER_FIELD_ID,
+      ownerFieldName: 'propietarioDeLead',
       ownerJoinColumnName: 'propietarioDeLeadId',
       workspaceMemberId: 'scott-workspace-member-id',
     });

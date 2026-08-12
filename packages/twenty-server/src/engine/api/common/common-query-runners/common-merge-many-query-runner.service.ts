@@ -34,6 +34,8 @@ import { buildColumnsToSelect } from 'src/engine/api/graphql/graphql-query-runne
 import { hasRecordFieldValue } from 'src/engine/api/graphql/graphql-query-runner/utils/has-record-field-value.util';
 import { mergeFieldValues } from 'src/engine/api/graphql/graphql-query-runner/utils/merge-field-values.util';
 import { WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { assertInconnectRecordAccessOperationSupported } from 'src/engine/core-modules/inconnect-record-access/utils/assert-inconnect-record-access-operation-supported.util';
+import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { computeMorphOrRelationFieldJoinColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-morph-or-relation-field-join-column-name.util';
 import { FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps.util';
@@ -57,6 +59,20 @@ export class CommonMergeManyQueryRunnerService extends CommonBaseQueryRunnerServ
     queryRunnerContext: CommonExtendedQueryRunnerContext,
   ): Promise<ObjectRecord> {
     const { flatFieldMetadataMaps, flatObjectMetadata } = queryRunnerContext;
+
+    const internalContext = queryRunnerContext.repository.internalContext;
+    const inconnectDecision = resolveInconnectRecordAccessDecision({
+      policy: internalContext.inconnectRecordAccessPolicy,
+      authContext: queryRunnerContext.authContext,
+      objectMetadataId: flatObjectMetadata.id,
+      userWorkspaceRoleMap: internalContext.userWorkspaceRoleMap,
+      apiKeyRoleMap: internalContext.apiKeyRoleMap,
+    });
+
+    assertInconnectRecordAccessOperationSupported({
+      decision: inconnectDecision,
+      operation: 'merge',
+    });
 
     const recordsToMerge = await this.fetchRecordsToMerge(
       queryRunnerContext,

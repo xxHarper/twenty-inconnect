@@ -67,6 +67,7 @@ export class CommonUpdateManyQueryRunnerService extends CommonBaseQueryRunnerSer
 
     const updatedObjectRecords = await queryBuilder
       .update()
+      .setInternallyInjectedFieldNames(args.internallyInjectedFieldNames)
       .set(args.data)
       .returning(columnsToReturn)
       .execute();

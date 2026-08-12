@@ -62,6 +62,7 @@ export const resolveInconnectRecordAccessDecision = ({
   return {
     kind: 'scoped',
     ownerFieldMetadataId: applicableRules[0].ownerFieldMetadataId,
+    ownerFieldName: applicableRules[0].ownerFieldName,
     ownerJoinColumnName: applicableRules[0].ownerJoinColumnName,
     workspaceMemberId: authContext.workspaceMemberId,
   };

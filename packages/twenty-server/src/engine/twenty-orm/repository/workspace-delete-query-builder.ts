@@ -24,6 +24,7 @@ import { validateQueryIsPermittedOrThrow } from 'src/engine/twenty-orm/repositor
 import { type WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-select-query-builder';
 import { type WorkspaceSoftDeleteQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-soft-delete-query-builder';
 import { type WorkspaceUpdateQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-update-query-builder';
+import { applyInconnectRecordAccessToMutationQueryBuilder } from 'src/engine/twenty-orm/utils/apply-inconnect-record-access-to-mutation-query-builder.util';
 import { applyRowLevelPermissionPredicates } from 'src/engine/twenty-orm/utils/apply-row-level-permission-predicates.util';
 import { applyTableAliasOnWhereCondition } from 'src/engine/twenty-orm/utils/apply-table-alias-on-where-condition';
 import { computeEventSelectQueryBuilder } from 'src/engine/twenty-orm/utils/compute-event-select-query-builder.util';
@@ -110,6 +111,14 @@ export class WorkspaceDeleteQueryBuilder<
         tableName,
         aliasName: objectMetadata.nameSingular,
       }) as WhereClause[];
+
+      applyInconnectRecordAccessToMutationQueryBuilder({
+        queryBuilder: this,
+        objectMetadata,
+        internalContext: this.internalContext,
+        authContext: this.authContext,
+        tableAlias: tableName,
+      });
 
       const result = await super.execute();
 

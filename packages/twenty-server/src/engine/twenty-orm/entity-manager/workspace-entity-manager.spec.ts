@@ -77,9 +77,12 @@ jest.mock('../repository/workspace-select-query-builder', () => ({
       .fn()
       .mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] }),
     setFindOptions: jest.fn().mockReturnThis(),
-    returning: jest.fn().mockReturnThis(),
     update: jest.fn().mockReturnValue(mockedWorkspaceUpdateQueryBuilder),
     insert: jest.fn().mockReturnThis(),
+    setWorkspaceAuthContext: jest.fn().mockReturnThis(),
+    setInternallyInjectedFieldNames: jest.fn().mockReturnThis(),
+    values: jest.fn().mockReturnThis(),
+    returning: jest.fn().mockReturnThis(),
   })),
 }));
 
@@ -566,6 +569,33 @@ describe('WorkspaceEntityManager', () => {
         undefined,
         undefined,
         mockPermissionOptions,
+      );
+    });
+  });
+
+  describe('Insert Methods', () => {
+    it('passes explicit internal write provenance to the insert query builder', async () => {
+      await withWorkspaceContext(mockWorkspaceContext, () =>
+        entityManager.insert(
+          'test-entity',
+          { fieldName: 'New record' },
+          ['fieldName'],
+          {
+            ...mockPermissionOptions,
+            internallyInjectedFieldNames: ['createdBy', 'updatedBy'],
+          },
+          mockWorkspaceContext.authContext,
+        ),
+      );
+
+      const queryBuilderResults = (
+        entityManager.createQueryBuilder as jest.Mock
+      ).mock.results;
+      const queryBuilder =
+        queryBuilderResults[queryBuilderResults.length - 1]?.value;
+
+      expect(queryBuilder.setInternallyInjectedFieldNames).toHaveBeenCalledWith(
+        ['createdBy', 'updatedBy'],
       );
     });
   });

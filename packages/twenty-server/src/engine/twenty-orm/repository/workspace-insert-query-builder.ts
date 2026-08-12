@@ -12,6 +12,11 @@ import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/
 
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { assertInconnectRecordAccessOperationSupported } from 'src/engine/core-modules/inconnect-record-access/utils/assert-inconnect-record-access-operation-supported.util';
+import { applyInconnectRecordAccessToCreateValues } from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
+import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
+import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { type QueryDeepPartialEntityWithNestedRelationFields } from 'src/engine/twenty-orm/entity-manager/types/query-deep-partial-entity-with-nested-relation-fields.type';
 import { type RelationConnectQueryConfig } from 'src/engine/twenty-orm/entity-manager/types/relation-connect-query-config.type';
 import { type RelationDisconnectQueryFieldsByEntityIndex } from 'src/engine/twenty-orm/entity-manager/types/relation-nested-query-fields-by-entity-index.type';
@@ -45,6 +50,7 @@ export class WorkspaceInsertQueryBuilder<
   private relationNestedConfig:
     | [RelationConnectQueryConfig[], RelationDisconnectQueryFieldsByEntityIndex]
     | null;
+  private internallyInjectedFieldNames: string[] = [];
 
   private _relationNestedQueries?: RelationNestedQueries;
   private _filesFieldSync?: FilesFieldSync;
@@ -78,7 +84,7 @@ export class WorkspaceInsertQueryBuilder<
   override clone(): this {
     const clonedQueryBuilder = super.clone();
 
-    return new WorkspaceInsertQueryBuilder(
+    const workspaceInsertQueryBuilder = new WorkspaceInsertQueryBuilder(
       clonedQueryBuilder,
       this.objectRecordsPermissions,
       this.internalContext,
@@ -86,6 +92,12 @@ export class WorkspaceInsertQueryBuilder<
       this.authContext,
       this.featureFlagMap,
     ) as this;
+
+    workspaceInsertQueryBuilder.internallyInjectedFieldNames = [
+      ...this.internallyInjectedFieldNames,
+    ];
+
+    return workspaceInsertQueryBuilder;
   }
 
   override values(
@@ -124,6 +136,7 @@ export class WorkspaceInsertQueryBuilder<
         flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
         objectIdByNameSingular: this.internalContext.objectIdByNameSingular,
         shouldBypassPermissionChecks: this.shouldBypassPermissionChecks,
+        internallyInjectedFieldNames: this.internallyInjectedFieldNames,
       });
 
       // Fix overwrites for composite fields - valuesSet contains formatted/flattened column names
@@ -166,6 +179,16 @@ export class WorkspaceInsertQueryBuilder<
         mainAliasTarget,
         this.internalContext,
       );
+
+      const inconnectDecision =
+        this.resolveInconnectRecordAccessDecision(objectMetadata);
+
+      if (isDefined(this.expressionMap.onUpdate)) {
+        assertInconnectRecordAccessOperationSupported({
+          decision: inconnectDecision,
+          operation: 'upsert',
+        });
+      }
 
       let filesFieldFileIds = null;
 
@@ -218,6 +241,11 @@ export class WorkspaceInsertQueryBuilder<
 
         this.expressionMap.valuesSet = updatedValues;
       }
+
+      this.expressionMap.valuesSet = applyInconnectRecordAccessToCreateValues({
+        decision: inconnectDecision,
+        valuesSet: this.expressionMap.valuesSet,
+      });
 
       this.validateRLSPredicatesForInsert();
 
@@ -318,6 +346,18 @@ export class WorkspaceInsertQueryBuilder<
     }
   }
 
+  private resolveInconnectRecordAccessDecision(
+    objectMetadata: FlatObjectMetadata,
+  ): InconnectRecordAccessDecision {
+    return resolveInconnectRecordAccessDecision({
+      policy: this.internalContext.inconnectRecordAccessPolicy,
+      authContext: this.authContext,
+      objectMetadataId: objectMetadata.id,
+      userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
+      apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+    });
+  }
+
   private validateRLSPredicatesForInsert(): void {
     const mainAliasTarget = this.getMainAliasTarget();
     const objectMetadata = getObjectMetadataFromEntityTarget(
@@ -397,6 +437,12 @@ export class WorkspaceInsertQueryBuilder<
     authContext: WorkspaceAuthContext,
   ): WorkspaceInsertQueryBuilder<T> {
     this.authContext = authContext;
+
+    return this;
+  }
+
+  setInternallyInjectedFieldNames(fieldNames: string[]): this {
+    this.internallyInjectedFieldNames = [...fieldNames];
 
     return this;
   }

@@ -368,6 +368,35 @@ describe('WorkspaceRepository', () => {
       );
     });
 
+    it('forwards explicitly trusted internally injected field names', async () => {
+      const entity: DeepPartial<ObjectLiteral> = { id: 'test-id' };
+
+      mockEntityManager.insert.mockResolvedValue({
+        identifiers: [{ id: 'test-id' }],
+        generatedMaps: [{ id: 'test-id' }],
+        raw: [],
+      });
+
+      await repository.insert(
+        entity,
+        undefined,
+        ['id'],
+        ['createdBy', 'updatedBy'],
+      );
+
+      expect(mockEntityManager.insert).toHaveBeenCalledWith(
+        'test-entity',
+        { id: 'test-id' },
+        ['id'],
+        {
+          shouldBypassPermissionChecks: false,
+          objectRecordsPermissions: mockObjectRecordsPermissions,
+          internallyInjectedFieldNames: ['createdBy', 'updatedBy'],
+        },
+        undefined,
+      );
+    });
+
     it('should delegate to workspaceEntityManager upsert', async () => {
       const entity: DeepPartial<ObjectLiteral> = { id: 'test-id' };
 

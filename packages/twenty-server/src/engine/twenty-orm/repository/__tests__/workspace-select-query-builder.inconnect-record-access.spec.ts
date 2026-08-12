@@ -29,6 +29,7 @@ const internalContext = {
         roleId: ROLE_ID,
         objectMetadataId: LEAD_OBJECT_ID,
         ownerFieldMetadataId: 'owner-field-id',
+        ownerFieldName: 'propietarioDeLead',
         ownerJoinColumnName: 'propietarioDeLeadId',
       },
     ],

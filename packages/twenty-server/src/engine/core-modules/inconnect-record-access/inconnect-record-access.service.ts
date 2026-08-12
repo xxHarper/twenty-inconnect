@@ -200,6 +200,7 @@ export class InconnectRecordAccessService {
       roleId: role.id,
       objectMetadataId: objectMetadata.id,
       ownerFieldMetadataId: ownerField.id,
+      ownerFieldName: ownerField.name,
       ownerJoinColumnName: computeMorphOrRelationFieldJoinColumnName({
         name: ownerField.name,
       }),

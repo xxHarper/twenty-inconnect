@@ -2,6 +2,7 @@ export type ResolvedInconnectRecordAccessRule = {
   roleId: string;
   objectMetadataId: string;
   ownerFieldMetadataId: string;
+  ownerFieldName: string;
   ownerJoinColumnName: string;
 };
 
@@ -19,6 +20,7 @@ export type InconnectRecordAccessDecision =
   | {
       kind: 'scoped';
       ownerFieldMetadataId: string;
+      ownerFieldName: string;
       ownerJoinColumnName: string;
       workspaceMemberId: string;
     };

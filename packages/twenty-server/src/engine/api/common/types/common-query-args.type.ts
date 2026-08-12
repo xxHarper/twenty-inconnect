@@ -38,6 +38,7 @@ interface BaseQueryArgs {
 
 interface ExtendedBaseQueryArgs {
   selectedFieldsResult: CommonSelectedFieldsResult;
+  internallyInjectedFieldNames: string[];
 }
 export interface FindOneQueryArgs extends BaseQueryArgs {
   filter?: ObjectRecordFilter;

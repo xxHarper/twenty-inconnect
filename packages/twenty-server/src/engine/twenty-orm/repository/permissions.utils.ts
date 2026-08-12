@@ -79,6 +79,7 @@ type ValidateOperationIsPermittedOrThrowArgs = {
   selectedColumns: string[] | '*';
   allFieldsSelected: boolean;
   updatedColumns: string[];
+  internallyInjectedFieldNames?: string[];
 };
 
 export const validateOperationIsPermittedOrThrow = ({
@@ -91,6 +92,7 @@ export const validateOperationIsPermittedOrThrow = ({
   selectedColumns,
   allFieldsSelected,
   updatedColumns,
+  internallyInjectedFieldNames = [],
 }: ValidateOperationIsPermittedOrThrowArgs) => {
   const objectMetadataIdForEntity = objectIdByNameSingular[entityName];
 
@@ -129,6 +131,23 @@ export const validateOperationIsPermittedOrThrow = ({
   );
 
   const permissionsForEntity = objectsPermissions[objectMetadataIdForEntity];
+  const columnsRequiringUpdatePermission = updatedColumns.filter((column) => {
+    const fieldMetadataId = columnNameToFieldMetadataIdMap[column];
+
+    if (!fieldMetadataId) {
+      return true;
+    }
+
+    const fieldMetadata = findFlatEntityByIdInFlatEntityMaps({
+      flatEntityId: fieldMetadataId,
+      flatEntityMaps: flatFieldMetadataMaps,
+    });
+
+    return !(
+      fieldMetadata?.isSystemSideEffect === true &&
+      internallyInjectedFieldNames.includes(fieldMetadata.name)
+    );
+  });
 
   switch (operationType) {
     case 'select':
@@ -164,17 +183,18 @@ export const validateOperationIsPermittedOrThrow = ({
         flatFieldMetadataMaps,
       });
 
-      if (updatedColumns.length > 0) {
+      if (columnsRequiringUpdatePermission.length > 0) {
         const rlsFieldMetadataIds = new Set(
           permissionsForEntity.rowLevelPermissionPredicates.map(
             (predicate) => predicate.fieldMetadataId,
           ),
         );
 
-        const updatedColumnsWithoutRlsFields = updatedColumns.filter(
-          (column) =>
-            !rlsFieldMetadataIds.has(columnNameToFieldMetadataIdMap[column]),
-        );
+        const updatedColumnsWithoutRlsFields =
+          columnsRequiringUpdatePermission.filter(
+            (column) =>
+              !rlsFieldMetadataIds.has(columnNameToFieldMetadataIdMap[column]),
+          );
 
         if (updatedColumnsWithoutRlsFields.length > 0) {
           validateUpdateFieldPermissionOrThrow({
@@ -203,10 +223,10 @@ export const validateOperationIsPermittedOrThrow = ({
         flatFieldMetadataMaps,
       });
 
-      if (updatedColumns.length > 0) {
+      if (columnsRequiringUpdatePermission.length > 0) {
         validateUpdateFieldPermissionOrThrow({
           restrictedFields: permissionsForEntity.restrictedFields,
-          updatedColumns,
+          updatedColumns: columnsRequiringUpdatePermission,
           columnNameToFieldMetadataIdMap,
           entityName,
           flatFieldMetadataMaps,
@@ -265,6 +285,7 @@ type ValidateQueryIsPermittedOrThrowArgs = {
   flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
   objectIdByNameSingular: Record<string, string>;
   shouldBypassPermissionChecks: boolean;
+  internallyInjectedFieldNames?: string[];
 };
 
 export const validateQueryIsPermittedOrThrow = ({
@@ -274,6 +295,7 @@ export const validateQueryIsPermittedOrThrow = ({
   flatFieldMetadataMaps,
   objectIdByNameSingular,
   shouldBypassPermissionChecks,
+  internallyInjectedFieldNames = [],
 }: ValidateQueryIsPermittedOrThrowArgs) => {
   if (shouldBypassPermissionChecks) {
     return;
@@ -353,6 +375,7 @@ export const validateQueryIsPermittedOrThrow = ({
     selectedColumns,
     allFieldsSelected,
     updatedColumns,
+    internallyInjectedFieldNames,
   });
 };
 

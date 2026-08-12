@@ -227,7 +227,12 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
         flatFieldMetadataMaps,
       });
 
-      return await repository.insert(args.data, undefined, selectedColumns);
+      return await repository.insert(
+        args.data,
+        undefined,
+        selectedColumns,
+        args.internallyInjectedFieldNames,
+      );
     }
 
     return this.performUpsertOperation({

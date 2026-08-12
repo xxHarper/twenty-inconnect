@@ -16,6 +16,10 @@ import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/
 
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { validateInconnectRecordAccessUpdateValues } from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
+import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
+import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { type QueryDeepPartialEntityWithNestedRelationFields } from 'src/engine/twenty-orm/entity-manager/types/query-deep-partial-entity-with-nested-relation-fields.type';
 import { type RelationConnectQueryConfig } from 'src/engine/twenty-orm/entity-manager/types/relation-connect-query-config.type';
 import { type RelationDisconnectQueryFieldsByEntityIndex } from 'src/engine/twenty-orm/entity-manager/types/relation-nested-query-fields-by-entity-index.type';
@@ -31,6 +35,7 @@ import { validateQueryIsPermittedOrThrow } from 'src/engine/twenty-orm/repositor
 import { type WorkspaceDeleteQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-delete-query-builder';
 import { WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-select-query-builder';
 import { type WorkspaceSoftDeleteQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-soft-delete-query-builder';
+import { applyInconnectRecordAccessToMutationQueryBuilder } from 'src/engine/twenty-orm/utils/apply-inconnect-record-access-to-mutation-query-builder.util';
 import { applyRowLevelPermissionPredicates } from 'src/engine/twenty-orm/utils/apply-row-level-permission-predicates.util';
 import { applyTableAliasOnWhereCondition } from 'src/engine/twenty-orm/utils/apply-table-alias-on-where-condition';
 import { computeEventSelectQueryBuilder } from 'src/engine/twenty-orm/utils/compute-event-select-query-builder.util';
@@ -56,6 +61,7 @@ export class WorkspaceUpdateQueryBuilder<
     criteria: string;
     partialEntity: QueryDeepPartialEntity<T>;
   }[];
+  private internallyInjectedFieldNames: string[] = [];
 
   private _relationNestedQueries?: RelationNestedQueries;
   private _filesFieldSync?: FilesFieldSync;
@@ -98,6 +104,10 @@ export class WorkspaceUpdateQueryBuilder<
       this.featureFlagMap,
     ) as this;
 
+    workspaceUpdateQueryBuilder.internallyInjectedFieldNames = [
+      ...this.internallyInjectedFieldNames,
+    ];
+
     return workspaceUpdateQueryBuilder;
   }
 
@@ -113,6 +123,7 @@ export class WorkspaceUpdateQueryBuilder<
         flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
         objectIdByNameSingular: this.internalContext.objectIdByNameSingular,
         shouldBypassPermissionChecks: this.shouldBypassPermissionChecks,
+        internallyInjectedFieldNames: this.internallyInjectedFieldNames,
       });
 
       const mainAliasTarget = this.getMainAliasTarget();
@@ -121,6 +132,8 @@ export class WorkspaceUpdateQueryBuilder<
         mainAliasTarget,
         this.internalContext,
       );
+
+      this.validateInconnectRecordAccessUpdateValues(objectMetadata);
 
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
@@ -152,6 +165,8 @@ export class WorkspaceUpdateQueryBuilder<
         tableName,
         aliasName: objectMetadata.nameSingular,
       }) as WhereClause[];
+
+      this.applyInconnectRecordAccess(objectMetadata, tableName);
 
       const nestedRelationQueryBuilder = new WorkspaceSelectQueryBuilder(
         this as unknown as WorkspaceSelectQueryBuilder<T>,
@@ -212,6 +227,7 @@ export class WorkspaceUpdateQueryBuilder<
           updatedValues.length === 1 ? updatedValues[0] : updatedValues;
       }
 
+      this.validateInconnectRecordAccessUpdateValues(objectMetadata);
       this.applyRowLevelPermissionPredicates();
 
       const valuesSet = this.expressionMap.valuesSet ?? {};
@@ -316,6 +332,7 @@ export class WorkspaceUpdateQueryBuilder<
           flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
           objectIdByNameSingular: this.internalContext.objectIdByNameSingular,
           shouldBypassPermissionChecks: this.shouldBypassPermissionChecks,
+          internallyInjectedFieldNames: this.internallyInjectedFieldNames,
         });
       }
 
@@ -325,6 +342,13 @@ export class WorkspaceUpdateQueryBuilder<
         mainAliasTarget,
         this.internalContext,
       );
+
+      for (const input of this.manyInputs) {
+        validateInconnectRecordAccessUpdateValues({
+          decision: this.resolveInconnectRecordAccessDecision(objectMetadata),
+          valuesSet: input.partialEntity,
+        });
+      }
 
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
@@ -413,6 +437,13 @@ export class WorkspaceUpdateQueryBuilder<
         }));
       }
 
+      for (const input of this.manyInputs) {
+        validateInconnectRecordAccessUpdateValues({
+          decision: this.resolveInconnectRecordAccessDecision(objectMetadata),
+          valuesSet: input.partialEntity,
+        });
+      }
+
       const beforeRecordById = new Map<string, T>();
 
       for (const beforeRecord of formattedBefore) {
@@ -425,6 +456,10 @@ export class WorkspaceUpdateQueryBuilder<
         this.expressionMap.valuesSet = input.partialEntity;
         this.where({ id: input.criteria });
 
+        this.applyInconnectRecordAccess(
+          objectMetadata,
+          computeObjectTargetTable(objectMetadata),
+        );
         this.applyRowLevelPermissionPredicates();
 
         const beforeRecord = beforeRecordById.get(input.criteria);
@@ -495,7 +530,10 @@ export class WorkspaceUpdateQueryBuilder<
       return {
         raw: results.flatMap((result) => result.raw),
         generatedMaps: formattedResults,
-        affected: results.length,
+        affected: results.reduce(
+          (affected, result) => affected + (result.affected ?? 0),
+          0,
+        ),
       };
     } catch (error) {
       const objectMetadata = getObjectMetadataFromEntityTarget(
@@ -619,6 +657,12 @@ export class WorkspaceUpdateQueryBuilder<
     return this;
   }
 
+  public setInternallyInjectedFieldNames(fieldNames: string[]): this {
+    this.internallyInjectedFieldNames = [...fieldNames];
+
+    return this;
+  }
+
   private applyRowLevelPermissionPredicates(): void {
     if (this.shouldBypassPermissionChecks) {
       return;
@@ -637,6 +681,40 @@ export class WorkspaceUpdateQueryBuilder<
       internalContext: this.internalContext,
       authContext: this.authContext,
       featureFlagMap: this.featureFlagMap,
+    });
+  }
+
+  private resolveInconnectRecordAccessDecision(
+    objectMetadata: FlatObjectMetadata,
+  ): InconnectRecordAccessDecision {
+    return resolveInconnectRecordAccessDecision({
+      policy: this.internalContext.inconnectRecordAccessPolicy,
+      authContext: this.authContext,
+      objectMetadataId: objectMetadata.id,
+      userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
+      apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+    });
+  }
+
+  private applyInconnectRecordAccess(
+    objectMetadata: FlatObjectMetadata,
+    tableAlias?: string,
+  ): void {
+    applyInconnectRecordAccessToMutationQueryBuilder({
+      queryBuilder: this,
+      objectMetadata,
+      internalContext: this.internalContext,
+      authContext: this.authContext,
+      tableAlias,
+    });
+  }
+
+  private validateInconnectRecordAccessUpdateValues(
+    objectMetadata: FlatObjectMetadata,
+  ): void {
+    validateInconnectRecordAccessUpdateValues({
+      decision: this.resolveInconnectRecordAccessDecision(objectMetadata),
+      valuesSet: this.expressionMap.valuesSet,
     });
   }
 

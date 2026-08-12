@@ -40,6 +40,11 @@ import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { InternalServerError } from 'src/engine/core-modules/graphql/utils/graphql-errors.util';
+import {
+  assertInconnectRecordAccessOperationSupported,
+  type InconnectUnsupportedWriteOperation,
+} from 'src/engine/core-modules/inconnect-record-access/utils/assert-inconnect-record-access-operation-supported.util';
+import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps.util';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import {
@@ -72,6 +77,7 @@ import { type WorkspaceEventEmitter } from 'src/engine/workspace-event-emitter/w
 type PermissionOptions = {
   shouldBypassPermissionChecks?: boolean;
   objectRecordsPermissions?: ObjectsPermissions;
+  internallyInjectedFieldNames?: string[];
 };
 
 export class WorkspaceEntityManager extends EntityManager {
@@ -255,7 +261,10 @@ export class WorkspaceEntityManager extends EntityManager {
       permissionOptions,
     )
       .insert()
-      .setWorkspaceAuthContext(authContext ?? ({} as WorkspaceAuthContext))
+      .setWorkspaceAuthContext(authContext ?? this.authContext)
+      .setInternallyInjectedFieldNames(
+        permissionOptions?.internallyInjectedFieldNames ?? [],
+      )
       .values(entity)
       .returning(selectedColumns)
       .execute();
@@ -1175,12 +1184,30 @@ export class WorkspaceEntityManager extends EntityManager {
       if (Array.isArray(entity) && entity.length === 0)
         return Promise.resolve(entity as Entity[]);
 
-      const queryRunnerForEntityPersistExecutor =
-        this.connection.createQueryRunnerForEntityPersistExecutor();
-
       const isEntityArray = Array.isArray(entity);
       const entityTarget =
         target ?? (isEntityArray ? entity[0]?.constructor : entity.constructor);
+
+      this.validatePermissions({
+        target: targetOrEntity,
+        operationType: 'update',
+        permissionOptions: permissionOptionsFromArgs,
+        selectedColumns: [],
+        updatedColumns: [],
+      });
+
+      const objectMetadataItem = getObjectMetadataFromEntityTarget(
+        entityTarget,
+        this.internalContext,
+      );
+
+      this.assertInconnectEntityPersistenceOperationSupported({
+        objectMetadata: objectMetadataItem,
+        operation: 'save',
+      });
+
+      const queryRunnerForEntityPersistExecutor =
+        this.connection.createQueryRunnerForEntityPersistExecutor();
 
       const entityArray = isEntityArray ? entity : [entity];
 
@@ -1256,11 +1283,6 @@ export class WorkspaceEntityManager extends EntityManager {
           ...result.entities,
         );
       }
-
-      const objectMetadataItem = getObjectMetadataFromEntityTarget(
-        entityTarget,
-        this.internalContext,
-      );
 
       const formattedEntityOrEntities = formatData(
         entityWithConnectedRelations,
@@ -1494,9 +1516,6 @@ export class WorkspaceEntityManager extends EntityManager {
 
     if (isEntityArray && entity.length === 0) return Promise.resolve(entity);
 
-    const queryRunnerForEntityPersistExecutor =
-      this.connection.createQueryRunnerForEntityPersistExecutor();
-
     const entityTarget =
       target ?? (isEntityArray ? entity[0]?.constructor : entity.constructor);
 
@@ -1504,6 +1523,14 @@ export class WorkspaceEntityManager extends EntityManager {
       entityTarget,
       this.internalContext,
     );
+
+    this.assertInconnectEntityPersistenceOperationSupported({
+      objectMetadata: objectMetadataItem,
+      operation: 'remove',
+    });
+
+    const queryRunnerForEntityPersistExecutor =
+      this.connection.createQueryRunnerForEntityPersistExecutor();
 
     const formattedEntity = formatData(
       entity,
@@ -1619,12 +1646,22 @@ export class WorkspaceEntityManager extends EntityManager {
     if (Array.isArray(entity) && entity.length === 0)
       return Promise.resolve(entity);
 
-    const queryRunnerForEntityPersistExecutor =
-      this.connection.createQueryRunnerForEntityPersistExecutor();
-
     const isEntityArray = Array.isArray(entity);
     const entityTarget =
       target ?? (isEntityArray ? entity[0]?.constructor : entity.constructor);
+
+    const objectMetadataItem = getObjectMetadataFromEntityTarget(
+      entityTarget,
+      this.internalContext,
+    );
+
+    this.assertInconnectEntityPersistenceOperationSupported({
+      objectMetadata: objectMetadataItem,
+      operation: 'softRemove',
+    });
+
+    const queryRunnerForEntityPersistExecutor =
+      this.connection.createQueryRunnerForEntityPersistExecutor();
 
     const entityArray = isEntityArray ? entity : [entity];
 
@@ -1647,11 +1684,6 @@ export class WorkspaceEntityManager extends EntityManager {
         return acc;
       },
       {} as Record<string, BaseWorkspaceEntity>,
-    );
-
-    const objectMetadataItem = getObjectMetadataFromEntityTarget(
-      entityTarget,
-      this.internalContext,
     );
 
     const formattedEntity = formatData(
@@ -1770,11 +1802,21 @@ export class WorkspaceEntityManager extends EntityManager {
 
     if (isEntityArray && entity.length === 0) return Promise.resolve(entity);
 
-    const queryRunnerForEntityPersistExecutor =
-      this.connection.createQueryRunnerForEntityPersistExecutor();
-
     const entityTarget =
       target ?? (isEntityArray ? entity[0]?.constructor : entity.constructor);
+
+    const objectMetadataItem = getObjectMetadataFromEntityTarget(
+      entityTarget,
+      this.internalContext,
+    );
+
+    this.assertInconnectEntityPersistenceOperationSupported({
+      objectMetadata: objectMetadataItem,
+      operation: 'recover',
+    });
+
+    const queryRunnerForEntityPersistExecutor =
+      this.connection.createQueryRunnerForEntityPersistExecutor();
 
     const entityArray = isEntityArray ? entity : [entity];
 
@@ -1797,11 +1839,6 @@ export class WorkspaceEntityManager extends EntityManager {
         return acc;
       },
       {} as Record<string, BaseWorkspaceEntity>,
-    );
-
-    const objectMetadataItem = getObjectMetadataFromEntityTarget(
-      entityTarget,
-      this.internalContext,
     );
 
     const formattedEntity = formatData(
@@ -1850,6 +1887,28 @@ export class WorkspaceEntityManager extends EntityManager {
     );
 
     return isEntityArray ? formattedResult : formattedResult[0];
+  }
+
+  private assertInconnectEntityPersistenceOperationSupported({
+    objectMetadata,
+    operation,
+  }: {
+    objectMetadata: FlatObjectMetadata;
+    operation: InconnectUnsupportedWriteOperation;
+  }): void {
+    const internalContext = this.internalContext;
+    const decision = resolveInconnectRecordAccessDecision({
+      policy: internalContext.inconnectRecordAccessPolicy,
+      authContext: this.authContext,
+      objectMetadataId: objectMetadata.id,
+      userWorkspaceRoleMap: internalContext.userWorkspaceRoleMap,
+      apiKeyRoleMap: internalContext.apiKeyRoleMap,
+    });
+
+    assertInconnectRecordAccessOperationSupported({
+      decision,
+      operation,
+    });
   }
 
   // Forbidden methods

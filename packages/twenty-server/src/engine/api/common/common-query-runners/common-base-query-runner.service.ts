@@ -36,6 +36,7 @@ import { OBJECTS_WITH_SETTINGS_PERMISSIONS_REQUIREMENTS } from 'src/engine/api/g
 import { GraphqlQueryParser } from 'src/engine/api/graphql/graphql-query-runner/graphql-query-parsers/graphql-query.parser';
 import { WorkspacePreQueryHookPayload } from 'src/engine/api/graphql/workspace-query-runner/workspace-query-hook/types/workspace-query-hook.type';
 import { WorkspaceQueryHookService } from 'src/engine/api/graphql/workspace-query-runner/workspace-query-hook/workspace-query-hook.service';
+import { computeInternallyInjectedFieldNames } from 'src/engine/api/graphql/workspace-query-runner/workspace-query-hook/utils/compute-internally-injected-field-names.util';
 import { isApiKeyAuthContext } from 'src/engine/core-modules/auth/guards/is-api-key-auth-context.guard';
 import { isApplicationAuthContext } from 'src/engine/core-modules/auth/guards/is-application-auth-context.guard';
 import { isUserAuthContext } from 'src/engine/core-modules/auth/guards/is-user-auth-context.guard';
@@ -139,9 +140,13 @@ export abstract class CommonBaseQueryRunnerService<
       args.selectedFields,
     );
 
+    const { args: processedQueryArgs, internallyInjectedFieldNames } =
+      await this.processArgs(args, queryRunnerContext, this.operationName);
+
     const processedArgs = {
-      ...(await this.processArgs(args, queryRunnerContext, this.operationName)),
+      ...processedQueryArgs,
       selectedFieldsResult,
+      internallyInjectedFieldNames,
     } as CommonExtendedInput<Args>;
 
     this.validateQueryComplexity(
@@ -206,10 +211,17 @@ export abstract class CommonBaseQueryRunnerService<
     args: CommonInput<Args>,
     queryRunnerContext: CommonBaseQueryRunnerContext,
     operationName: CommonQueryNames,
-  ): Promise<CommonInput<Args>> {
+  ): Promise<{
+    args: CommonInput<Args>;
+    internallyInjectedFieldNames: string[];
+  }> {
     const { authContext, flatObjectMetadata } = queryRunnerContext;
 
     const computedArgs = await this.computeArgs(args, queryRunnerContext);
+    const computedArgsWithData = computedArgs as CommonInput<Args> & {
+      data?: Record<string, unknown> | Record<string, unknown>[];
+    };
+    const dataBeforeHooks = structuredClone(computedArgsWithData.data);
 
     const hookedArgs =
       (await this.workspaceQueryHookService.executePreQueryHooks(
@@ -219,7 +231,17 @@ export abstract class CommonBaseQueryRunnerService<
         computedArgs as WorkspacePreQueryHookPayload<CommonQueryNames>,
       )) as CommonInput<Args>;
 
-    return hookedArgs;
+    const hookedArgsWithData = hookedArgs as CommonInput<Args> & {
+      data?: Record<string, unknown> | Record<string, unknown>[];
+    };
+
+    return {
+      args: hookedArgs,
+      internallyInjectedFieldNames: computeInternallyInjectedFieldNames({
+        dataBeforeHooks,
+        dataAfterHooks: hookedArgsWithData.data,
+      }),
+    };
   }
 
   private async executeQueryAndEnrichResults(
