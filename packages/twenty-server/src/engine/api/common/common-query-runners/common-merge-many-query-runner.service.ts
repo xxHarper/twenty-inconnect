@@ -67,6 +67,7 @@ export class CommonMergeManyQueryRunnerService extends CommonBaseQueryRunnerServ
       objectMetadataId: flatObjectMetadata.id,
       userWorkspaceRoleMap: internalContext.userWorkspaceRoleMap,
       apiKeyRoleMap: internalContext.apiKeyRoleMap,
+      inconnectTeamAccessMaps: internalContext.inconnectTeamAccessMaps,
     });
 
     assertInconnectRecordAccessOperationSupported({

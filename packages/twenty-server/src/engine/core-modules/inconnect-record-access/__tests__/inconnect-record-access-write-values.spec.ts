@@ -13,11 +13,26 @@ const SCOTT_WORKSPACE_MEMBER_ID = 'scott-workspace-member-id';
 const TIM_WORKSPACE_MEMBER_ID = 'tim-workspace-member-id';
 
 const scopedDecision: InconnectRecordAccessDecision = {
-  kind: 'own-records',
+  kind: 'owner-workspace-member-ids',
   ownerFieldMetadataId: 'owner-field-id',
   ownerFieldName: 'propietarioDeLead',
   ownerJoinColumnName: 'propietarioDeLeadId',
-  workspaceMemberId: SCOTT_WORKSPACE_MEMBER_ID,
+  authenticatedWorkspaceMemberId: SCOTT_WORKSPACE_MEMBER_ID,
+  allowedOwnerWorkspaceMemberIds: [SCOTT_WORKSPACE_MEMBER_ID],
+  sourceEffect: 'ownRecords',
+};
+
+const teamScopedDecision: InconnectRecordAccessDecision = {
+  kind: 'owner-workspace-member-ids',
+  ownerFieldMetadataId: 'owner-field-id',
+  ownerFieldName: 'propietarioDeLead',
+  ownerJoinColumnName: 'propietarioDeLeadId',
+  authenticatedWorkspaceMemberId: SCOTT_WORKSPACE_MEMBER_ID,
+  allowedOwnerWorkspaceMemberIds: [
+    SCOTT_WORKSPACE_MEMBER_ID,
+    TIM_WORKSPACE_MEMBER_ID,
+  ],
+  sourceEffect: 'ownAndTeamRecords',
 };
 
 describe('INCONNECT record access write values', () => {
@@ -131,6 +146,29 @@ describe('INCONNECT record access write values', () => {
         },
       }),
     ).not.toThrow();
+  });
+
+  it('keeps coordinator create and update fail-closed until Phase 3D', () => {
+    expect(() =>
+      applyInconnectRecordAccessToCreateValues({
+        decision: teamScopedDecision,
+        valuesSet: { name: 'Team Lead' },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+      }),
+    );
+    expect(() =>
+      validateInconnectRecordAccessUpdateValues({
+        decision: teamScopedDecision,
+        valuesSet: { etapa: 'Contactado' },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+      }),
+    );
   });
 
   it.each([

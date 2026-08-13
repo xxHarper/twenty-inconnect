@@ -1,9 +1,11 @@
 import { isUserAuthContext } from 'src/engine/core-modules/auth/guards/is-user-auth-context.guard';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { InconnectCommercialTeamMembershipType } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-commercial-team-membership-type.type';
 import {
   type InconnectRecordAccessDecision,
   type InconnectRecordAccessWorkspacePolicy,
 } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { resolveInconnectTeamAccessMapsForAuthorization } from 'src/engine/core-modules/inconnect-record-access/utils/parse-inconnect-team-access-maps.util';
 import { type UserWorkspaceRoleMap } from 'src/engine/metadata-modules/role-target/types/user-workspace-role-map';
 import { resolveRoleIdsFromAuthContext } from 'src/engine/twenty-orm/utils/resolve-role-ids-from-auth-context.util';
 
@@ -13,12 +15,14 @@ export const resolveInconnectRecordAccessDecision = ({
   objectMetadataId,
   userWorkspaceRoleMap,
   apiKeyRoleMap,
+  inconnectTeamAccessMaps,
 }: {
   policy: InconnectRecordAccessWorkspacePolicy;
   authContext: WorkspaceAuthContext;
   objectMetadataId: string;
   userWorkspaceRoleMap: UserWorkspaceRoleMap;
   apiKeyRoleMap: Record<string, string>;
+  inconnectTeamAccessMaps?: unknown;
 }): InconnectRecordAccessDecision => {
   if (authContext.type === 'system') {
     return { kind: 'system-bypass' };
@@ -73,14 +77,58 @@ export const resolveInconnectRecordAccessDecision = ({
     return { kind: 'all-records' };
   }
 
-  return {
-    kind:
-      applicableRule.effect === 'ownRecords'
-        ? 'own-records'
-        : 'own-and-team-records',
+  const authenticatedWorkspaceMemberId = authContext.workspaceMemberId;
+
+  if (applicableRule.effect === 'ownRecords') {
+    return Object.freeze({
+      kind: 'owner-workspace-member-ids',
+      ownerFieldMetadataId: applicableRule.ownerFieldMetadataId,
+      ownerFieldName: applicableRule.ownerFieldName,
+      ownerJoinColumnName: applicableRule.ownerJoinColumnName,
+      authenticatedWorkspaceMemberId,
+      allowedOwnerWorkspaceMemberIds: Object.freeze([
+        authenticatedWorkspaceMemberId,
+      ]),
+      sourceEffect: 'ownRecords',
+    });
+  }
+
+  const teamAccessMapsDecision = resolveInconnectTeamAccessMapsForAuthorization(
+    inconnectTeamAccessMaps,
+  );
+
+  if (teamAccessMapsDecision.kind === 'denied') {
+    return {
+      kind: 'denied',
+      reason: `INCONNECT team authority is ${teamAccessMapsDecision.reason}`,
+    };
+  }
+
+  const membership =
+    teamAccessMapsDecision.maps.membershipByWorkspaceMemberId[
+      authenticatedWorkspaceMemberId
+    ];
+  const teamWorkspaceMemberIds =
+    membership?.membershipType ===
+    InconnectCommercialTeamMembershipType.COORDINATOR
+      ? teamAccessMapsDecision.maps.memberWorkspaceMemberIdsByTeamId[
+          membership.teamId
+        ]
+      : undefined;
+  const allowedOwnerWorkspaceMemberIds = Object.freeze([
+    ...new Set([
+      authenticatedWorkspaceMemberId,
+      ...(teamWorkspaceMemberIds ?? []),
+    ]),
+  ]);
+
+  return Object.freeze({
+    kind: 'owner-workspace-member-ids',
     ownerFieldMetadataId: applicableRule.ownerFieldMetadataId,
     ownerFieldName: applicableRule.ownerFieldName,
     ownerJoinColumnName: applicableRule.ownerJoinColumnName,
-    workspaceMemberId: authContext.workspaceMemberId,
-  };
+    authenticatedWorkspaceMemberId,
+    allowedOwnerWorkspaceMemberIds,
+    sourceEffect: 'ownAndTeamRecords',
+  });
 };

@@ -21,18 +21,13 @@ export type InconnectRecordAccessDecision =
   | { kind: 'all-records' }
   | { kind: 'denied'; reason?: string }
   | {
-      kind: 'own-records';
+      kind: 'owner-workspace-member-ids';
       ownerFieldMetadataId: string;
       ownerFieldName: string;
       ownerJoinColumnName: string;
-      workspaceMemberId: string;
-    }
-  | {
-      kind: 'own-and-team-records';
-      ownerFieldMetadataId: string;
-      ownerFieldName: string;
-      ownerJoinColumnName: string;
-      workspaceMemberId: string;
+      authenticatedWorkspaceMemberId: string;
+      allowedOwnerWorkspaceMemberIds: readonly string[];
+      sourceEffect: 'ownRecords' | 'ownAndTeamRecords';
     };
 
 export const hasNoInconnectRecordAccessScope = (

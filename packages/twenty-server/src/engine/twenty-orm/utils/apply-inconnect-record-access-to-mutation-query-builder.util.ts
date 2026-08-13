@@ -35,14 +35,21 @@ export const applyInconnectRecordAccessToMutationQueryBuilder = ({
     objectMetadataId: objectMetadata.id,
     userWorkspaceRoleMap: internalContext.userWorkspaceRoleMap,
     apiKeyRoleMap: internalContext.apiKeyRoleMap,
+    inconnectTeamAccessMaps: internalContext.inconnectTeamAccessMaps,
   });
 
   if (hasNoInconnectRecordAccessScope(decision)) {
     return;
   }
 
+  const mutationDecision =
+    decision.kind === 'owner-workspace-member-ids' &&
+    decision.sourceEffect === 'ownAndTeamRecords'
+      ? ({ kind: 'denied' } as const)
+      : decision;
+
   const renderedCondition = renderInconnectRecordAccessCondition({
-    decision,
+    decision: mutationDecision,
     tableAlias: tableAlias ?? objectMetadata.nameSingular,
   });
   const isAlreadyApplied = queryBuilder.expressionMap.wheres.some(

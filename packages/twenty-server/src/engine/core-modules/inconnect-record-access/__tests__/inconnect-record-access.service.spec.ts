@@ -2,7 +2,9 @@ import { FieldMetadataType } from 'twenty-shared/types';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
+import { InconnectCommercialTeamMembershipType } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-commercial-team-membership-type.type';
 import { type InconnectRecordAccessConfig } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-config.type';
+import { type InconnectTeamAccessMaps } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-team-access-maps.type';
 import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
 import { type TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
@@ -22,6 +24,11 @@ const OWNER_FIELD_UNIVERSAL_IDENTIFIER = 'owner-field-universal-id';
 const WORKSPACE_MEMBER_OBJECT_ID = 'workspace-member-object-id';
 const WORKSPACE_MEMBER_OBJECT_UNIVERSAL_IDENTIFIER =
   'workspace-member-object-universal-id';
+
+const COORDINATOR_WORKSPACE_MEMBER_ID = '11111111-1111-4111-8111-111111111111';
+const EXECUTIVE_A_WORKSPACE_MEMBER_ID = '22222222-2222-4222-8222-222222222222';
+const EXECUTIVE_B_WORKSPACE_MEMBER_ID = '33333333-3333-4333-8333-333333333333';
+const TEAM_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 const buildFlatEntityMaps = <
   TEntity extends FlatRole | FlatObjectMetadata | FlatFieldMetadata,
@@ -119,8 +126,69 @@ const userAuthContext = {
   type: 'user',
   workspace: { id: WORKSPACE_ID },
   userWorkspaceId: 'user-workspace-id',
-  workspaceMemberId: 'scott-workspace-member-id',
+  workspaceMemberId: COORDINATOR_WORKSPACE_MEMBER_ID,
 } as WorkspaceAuthContext;
+
+const coordinatorTeamAccessMaps: InconnectTeamAccessMaps = {
+  version: 1,
+  status: 'valid',
+  membershipByWorkspaceMemberId: {
+    [COORDINATOR_WORKSPACE_MEMBER_ID]: {
+      teamId: TEAM_ID,
+      membershipType: InconnectCommercialTeamMembershipType.COORDINATOR,
+      isWorkspaceMemberAssignable: true,
+    },
+    [EXECUTIVE_A_WORKSPACE_MEMBER_ID]: {
+      teamId: TEAM_ID,
+      membershipType: InconnectCommercialTeamMembershipType.EXECUTIVE,
+      isWorkspaceMemberAssignable: true,
+    },
+    [EXECUTIVE_B_WORKSPACE_MEMBER_ID]: {
+      teamId: TEAM_ID,
+      membershipType: InconnectCommercialTeamMembershipType.EXECUTIVE,
+      isWorkspaceMemberAssignable: false,
+    },
+  },
+  memberWorkspaceMemberIdsByTeamId: {
+    [TEAM_ID]: [
+      COORDINATOR_WORKSPACE_MEMBER_ID,
+      EXECUTIVE_A_WORKSPACE_MEMBER_ID,
+      EXECUTIVE_B_WORKSPACE_MEMBER_ID,
+    ],
+  },
+  assignableMemberWorkspaceMemberIdsByTeamId: {
+    [TEAM_ID]: [
+      COORDINATOR_WORKSPACE_MEMBER_ID,
+      EXECUTIVE_A_WORKSPACE_MEMBER_ID,
+    ],
+  },
+};
+
+const noMembershipTeamAccessMaps: InconnectTeamAccessMaps = {
+  version: 1,
+  status: 'valid',
+  membershipByWorkspaceMemberId: {},
+  memberWorkspaceMemberIdsByTeamId: {},
+  assignableMemberWorkspaceMemberIdsByTeamId: {},
+};
+
+const executiveTeamAccessMaps: InconnectTeamAccessMaps = {
+  version: 1,
+  status: 'valid',
+  membershipByWorkspaceMemberId: {
+    [COORDINATOR_WORKSPACE_MEMBER_ID]: {
+      teamId: TEAM_ID,
+      membershipType: InconnectCommercialTeamMembershipType.EXECUTIVE,
+      isWorkspaceMemberAssignable: true,
+    },
+  },
+  memberWorkspaceMemberIdsByTeamId: {
+    [TEAM_ID]: [COORDINATOR_WORKSPACE_MEMBER_ID],
+  },
+  assignableMemberWorkspaceMemberIdsByTeamId: {
+    [TEAM_ID]: [COORDINATOR_WORKSPACE_MEMBER_ID],
+  },
+};
 
 describe('InconnectRecordAccessService', () => {
   it('resolves Role, Lead and owner field by universal identifier', () => {
@@ -199,11 +267,13 @@ describe('InconnectRecordAccessService', () => {
     });
 
     expect(decision).toEqual({
-      kind: 'own-records',
+      kind: 'owner-workspace-member-ids',
       ownerFieldMetadataId: OWNER_FIELD_ID,
       ownerFieldName: 'propietarioDeLead',
       ownerJoinColumnName: 'propietarioDeLeadId',
-      workspaceMemberId: 'scott-workspace-member-id',
+      authenticatedWorkspaceMemberId: COORDINATOR_WORKSPACE_MEMBER_ID,
+      allowedOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
+      sourceEffect: 'ownRecords',
     });
   });
 
@@ -240,7 +310,7 @@ describe('InconnectRecordAccessService', () => {
     ).toEqual({ kind: 'all-records' });
   });
 
-  it('recognizes ownAndTeamRecords but renders it fail-closed until Phase 3C', () => {
+  it('expands ownAndTeamRecords for a coordinator using record-scope members', () => {
     const decision = resolveInconnectRecordAccessDecision({
       policy: resolvePolicy({
         configuredValue: configWithEffect('ownAndTeamRecords'),
@@ -249,16 +319,95 @@ describe('InconnectRecordAccessService', () => {
       objectMetadataId: LEAD_OBJECT_ID,
       userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
       apiKeyRoleMap: {},
+      inconnectTeamAccessMaps: coordinatorTeamAccessMaps,
     });
 
-    expect(decision).toMatchObject({ kind: 'own-and-team-records' });
+    expect(decision).toMatchObject({
+      kind: 'owner-workspace-member-ids',
+      sourceEffect: 'ownAndTeamRecords',
+      allowedOwnerWorkspaceMemberIds: [
+        COORDINATOR_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_A_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_B_WORKSPACE_MEMBER_ID,
+      ],
+    });
     expect(
       renderInconnectRecordAccessCondition({
         decision,
         tableAlias: 'lead',
       }),
-    ).toMatchObject({ sql: '1 = 0' });
+    ).toMatchObject({
+      sql: '"lead"."propietarioDeLeadId" IN (:...inconnectRecordAccessOwnerIds_owner_field_id)',
+      parameters: {
+        inconnectRecordAccessOwnerIds_owner_field_id: [
+          COORDINATOR_WORKSPACE_MEMBER_ID,
+          EXECUTIVE_A_WORKSPACE_MEMBER_ID,
+          EXECUTIVE_B_WORKSPACE_MEMBER_ID,
+        ],
+      },
+    });
   });
+
+  it.each([
+    ['without a membership', noMembershipTeamAccessMaps],
+    ['with an EXECUTIVE membership', executiveTeamAccessMaps],
+  ])('keeps ownAndTeamRecords scoped to self %s', (_name, teamAccessMaps) => {
+    expect(
+      resolveInconnectRecordAccessDecision({
+        policy: resolvePolicy({
+          configuredValue: configWithEffect('ownAndTeamRecords'),
+        }),
+        authContext: userAuthContext,
+        objectMetadataId: LEAD_OBJECT_ID,
+        userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
+        apiKeyRoleMap: {},
+        inconnectTeamAccessMaps: teamAccessMaps,
+      }),
+    ).toMatchObject({
+      kind: 'owner-workspace-member-ids',
+      sourceEffect: 'ownAndTeamRecords',
+      allowedOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
+    });
+  });
+
+  it.each([
+    ['absent', undefined],
+    [
+      'invalid',
+      {
+        version: 1,
+        status: 'invalid',
+        reason: 'invalid memberships',
+        failureKind: 'invalid',
+      },
+    ],
+    ['corrupt', { version: 2, status: 'valid' }],
+    [
+      'recomputation-failed',
+      {
+        version: 1,
+        status: 'invalid',
+        reason: 'cache unavailable',
+        failureKind: 'recomputation-failed',
+      },
+    ],
+  ])(
+    'denies ownAndTeamRecords when Team cache is %s',
+    (_name, teamAccessMaps) => {
+      expect(
+        resolveInconnectRecordAccessDecision({
+          policy: resolvePolicy({
+            configuredValue: configWithEffect('ownAndTeamRecords'),
+          }),
+          authContext: userAuthContext,
+          objectMetadataId: LEAD_OBJECT_ID,
+          userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
+          apiKeyRoleMap: {},
+          inconnectTeamAccessMaps: teamAccessMaps,
+        }),
+      ).toMatchObject({ kind: 'denied' });
+    },
+  );
 
   it('fails closed when the same Role and object are configured twice', () => {
     const duplicateRule = config.workspaces[0].rules[0];

@@ -17,12 +17,9 @@ export const renderInconnectRecordAccessCondition = ({
   decision: InconnectRecordAccessDecision;
   tableAlias: string;
 }): RenderedInconnectRecordAccessCondition => {
-  if (decision.kind === 'denied' || decision.kind === 'own-and-team-records') {
+  if (decision.kind === 'denied') {
     return {
-      marker:
-        decision.kind === 'denied'
-          ? 'inconnect_record_access_denied'
-          : 'inconnect_record_access_team_scope_not_enabled',
+      marker: 'inconnect_record_access_denied',
       sql: '1 = 0',
       parameters: {},
     };
@@ -32,11 +29,13 @@ export const renderInconnectRecordAccessCondition = ({
     throw new Error('Cannot render an unrestricted INCONNECT decision');
   }
 
-  const parameterName = `inconnectRecordAccess_${decision.ownerFieldMetadataId.replace(/-/g, '_')}`;
+  const parameterName = `inconnectRecordAccessOwnerIds_${decision.ownerFieldMetadataId.replace(/-/g, '_')}`;
 
   return {
     marker: parameterName,
-    sql: `${escapeIdentifier(tableAlias)}.${escapeIdentifier(decision.ownerJoinColumnName)} = :${parameterName}`,
-    parameters: { [parameterName]: decision.workspaceMemberId },
+    sql: `${escapeIdentifier(tableAlias)}.${escapeIdentifier(decision.ownerJoinColumnName)} IN (:...${parameterName})`,
+    parameters: {
+      [parameterName]: decision.allowedOwnerWorkspaceMemberIds,
+    },
   };
 };

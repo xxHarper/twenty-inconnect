@@ -1909,6 +1909,7 @@ export class WorkspaceEntityManager extends EntityManager {
       objectMetadataId: objectMetadata.id,
       userWorkspaceRoleMap: internalContext.userWorkspaceRoleMap,
       apiKeyRoleMap: internalContext.apiKeyRoleMap,
+      inconnectTeamAccessMaps: internalContext.inconnectTeamAccessMaps,
     });
 
     assertInconnectRecordAccessOperationSupported({

@@ -357,6 +357,7 @@ export class WorkspaceInsertQueryBuilder<
       objectMetadataId: objectMetadata.id,
       userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
       apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+      inconnectTeamAccessMaps: this.internalContext.inconnectTeamAccessMaps,
     });
   }
 

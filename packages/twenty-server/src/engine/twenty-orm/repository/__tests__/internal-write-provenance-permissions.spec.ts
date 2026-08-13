@@ -169,11 +169,13 @@ describe('internal write provenance permissions', () => {
     expect(
       applyInconnectRecordAccessToCreateValues({
         decision: {
-          kind: 'own-records',
+          kind: 'owner-workspace-member-ids',
           ownerFieldMetadataId: 'owner-field-id',
           ownerFieldName: 'propietarioDeLead',
           ownerJoinColumnName: 'propietarioDeLeadId',
-          workspaceMemberId: 'scott-workspace-member-id',
+          authenticatedWorkspaceMemberId: 'scott-workspace-member-id',
+          allowedOwnerWorkspaceMemberIds: ['scott-workspace-member-id'],
+          sourceEffect: 'ownRecords',
         },
         valuesSet: values,
       }),

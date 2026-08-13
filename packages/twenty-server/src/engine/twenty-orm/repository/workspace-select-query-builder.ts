@@ -432,6 +432,7 @@ export class WorkspaceSelectQueryBuilder<
       objectMetadataId: objectMetadata.id,
       userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
       apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+      inconnectTeamAccessMaps: this.internalContext.inconnectTeamAccessMaps,
     });
 
     if (hasNoInconnectRecordAccessScope(decision)) {
@@ -508,6 +509,7 @@ export class WorkspaceSelectQueryBuilder<
         objectMetadataId: joinedObjectMetadata.id,
         userWorkspaceRoleMap: this.internalContext.userWorkspaceRoleMap,
         apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
+        inconnectTeamAccessMaps: this.internalContext.inconnectTeamAccessMaps,
       });
 
       if (hasNoInconnectRecordAccessScope(decision)) {

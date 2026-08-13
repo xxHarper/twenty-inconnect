@@ -95,7 +95,10 @@ export const applyInconnectRecordAccessToCreateValues = ({
     return valuesSet;
   }
 
-  if (decision.kind === 'denied' || decision.kind === 'own-and-team-records') {
+  if (
+    decision.kind === 'denied' ||
+    decision.sourceEffect === 'ownAndTeamRecords'
+  ) {
     throw new InconnectRecordAccessException(
       'Create denied by INCONNECT Record Access',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,
@@ -113,13 +116,13 @@ export const applyInconnectRecordAccessToCreateValues = ({
     if (ownerWorkspaceMemberId === undefined) {
       return {
         ...values,
-        [decision.ownerJoinColumnName]: decision.workspaceMemberId,
+        [decision.ownerJoinColumnName]: decision.authenticatedWorkspaceMemberId,
       };
     }
 
     assertOwnerEqualsAuthenticatedWorkspaceMember({
       ownerWorkspaceMemberId,
-      workspaceMemberId: decision.workspaceMemberId,
+      workspaceMemberId: decision.authenticatedWorkspaceMemberId,
     });
 
     return values;
@@ -139,7 +142,10 @@ export const validateInconnectRecordAccessUpdateValues = ({
     return;
   }
 
-  if (decision.kind === 'denied' || decision.kind === 'own-and-team-records') {
+  if (
+    decision.kind === 'denied' ||
+    decision.sourceEffect === 'ownAndTeamRecords'
+  ) {
     throw new InconnectRecordAccessException(
       'Update denied by INCONNECT Record Access',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,
@@ -161,7 +167,7 @@ export const validateInconnectRecordAccessUpdateValues = ({
 
     assertOwnerEqualsAuthenticatedWorkspaceMember({
       ownerWorkspaceMemberId,
-      workspaceMemberId: decision.workspaceMemberId,
+      workspaceMemberId: decision.authenticatedWorkspaceMemberId,
     });
   }
 };

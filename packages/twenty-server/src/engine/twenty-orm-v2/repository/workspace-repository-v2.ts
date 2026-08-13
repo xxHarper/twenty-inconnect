@@ -232,6 +232,8 @@ export class WorkspaceRepositoryV2 {
       objectMetadataId: flatObjectMetadata.id,
       userWorkspaceRoleMap: this.options.internalContext.userWorkspaceRoleMap,
       apiKeyRoleMap: this.options.internalContext.apiKeyRoleMap,
+      inconnectTeamAccessMaps:
+        this.options.internalContext.inconnectTeamAccessMaps,
     });
 
     if (hasNoInconnectRecordAccessScope(decision)) {
