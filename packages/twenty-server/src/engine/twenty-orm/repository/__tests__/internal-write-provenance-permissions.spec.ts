@@ -7,6 +7,7 @@ import { type QueryExpressionMap } from 'typeorm/query-builder/QueryExpressionMa
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
+import { RelationType } from 'src/engine/metadata-modules/field-metadata/interfaces/relation-type.interface';
 import {
   PermissionsException,
   PermissionsExceptionCode,
@@ -53,6 +54,14 @@ const fields = [
   }),
   buildField({ name: 'internalNote', type: FieldMetadataType.TEXT }),
   buildField({ name: 'restrictedClientField', type: FieldMetadataType.TEXT }),
+  {
+    ...buildField({
+      name: 'propietarioDeLead',
+      type: FieldMetadataType.RELATION,
+    }),
+    settings: { relationType: RelationType.MANY_TO_ONE },
+    relationTargetObjectMetadataId: 'workspace-member-object-id',
+  } as FlatFieldMetadata<FieldMetadataType.RELATION>,
 ];
 
 const leadObjectMetadata = {
@@ -89,8 +98,10 @@ const fieldByName = Object.fromEntries(
 
 const buildPermissions = ({
   canUpdateObjectRecords = true,
+  canUpdateOwnerFieldValue = false,
 }: {
   canUpdateObjectRecords?: boolean;
+  canUpdateOwnerFieldValue?: boolean;
 } = {}): ObjectsPermissions => ({
   [LEAD_OBJECT_ID]: {
     canReadObjectRecords: true,
@@ -105,6 +116,14 @@ const buildPermissions = ({
         canRead: true,
         canUpdate: false,
       },
+      ...(canUpdateOwnerFieldValue
+        ? {}
+        : {
+            [fieldByName.propietarioDeLead.id]: {
+              canRead: true,
+              canUpdate: false,
+            },
+          }),
     },
     rowLevelPermissionPredicates: [],
     rowLevelPermissionPredicateGroups: [],
@@ -159,13 +178,20 @@ describe('internal write provenance permissions', () => {
     ).not.toThrow();
   });
 
-  it('preserves trusted actor fields when INCONNECT injects the missing owner', () => {
+  it('preserves trusted actor fields when coordinator create injects the missing owner', () => {
     const values = {
       name: 'Nuevo Lead',
       createdBySource: 'MANUAL',
       updatedBySource: 'MANUAL',
     };
 
+    expect(() =>
+      validateWrite({
+        operationType: 'insert',
+        updatedColumns: ['name', 'createdBySource', 'updatedBySource'],
+        internallyInjectedFieldNames: ['createdBy', 'updatedBy'],
+      }),
+    ).not.toThrow();
     expect(
       applyInconnectRecordAccessToCreateValues({
         decision: {
@@ -174,8 +200,15 @@ describe('internal write provenance permissions', () => {
           ownerFieldName: 'propietarioDeLead',
           ownerJoinColumnName: 'propietarioDeLeadId',
           authenticatedWorkspaceMemberId: 'scott-workspace-member-id',
-          allowedOwnerWorkspaceMemberIds: ['scott-workspace-member-id'],
-          sourceEffect: 'ownRecords',
+          recordScopeOwnerWorkspaceMemberIds: [
+            'scott-workspace-member-id',
+            'executive-workspace-member-id',
+          ],
+          assignableOwnerWorkspaceMemberIds: [
+            'scott-workspace-member-id',
+            'executive-workspace-member-id',
+          ],
+          sourceEffect: 'ownAndTeamRecords',
         },
         valuesSet: values,
       }),
@@ -201,6 +234,30 @@ describe('internal write provenance permissions', () => {
           code: PermissionsExceptionCode.PERMISSION_DENIED,
         }) as PermissionsException,
       );
+    },
+  );
+
+  it('allows a client-provided owner to continue when its field permission allows it', () => {
+    expect(() =>
+      validateWrite({
+        operationType: 'insert',
+        updatedColumns: ['propietarioDeLeadId'],
+        objectsPermissions: buildPermissions({
+          canUpdateOwnerFieldValue: true,
+        }),
+      }),
+    ).not.toThrow();
+  });
+
+  it.each(['insert', 'update'] as const)(
+    'rejects a client-provided owner on %s when its field permission is restricted',
+    (operationType) => {
+      expect(() =>
+        validateWrite({
+          operationType,
+          updatedColumns: ['propietarioDeLeadId'],
+        }),
+      ).toThrow(PermissionsException);
     },
   );
 

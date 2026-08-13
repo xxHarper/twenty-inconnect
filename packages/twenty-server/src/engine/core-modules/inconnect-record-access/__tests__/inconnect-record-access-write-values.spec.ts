@@ -11,6 +11,8 @@ import {
 
 const SCOTT_WORKSPACE_MEMBER_ID = 'scott-workspace-member-id';
 const TIM_WORKSPACE_MEMBER_ID = 'tim-workspace-member-id';
+const HISTORICAL_WORKSPACE_MEMBER_ID = 'historical-workspace-member-id';
+const OUTSIDE_TEAM_WORKSPACE_MEMBER_ID = 'outside-team-workspace-member-id';
 
 const scopedDecision: InconnectRecordAccessDecision = {
   kind: 'owner-workspace-member-ids',
@@ -18,7 +20,8 @@ const scopedDecision: InconnectRecordAccessDecision = {
   ownerFieldName: 'propietarioDeLead',
   ownerJoinColumnName: 'propietarioDeLeadId',
   authenticatedWorkspaceMemberId: SCOTT_WORKSPACE_MEMBER_ID,
-  allowedOwnerWorkspaceMemberIds: [SCOTT_WORKSPACE_MEMBER_ID],
+  recordScopeOwnerWorkspaceMemberIds: [SCOTT_WORKSPACE_MEMBER_ID],
+  assignableOwnerWorkspaceMemberIds: [SCOTT_WORKSPACE_MEMBER_ID],
   sourceEffect: 'ownRecords',
 };
 
@@ -28,7 +31,12 @@ const teamScopedDecision: InconnectRecordAccessDecision = {
   ownerFieldName: 'propietarioDeLead',
   ownerJoinColumnName: 'propietarioDeLeadId',
   authenticatedWorkspaceMemberId: SCOTT_WORKSPACE_MEMBER_ID,
-  allowedOwnerWorkspaceMemberIds: [
+  recordScopeOwnerWorkspaceMemberIds: [
+    SCOTT_WORKSPACE_MEMBER_ID,
+    TIM_WORKSPACE_MEMBER_ID,
+    HISTORICAL_WORKSPACE_MEMBER_ID,
+  ],
+  assignableOwnerWorkspaceMemberIds: [
     SCOTT_WORKSPACE_MEMBER_ID,
     TIM_WORKSPACE_MEMBER_ID,
   ],
@@ -148,27 +156,92 @@ describe('INCONNECT record access write values', () => {
     ).not.toThrow();
   });
 
-  it('keeps coordinator create and update fail-closed until Phase 3D', () => {
-    expect(() =>
+  it('assigns the coordinator as owner when create omits owner', () => {
+    expect(
       applyInconnectRecordAccessToCreateValues({
         decision: teamScopedDecision,
         valuesSet: { name: 'Team Lead' },
       }),
-    ).toThrow(
-      expect.objectContaining({
-        code: InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+    ).toEqual({
+      name: 'Team Lead',
+      propietarioDeLeadId: SCOTT_WORKSPACE_MEMBER_ID,
+    });
+  });
+
+  it('allows coordinator create for an assignable Team member', () => {
+    const valuesSet = {
+      name: 'Executive Lead',
+      propietarioDeLead: { id: TIM_WORKSPACE_MEMBER_ID },
+    };
+
+    expect(
+      applyInconnectRecordAccessToCreateValues({
+        decision: teamScopedDecision,
+        valuesSet,
       }),
-    );
+    ).toEqual(valuesSet);
+  });
+
+  it.each([
+    ['historical Team member', HISTORICAL_WORKSPACE_MEMBER_ID],
+    ['Workspace Member outside the Team', OUTSIDE_TEAM_WORKSPACE_MEMBER_ID],
+    ['null owner', null],
+  ])('rejects coordinator create for %s', (_case, ownerWorkspaceMemberId) => {
+    expect(() =>
+      applyInconnectRecordAccessToCreateValues({
+        decision: teamScopedDecision,
+        valuesSet: { propietarioDeLeadId: ownerWorkspaceMemberId },
+      }),
+    ).toThrow(InconnectRecordAccessException);
+  });
+
+  it('allows coordinator normal updates and transfers to an assignable Team member', () => {
     expect(() =>
       validateInconnectRecordAccessUpdateValues({
         decision: teamScopedDecision,
-        valuesSet: { etapa: 'Contactado' },
+        valuesSet: {
+          fase: 'Seguimiento',
+          propietarioDeLeadId: TIM_WORKSPACE_MEMBER_ID,
+        },
       }),
-    ).toThrow(
-      expect.objectContaining({
-        code: InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+    ).not.toThrow();
+  });
+
+  it('allows transfer after nested connect resolves to an assignable owner ID', () => {
+    expect(() =>
+      validateInconnectRecordAccessUpdateValues({
+        decision: teamScopedDecision,
+        valuesSet: {
+          propietarioDeLead: null,
+          propietarioDeLeadId: TIM_WORKSPACE_MEMBER_ID,
+        },
       }),
-    );
+    ).not.toThrow();
+  });
+
+  it.each([
+    ['historical Team member', HISTORICAL_WORKSPACE_MEMBER_ID],
+    ['Workspace Member outside the Team', OUTSIDE_TEAM_WORKSPACE_MEMBER_ID],
+    ['null owner', null],
+  ])('rejects coordinator transfer to %s', (_case, ownerWorkspaceMemberId) => {
+    expect(() =>
+      validateInconnectRecordAccessUpdateValues({
+        decision: teamScopedDecision,
+        valuesSet: { propietarioDeLeadId: ownerWorkspaceMemberId },
+      }),
+    ).toThrow(InconnectRecordAccessException);
+  });
+
+  it('rejects contradictory relation and join-column owner destinations', () => {
+    expect(() =>
+      validateInconnectRecordAccessUpdateValues({
+        decision: teamScopedDecision,
+        valuesSet: {
+          propietarioDeLead: { id: TIM_WORKSPACE_MEMBER_ID },
+          propietarioDeLeadId: OUTSIDE_TEAM_WORKSPACE_MEMBER_ID,
+        },
+      }),
+    ).toThrow(InconnectRecordAccessException);
   });
 
   it.each([
@@ -193,6 +266,22 @@ describe('INCONNECT record access write values', () => {
       );
     },
   );
+
+  it.each([
+    'upsert',
+    'merge',
+    'save',
+    'remove',
+    'softRemove',
+    'recover',
+  ] as const)('keeps coordinator %s fail-closed', (operation) => {
+    expect(() =>
+      assertInconnectRecordAccessOperationSupported({
+        decision: teamScopedDecision,
+        operation,
+      }),
+    ).toThrow(InconnectRecordAccessException);
+  });
 
   it('does not restrict unsupported operations for a Role without a policy', () => {
     expect(() =>

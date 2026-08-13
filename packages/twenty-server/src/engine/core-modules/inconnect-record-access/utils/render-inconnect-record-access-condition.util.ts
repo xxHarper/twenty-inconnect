@@ -35,7 +35,7 @@ export const renderInconnectRecordAccessCondition = ({
     marker: parameterName,
     sql: `${escapeIdentifier(tableAlias)}.${escapeIdentifier(decision.ownerJoinColumnName)} IN (:...${parameterName})`,
     parameters: {
-      [parameterName]: decision.allowedOwnerWorkspaceMemberIds,
+      [parameterName]: decision.recordScopeOwnerWorkspaceMemberIds,
     },
   };
 };

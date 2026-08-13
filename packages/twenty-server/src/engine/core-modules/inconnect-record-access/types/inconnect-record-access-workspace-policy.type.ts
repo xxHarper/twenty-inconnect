@@ -26,7 +26,8 @@ export type InconnectRecordAccessDecision =
       ownerFieldName: string;
       ownerJoinColumnName: string;
       authenticatedWorkspaceMemberId: string;
-      allowedOwnerWorkspaceMemberIds: readonly string[];
+      recordScopeOwnerWorkspaceMemberIds: readonly string[];
+      assignableOwnerWorkspaceMemberIds: readonly string[];
       sourceEffect: 'ownRecords' | 'ownAndTeamRecords';
     };
 

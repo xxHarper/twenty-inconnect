@@ -69,16 +69,19 @@ const getOwnerWorkspaceMemberId = ({
   return getWorkspaceMemberIdFromRelationValue(relationValue);
 };
 
-const assertOwnerEqualsAuthenticatedWorkspaceMember = ({
+const assertOwnerIsAssignable = ({
   ownerWorkspaceMemberId,
-  workspaceMemberId,
+  assignableOwnerWorkspaceMemberIds,
 }: {
   ownerWorkspaceMemberId: unknown;
-  workspaceMemberId: string;
+  assignableOwnerWorkspaceMemberIds: readonly string[];
 }): void => {
-  if (ownerWorkspaceMemberId !== workspaceMemberId) {
+  if (
+    typeof ownerWorkspaceMemberId !== 'string' ||
+    !assignableOwnerWorkspaceMemberIds.includes(ownerWorkspaceMemberId)
+  ) {
     throw new InconnectRecordAccessException(
-      'Owner must equal the authenticated Workspace Member',
+      'Owner is outside the INCONNECT assignable-owner scope',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,
     );
   }
@@ -95,10 +98,7 @@ export const applyInconnectRecordAccessToCreateValues = ({
     return valuesSet;
   }
 
-  if (
-    decision.kind === 'denied' ||
-    decision.sourceEffect === 'ownAndTeamRecords'
-  ) {
+  if (decision.kind === 'denied') {
     throw new InconnectRecordAccessException(
       'Create denied by INCONNECT Record Access',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,
@@ -120,9 +120,10 @@ export const applyInconnectRecordAccessToCreateValues = ({
       };
     }
 
-    assertOwnerEqualsAuthenticatedWorkspaceMember({
+    assertOwnerIsAssignable({
       ownerWorkspaceMemberId,
-      workspaceMemberId: decision.authenticatedWorkspaceMemberId,
+      assignableOwnerWorkspaceMemberIds:
+        decision.assignableOwnerWorkspaceMemberIds,
     });
 
     return values;
@@ -142,10 +143,7 @@ export const validateInconnectRecordAccessUpdateValues = ({
     return;
   }
 
-  if (
-    decision.kind === 'denied' ||
-    decision.sourceEffect === 'ownAndTeamRecords'
-  ) {
+  if (decision.kind === 'denied') {
     throw new InconnectRecordAccessException(
       'Update denied by INCONNECT Record Access',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,
@@ -165,9 +163,10 @@ export const validateInconnectRecordAccessUpdateValues = ({
       continue;
     }
 
-    assertOwnerEqualsAuthenticatedWorkspaceMember({
+    assertOwnerIsAssignable({
       ownerWorkspaceMemberId,
-      workspaceMemberId: decision.authenticatedWorkspaceMemberId,
+      assignableOwnerWorkspaceMemberIds:
+        decision.assignableOwnerWorkspaceMemberIds,
     });
   }
 };

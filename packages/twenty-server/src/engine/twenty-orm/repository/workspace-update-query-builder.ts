@@ -133,8 +133,6 @@ export class WorkspaceUpdateQueryBuilder<
         this.internalContext,
       );
 
-      this.validateInconnectRecordAccessUpdateValues(objectMetadata);
-
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
         authContext: this.authContext,
@@ -344,13 +342,6 @@ export class WorkspaceUpdateQueryBuilder<
         mainAliasTarget,
         this.internalContext,
       );
-
-      for (const input of this.manyInputs) {
-        validateInconnectRecordAccessUpdateValues({
-          decision: this.resolveInconnectRecordAccessDecision(objectMetadata),
-          valuesSet: input.partialEntity,
-        });
-      }
 
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,

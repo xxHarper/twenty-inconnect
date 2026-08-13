@@ -12,6 +12,7 @@ const LEAD_OBJECT_ID = 'lead-object-id';
 const ROLE_ID = 'role-id';
 const SCOTT_WORKSPACE_MEMBER_ID = '11111111-1111-4111-8111-111111111111';
 const EXECUTIVE_WORKSPACE_MEMBER_ID = '22222222-2222-4222-8222-222222222222';
+const HISTORICAL_WORKSPACE_MEMBER_ID = '33333333-3333-4333-8333-333333333333';
 const TEAM_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 const leadObjectMetadata = {
@@ -33,9 +34,18 @@ const coordinatorTeamAccessMaps: InconnectTeamAccessMaps = {
       membershipType: InconnectCommercialTeamMembershipType.EXECUTIVE,
       isWorkspaceMemberAssignable: true,
     },
+    [HISTORICAL_WORKSPACE_MEMBER_ID]: {
+      teamId: TEAM_ID,
+      membershipType: InconnectCommercialTeamMembershipType.EXECUTIVE,
+      isWorkspaceMemberAssignable: false,
+    },
   },
   memberWorkspaceMemberIdsByTeamId: {
-    [TEAM_ID]: [SCOTT_WORKSPACE_MEMBER_ID, EXECUTIVE_WORKSPACE_MEMBER_ID],
+    [TEAM_ID]: [
+      SCOTT_WORKSPACE_MEMBER_ID,
+      EXECUTIVE_WORKSPACE_MEMBER_ID,
+      HISTORICAL_WORKSPACE_MEMBER_ID,
+    ],
   },
   assignableMemberWorkspaceMemberIdsByTeamId: {
     [TEAM_ID]: [SCOTT_WORKSPACE_MEMBER_ID, EXECUTIVE_WORKSPACE_MEMBER_ID],
@@ -161,7 +171,7 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
     });
   });
 
-  it('keeps ownAndTeam mutations fail-closed with an available Team cache', () => {
+  it('applies the Team record scope atomically to coordinator mutations', () => {
     const queryBuilder = buildQueryBuilder([
       { type: 'and', condition: 'lead.id = :id' } as TestWhereClause,
     ]);
@@ -180,6 +190,105 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
     });
 
     internalContext.inconnectTeamAccessMaps = coordinatorTeamAccessMaps;
+
+    applyInconnectRecordAccessToMutationQueryBuilder({
+      queryBuilder: queryBuilder as never,
+      objectMetadata: leadObjectMetadata,
+      internalContext,
+      authContext,
+    });
+
+    expect(queryBuilder.expressionMap.wheres[0]).toMatchObject({
+      type: 'and',
+      condition:
+        '"lead"."propietarioDeLeadId" IN (:...inconnectRecordAccessOwnerIds_owner_field_id)',
+    });
+    expect(queryBuilder.capturedParameters).toEqual({
+      inconnectRecordAccessOwnerIds_owner_field_id: [
+        SCOTT_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_WORKSPACE_MEMBER_ID,
+        HISTORICAL_WORKSPACE_MEMBER_ID,
+      ],
+    });
+  });
+
+  it('uses own-only mutation scope when Team cache is valid but coordinator has no membership', () => {
+    const queryBuilder = buildQueryBuilder();
+    const internalContext = buildInternalContext({
+      status: 'configured',
+      rules: [
+        {
+          roleId: ROLE_ID,
+          objectMetadataId: LEAD_OBJECT_ID,
+          ownerFieldMetadataId: 'owner-field-id',
+          ownerFieldName: 'propietarioDeLead',
+          ownerJoinColumnName: 'propietarioDeLeadId',
+          effect: 'ownAndTeamRecords',
+        },
+      ],
+    });
+
+    internalContext.inconnectTeamAccessMaps = {
+      version: 1,
+      status: 'valid',
+      membershipByWorkspaceMemberId: {},
+      memberWorkspaceMemberIdsByTeamId: {},
+      assignableMemberWorkspaceMemberIdsByTeamId: {},
+    };
+
+    applyInconnectRecordAccessToMutationQueryBuilder({
+      queryBuilder: queryBuilder as never,
+      objectMetadata: leadObjectMetadata,
+      internalContext,
+      authContext,
+    });
+
+    expect(queryBuilder.capturedParameters).toEqual({
+      inconnectRecordAccessOwnerIds_owner_field_id: [SCOTT_WORKSPACE_MEMBER_ID],
+    });
+  });
+
+  it.each([
+    ['absent', undefined],
+    [
+      'invalid',
+      {
+        version: 1,
+        status: 'invalid',
+        reason: 'invalid membership map',
+        failureKind: 'invalid',
+      },
+    ],
+    ['corrupt', { version: 2, status: 'valid' }],
+    [
+      'recomputation-failed',
+      {
+        version: 1,
+        status: 'invalid',
+        reason: 'cache unavailable',
+        failureKind: 'recomputation-failed',
+      },
+    ],
+  ])('denies coordinator mutations when Team cache is %s', (_name, maps) => {
+    const queryBuilder = buildQueryBuilder([
+      { type: 'and', condition: 'lead.id = :id' } as TestWhereClause,
+    ]);
+    const internalContext = buildInternalContext({
+      status: 'configured',
+      rules: [
+        {
+          roleId: ROLE_ID,
+          objectMetadataId: LEAD_OBJECT_ID,
+          ownerFieldMetadataId: 'owner-field-id',
+          ownerFieldName: 'propietarioDeLead',
+          ownerJoinColumnName: 'propietarioDeLeadId',
+          effect: 'ownAndTeamRecords',
+        },
+      ],
+    });
+
+    internalContext.inconnectTeamAccessMaps =
+      maps as unknown as InconnectTeamAccessMaps;
 
     applyInconnectRecordAccessToMutationQueryBuilder({
       queryBuilder: queryBuilder as never,

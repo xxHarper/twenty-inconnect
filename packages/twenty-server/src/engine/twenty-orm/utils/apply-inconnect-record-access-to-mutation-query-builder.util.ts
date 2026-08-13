@@ -42,14 +42,8 @@ export const applyInconnectRecordAccessToMutationQueryBuilder = ({
     return;
   }
 
-  const mutationDecision =
-    decision.kind === 'owner-workspace-member-ids' &&
-    decision.sourceEffect === 'ownAndTeamRecords'
-      ? ({ kind: 'denied' } as const)
-      : decision;
-
   const renderedCondition = renderInconnectRecordAccessCondition({
-    decision: mutationDecision,
+    decision,
     tableAlias: tableAlias ?? objectMetadata.nameSingular,
   });
   const isAlreadyApplied = queryBuilder.expressionMap.wheres.some(

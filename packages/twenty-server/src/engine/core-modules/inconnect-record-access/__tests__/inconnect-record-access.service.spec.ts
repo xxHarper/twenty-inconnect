@@ -272,7 +272,8 @@ describe('InconnectRecordAccessService', () => {
       ownerFieldName: 'propietarioDeLead',
       ownerJoinColumnName: 'propietarioDeLeadId',
       authenticatedWorkspaceMemberId: COORDINATOR_WORKSPACE_MEMBER_ID,
-      allowedOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
+      recordScopeOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
+      assignableOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
       sourceEffect: 'ownRecords',
     });
   });
@@ -325,10 +326,14 @@ describe('InconnectRecordAccessService', () => {
     expect(decision).toMatchObject({
       kind: 'owner-workspace-member-ids',
       sourceEffect: 'ownAndTeamRecords',
-      allowedOwnerWorkspaceMemberIds: [
+      recordScopeOwnerWorkspaceMemberIds: [
         COORDINATOR_WORKSPACE_MEMBER_ID,
         EXECUTIVE_A_WORKSPACE_MEMBER_ID,
         EXECUTIVE_B_WORKSPACE_MEMBER_ID,
+      ],
+      assignableOwnerWorkspaceMemberIds: [
+        COORDINATOR_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_A_WORKSPACE_MEMBER_ID,
       ],
     });
     expect(
@@ -366,7 +371,8 @@ describe('InconnectRecordAccessService', () => {
     ).toMatchObject({
       kind: 'owner-workspace-member-ids',
       sourceEffect: 'ownAndTeamRecords',
-      allowedOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
+      recordScopeOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
+      assignableOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
     });
   });
 

@@ -86,7 +86,10 @@ export const resolveInconnectRecordAccessDecision = ({
       ownerFieldName: applicableRule.ownerFieldName,
       ownerJoinColumnName: applicableRule.ownerJoinColumnName,
       authenticatedWorkspaceMemberId,
-      allowedOwnerWorkspaceMemberIds: Object.freeze([
+      recordScopeOwnerWorkspaceMemberIds: Object.freeze([
+        authenticatedWorkspaceMemberId,
+      ]),
+      assignableOwnerWorkspaceMemberIds: Object.freeze([
         authenticatedWorkspaceMemberId,
       ]),
       sourceEffect: 'ownRecords',
@@ -115,10 +118,23 @@ export const resolveInconnectRecordAccessDecision = ({
           membership.teamId
         ]
       : undefined;
-  const allowedOwnerWorkspaceMemberIds = Object.freeze([
+  const assignableTeamWorkspaceMemberIds =
+    membership?.membershipType ===
+    InconnectCommercialTeamMembershipType.COORDINATOR
+      ? teamAccessMapsDecision.maps.assignableMemberWorkspaceMemberIdsByTeamId[
+          membership.teamId
+        ]
+      : undefined;
+  const recordScopeOwnerWorkspaceMemberIds = Object.freeze([
     ...new Set([
       authenticatedWorkspaceMemberId,
       ...(teamWorkspaceMemberIds ?? []),
+    ]),
+  ]);
+  const assignableOwnerWorkspaceMemberIds = Object.freeze([
+    ...new Set([
+      authenticatedWorkspaceMemberId,
+      ...(assignableTeamWorkspaceMemberIds ?? []),
     ]),
   ]);
 
@@ -128,7 +144,8 @@ export const resolveInconnectRecordAccessDecision = ({
     ownerFieldName: applicableRule.ownerFieldName,
     ownerJoinColumnName: applicableRule.ownerJoinColumnName,
     authenticatedWorkspaceMemberId,
-    allowedOwnerWorkspaceMemberIds,
+    recordScopeOwnerWorkspaceMemberIds,
+    assignableOwnerWorkspaceMemberIds,
     sourceEffect: 'ownAndTeamRecords',
   });
 };

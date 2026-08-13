@@ -60,7 +60,7 @@ const validateStandardPermission = ({
   operationType,
   objectsPermissions,
 }: {
-  operationType: 'update' | 'delete' | 'soft-delete';
+  operationType: 'update' | 'delete' | 'restore' | 'soft-delete';
   objectsPermissions: ObjectsPermissions;
 }) =>
   validateOperationIsPermittedOrThrow({
@@ -108,7 +108,24 @@ describe('standard Twenty write permissions remain authoritative', () => {
     );
   });
 
-  it.each(['update', 'soft-delete', 'delete'] as const)(
+  it('denies destroy of a Team record when the Role cannot destroy', () => {
+    expect(() =>
+      validateStandardPermission({
+        operationType: 'delete',
+        objectsPermissions: buildPermissions({
+          canUpdateObjectRecords: true,
+          canSoftDeleteObjectRecords: true,
+          canDestroyObjectRecords: false,
+        }),
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        code: PermissionsExceptionCode.PERMISSION_DENIED,
+      }) as PermissionsException,
+    );
+  });
+
+  it.each(['update', 'soft-delete', 'restore', 'delete'] as const)(
     'allows %s to continue to INCONNECT evaluation when the Role permits it',
     (operationType) => {
       expect(() =>
