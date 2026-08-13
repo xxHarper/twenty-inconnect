@@ -72,80 +72,84 @@ export const resolveInconnectRecordAccessDecision = ({
   }
 
   const [applicableRule] = applicableRules;
-
-  if (applicableRule.effect === 'allRecords') {
-    return { kind: 'all-records' };
-  }
-
   const authenticatedWorkspaceMemberId = authContext.workspaceMemberId;
+  const needsTeamAuthority =
+    applicableRule.recordEffect === 'ownAndTeamRecords' ||
+    applicableRule.createPolicy === 'assignableOwners' ||
+    applicableRule.ownerTransferPolicy === 'assignableOwners';
+  let teamWorkspaceMemberIds: readonly string[] = [];
+  let assignableTeamWorkspaceMemberIds: readonly string[] = [];
 
-  if (applicableRule.effect === 'ownRecords') {
-    return Object.freeze({
-      kind: 'owner-workspace-member-ids',
-      ownerFieldMetadataId: applicableRule.ownerFieldMetadataId,
-      ownerFieldName: applicableRule.ownerFieldName,
-      ownerJoinColumnName: applicableRule.ownerJoinColumnName,
-      authenticatedWorkspaceMemberId,
-      recordScopeOwnerWorkspaceMemberIds: Object.freeze([
-        authenticatedWorkspaceMemberId,
-      ]),
-      assignableOwnerWorkspaceMemberIds: Object.freeze([
-        authenticatedWorkspaceMemberId,
-      ]),
-      sourceEffect: 'ownRecords',
-    });
+  if (needsTeamAuthority) {
+    const teamAccessMapsDecision =
+      resolveInconnectTeamAccessMapsForAuthorization(inconnectTeamAccessMaps);
+
+    if (teamAccessMapsDecision.kind === 'denied') {
+      return {
+        kind: 'denied',
+        reason: `INCONNECT team authority is ${teamAccessMapsDecision.reason}`,
+      };
+    }
+
+    const membership =
+      teamAccessMapsDecision.maps.membershipByWorkspaceMemberId[
+        authenticatedWorkspaceMemberId
+      ];
+
+    if (
+      membership?.membershipType ===
+      InconnectCommercialTeamMembershipType.COORDINATOR
+    ) {
+      teamWorkspaceMemberIds =
+        teamAccessMapsDecision.maps.memberWorkspaceMemberIdsByTeamId[
+          membership.teamId
+        ] ?? [];
+      assignableTeamWorkspaceMemberIds =
+        teamAccessMapsDecision.maps.assignableMemberWorkspaceMemberIdsByTeamId[
+          membership.teamId
+        ] ?? [];
+    }
   }
 
-  const teamAccessMapsDecision = resolveInconnectTeamAccessMapsForAuthorization(
-    inconnectTeamAccessMaps,
-  );
-
-  if (teamAccessMapsDecision.kind === 'denied') {
-    return {
-      kind: 'denied',
-      reason: `INCONNECT team authority is ${teamAccessMapsDecision.reason}`,
-    };
-  }
-
-  const membership =
-    teamAccessMapsDecision.maps.membershipByWorkspaceMemberId[
-      authenticatedWorkspaceMemberId
-    ];
-  const teamWorkspaceMemberIds =
-    membership?.membershipType ===
-    InconnectCommercialTeamMembershipType.COORDINATOR
-      ? teamAccessMapsDecision.maps.memberWorkspaceMemberIdsByTeamId[
-          membership.teamId
-        ]
-      : undefined;
-  const assignableTeamWorkspaceMemberIds =
-    membership?.membershipType ===
-    InconnectCommercialTeamMembershipType.COORDINATOR
-      ? teamAccessMapsDecision.maps.assignableMemberWorkspaceMemberIdsByTeamId[
-          membership.teamId
-        ]
-      : undefined;
   const recordScopeOwnerWorkspaceMemberIds = Object.freeze([
     ...new Set([
       authenticatedWorkspaceMemberId,
-      ...(teamWorkspaceMemberIds ?? []),
+      ...(applicableRule.recordEffect === 'ownAndTeamRecords'
+        ? teamWorkspaceMemberIds
+        : []),
     ]),
   ]);
   const assignableOwnerWorkspaceMemberIds = Object.freeze([
     ...new Set([
       authenticatedWorkspaceMemberId,
-      ...(assignableTeamWorkspaceMemberIds ?? []),
+      ...(applicableRule.createPolicy === 'assignableOwners' ||
+      applicableRule.ownerTransferPolicy === 'assignableOwners'
+        ? assignableTeamWorkspaceMemberIds
+        : []),
     ]),
   ]);
-
-  return Object.freeze({
-    kind: 'owner-workspace-member-ids',
+  const managedDecision = {
     ownerFieldMetadataId: applicableRule.ownerFieldMetadataId,
     ownerFieldName: applicableRule.ownerFieldName,
     ownerJoinColumnName: applicableRule.ownerJoinColumnName,
     authenticatedWorkspaceMemberId,
-    recordScopeOwnerWorkspaceMemberIds,
     assignableOwnerWorkspaceMemberIds,
-    sourceEffect: 'ownAndTeamRecords',
+    createPolicy: applicableRule.createPolicy,
+    ownerTransferPolicy: applicableRule.ownerTransferPolicy,
+  } as const;
+
+  if (applicableRule.recordEffect === 'allRecords') {
+    return Object.freeze({
+      kind: 'all-records',
+      ...managedDecision,
+      sourceRecordEffect: 'allRecords',
+    });
+  }
+
+  return Object.freeze({
+    kind: 'owner-workspace-member-ids',
+    ...managedDecision,
+    recordScopeOwnerWorkspaceMemberIds,
+    sourceRecordEffect: applicableRule.recordEffect,
   });
 };

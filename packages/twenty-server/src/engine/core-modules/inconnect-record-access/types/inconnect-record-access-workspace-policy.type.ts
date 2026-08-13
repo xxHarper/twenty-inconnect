@@ -1,10 +1,18 @@
+import {
+  type InconnectRecordAccessCreatePolicy,
+  type InconnectRecordAccessOwnerTransferPolicy,
+  type InconnectRecordAccessRecordEffect,
+} from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-config.type';
+
 export type ResolvedInconnectRecordAccessRule = {
   roleId: string;
   objectMetadataId: string;
   ownerFieldMetadataId: string;
   ownerFieldName: string;
   ownerJoinColumnName: string;
-  effect: 'ownRecords' | 'ownAndTeamRecords' | 'allRecords';
+  recordEffect: InconnectRecordAccessRecordEffect;
+  createPolicy: InconnectRecordAccessCreatePolicy;
+  ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy;
 };
 
 export type InconnectRecordAccessWorkspacePolicy =
@@ -15,21 +23,29 @@ export type InconnectRecordAccessWorkspacePolicy =
       rules: ResolvedInconnectRecordAccessRule[];
     };
 
+type InconnectManagedRecordAccessDecision = {
+  ownerFieldMetadataId: string;
+  ownerFieldName: string;
+  ownerJoinColumnName: string;
+  authenticatedWorkspaceMemberId: string;
+  assignableOwnerWorkspaceMemberIds: readonly string[];
+  createPolicy: InconnectRecordAccessCreatePolicy;
+  ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy;
+};
+
 export type InconnectRecordAccessDecision =
   | { kind: 'not-managed' }
   | { kind: 'system-bypass' }
-  | { kind: 'all-records' }
   | { kind: 'denied'; reason?: string }
-  | {
+  | (InconnectManagedRecordAccessDecision & {
+      kind: 'all-records';
+      sourceRecordEffect: 'allRecords';
+    })
+  | (InconnectManagedRecordAccessDecision & {
       kind: 'owner-workspace-member-ids';
-      ownerFieldMetadataId: string;
-      ownerFieldName: string;
-      ownerJoinColumnName: string;
-      authenticatedWorkspaceMemberId: string;
       recordScopeOwnerWorkspaceMemberIds: readonly string[];
-      assignableOwnerWorkspaceMemberIds: readonly string[];
-      sourceEffect: 'ownRecords' | 'ownAndTeamRecords';
-    };
+      sourceRecordEffect: 'ownRecords' | 'ownAndTeamRecords';
+    });
 
 export const hasNoInconnectRecordAccessScope = (
   decision: InconnectRecordAccessDecision,

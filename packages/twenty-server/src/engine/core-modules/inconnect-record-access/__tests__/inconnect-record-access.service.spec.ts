@@ -94,7 +94,12 @@ const configWithEffect = (
   workspaces: [
     {
       workspaceId: WORKSPACE_ID,
-      rules: [{ ...config.workspaces[0].rules[0], effect }],
+      rules: [
+        {
+          ...config.workspaces[0].rules[0],
+          effect,
+        } as InconnectRecordAccessConfig['workspaces'][number]['rules'][number],
+      ],
     },
   ],
 });
@@ -201,7 +206,9 @@ describe('InconnectRecordAccessService', () => {
           ownerFieldMetadataId: OWNER_FIELD_ID,
           ownerFieldName: 'propietarioDeLead',
           ownerJoinColumnName: 'propietarioDeLeadId',
-          effect: 'ownRecords',
+          recordEffect: 'ownRecords',
+          createPolicy: 'denied',
+          ownerTransferPolicy: 'denied',
         },
       ],
     });
@@ -274,14 +281,149 @@ describe('InconnectRecordAccessService', () => {
       authenticatedWorkspaceMemberId: COORDINATOR_WORKSPACE_MEMBER_ID,
       recordScopeOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
       assignableOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
-      sourceEffect: 'ownRecords',
+      createPolicy: 'denied',
+      ownerTransferPolicy: 'denied',
+      sourceRecordEffect: 'ownRecords',
     });
   });
 
   it('accepts the legacy owner effect as an alias for ownRecords', () => {
     expect(resolvePolicy()).toMatchObject({
       status: 'configured',
-      rules: [{ effect: 'ownRecords' }],
+      rules: [
+        {
+          recordEffect: 'ownRecords',
+          createPolicy: 'denied',
+          ownerTransferPolicy: 'denied',
+        },
+      ],
+    });
+  });
+
+  it('accepts recordEffect and resolves explicit operation policies independently', () => {
+    const policy = resolvePolicy({
+      configuredValue: {
+        workspaces: [
+          {
+            workspaceId: WORKSPACE_ID,
+            rules: [
+              {
+                roleUniversalIdentifier: ROLE_UNIVERSAL_IDENTIFIER,
+                objectUniversalIdentifier: LEAD_OBJECT_UNIVERSAL_IDENTIFIER,
+                ownerFieldUniversalIdentifier: OWNER_FIELD_UNIVERSAL_IDENTIFIER,
+                principal: 'workspaceMember',
+                recordEffect: 'allRecords',
+                createPolicy: 'standardPermissionsOnly',
+                ownerTransferPolicy: 'standardPermissionsOnly',
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(policy).toMatchObject({
+      status: 'configured',
+      rules: [
+        {
+          recordEffect: 'allRecords',
+          createPolicy: 'standardPermissionsOnly',
+          ownerTransferPolicy: 'standardPermissionsOnly',
+        },
+      ],
+    });
+  });
+
+  it.each([
+    [
+      'unknown create policy',
+      {
+        ...config.workspaces[0].rules[0],
+        createPolicy: 'unknown',
+      },
+    ],
+    [
+      'unknown owner transfer policy',
+      {
+        ...config.workspaces[0].rules[0],
+        ownerTransferPolicy: 'unknown',
+      },
+    ],
+    [
+      'conflicting effect aliases',
+      {
+        ...config.workspaces[0].rules[0],
+        recordEffect: 'allRecords',
+      },
+    ],
+  ])('fails closed for %s', (_name, rule) => {
+    expect(
+      resolvePolicy({
+        configuredValue: {
+          workspaces: [{ workspaceId: WORKSPACE_ID, rules: [rule] }],
+        },
+      }),
+    ).toMatchObject({ status: 'invalid' });
+  });
+
+  it('resolves operation policies independently for a second managed object', () => {
+    const folioObject = {
+      ...leadObject,
+      id: 'folio-object-id',
+      universalIdentifier: 'folio-object-universal-id',
+      nameSingular: 'folioIso',
+    } as FlatObjectMetadata;
+    const folioOwnerField = {
+      ...ownerField,
+      id: 'folio-owner-field-id',
+      universalIdentifier: 'folio-owner-field-universal-id',
+      objectMetadataId: folioObject.id,
+      name: 'propietarioDeFolioIso',
+    } as FlatFieldMetadata<FieldMetadataType.RELATION>;
+
+    const policy = resolvePolicy({
+      configuredValue: {
+        workspaces: [
+          {
+            workspaceId: WORKSPACE_ID,
+            rules: [
+              {
+                ...config.workspaces[0].rules[0],
+                createPolicy: 'denied',
+                ownerTransferPolicy: 'denied',
+              },
+              {
+                roleUniversalIdentifier: ROLE_UNIVERSAL_IDENTIFIER,
+                objectUniversalIdentifier: folioObject.universalIdentifier,
+                ownerFieldUniversalIdentifier:
+                  folioOwnerField.universalIdentifier,
+                principal: 'workspaceMember',
+                recordEffect: 'ownRecords',
+                createPolicy: 'defaultOwner',
+                ownerTransferPolicy: 'assignableOwners',
+              },
+            ],
+          },
+        ],
+      },
+      objects: [leadObject, folioObject, workspaceMemberObject],
+      fields: [ownerField, folioOwnerField],
+    });
+
+    expect(policy).toMatchObject({
+      status: 'configured',
+      rules: [
+        {
+          objectMetadataId: LEAD_OBJECT_ID,
+          createPolicy: 'denied',
+          ownerTransferPolicy: 'denied',
+        },
+        {
+          objectMetadataId: folioObject.id,
+          createPolicy: 'defaultOwner',
+          ownerTransferPolicy: 'assignableOwners',
+        },
+      ],
     });
   });
 
@@ -308,7 +450,12 @@ describe('InconnectRecordAccessService', () => {
         userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
         apiKeyRoleMap: {},
       }),
-    ).toEqual({ kind: 'all-records' });
+    ).toMatchObject({
+      kind: 'all-records',
+      createPolicy: 'denied',
+      ownerTransferPolicy: 'denied',
+      sourceRecordEffect: 'allRecords',
+    });
   });
 
   it('expands ownAndTeamRecords for a coordinator using record-scope members', () => {
@@ -325,16 +472,13 @@ describe('InconnectRecordAccessService', () => {
 
     expect(decision).toMatchObject({
       kind: 'owner-workspace-member-ids',
-      sourceEffect: 'ownAndTeamRecords',
+      sourceRecordEffect: 'ownAndTeamRecords',
       recordScopeOwnerWorkspaceMemberIds: [
         COORDINATOR_WORKSPACE_MEMBER_ID,
         EXECUTIVE_A_WORKSPACE_MEMBER_ID,
         EXECUTIVE_B_WORKSPACE_MEMBER_ID,
       ],
-      assignableOwnerWorkspaceMemberIds: [
-        COORDINATOR_WORKSPACE_MEMBER_ID,
-        EXECUTIVE_A_WORKSPACE_MEMBER_ID,
-      ],
+      assignableOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
     });
     expect(
       renderInconnectRecordAccessCondition({
@@ -350,6 +494,35 @@ describe('InconnectRecordAccessService', () => {
           EXECUTIVE_B_WORKSPACE_MEMBER_ID,
         ],
       },
+    });
+  });
+
+  it('expands destination owners only when an operation policy requests it', () => {
+    const configuredValue = configWithEffect('ownAndTeamRecords');
+
+    configuredValue.workspaces[0].rules[0].createPolicy = 'assignableOwners';
+
+    const decision = resolveInconnectRecordAccessDecision({
+      policy: resolvePolicy({ configuredValue }),
+      authContext: userAuthContext,
+      objectMetadataId: LEAD_OBJECT_ID,
+      userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
+      apiKeyRoleMap: {},
+      inconnectTeamAccessMaps: coordinatorTeamAccessMaps,
+    });
+
+    expect(decision).toMatchObject({
+      recordScopeOwnerWorkspaceMemberIds: [
+        COORDINATOR_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_A_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_B_WORKSPACE_MEMBER_ID,
+      ],
+      assignableOwnerWorkspaceMemberIds: [
+        COORDINATOR_WORKSPACE_MEMBER_ID,
+        EXECUTIVE_A_WORKSPACE_MEMBER_ID,
+      ],
+      createPolicy: 'assignableOwners',
+      ownerTransferPolicy: 'denied',
     });
   });
 
@@ -370,7 +543,7 @@ describe('InconnectRecordAccessService', () => {
       }),
     ).toMatchObject({
       kind: 'owner-workspace-member-ids',
-      sourceEffect: 'ownAndTeamRecords',
+      sourceRecordEffect: 'ownAndTeamRecords',
       recordScopeOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
       assignableOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
     });

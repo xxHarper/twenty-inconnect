@@ -4,12 +4,14 @@ import {
   InconnectRecordAccessException,
   InconnectRecordAccessExceptionCode,
 } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.exception';
-import {
-  hasNoInconnectRecordAccessScope,
-  type InconnectRecordAccessDecision,
-} from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 
 type WriteValues = ObjectLiteral | ObjectLiteral[] | undefined;
+
+type OwnerWrite = {
+  isProvided: boolean;
+  workspaceMemberId: unknown;
+};
 
 const getWorkspaceMemberIdFromRelationValue = (
   relationValue: unknown,
@@ -25,7 +27,7 @@ const getWorkspaceMemberIdFromRelationValue = (
   return relationValue;
 };
 
-const getOwnerWorkspaceMemberId = ({
+const getOwnerWrite = ({
   values,
   ownerFieldName,
   ownerJoinColumnName,
@@ -33,7 +35,7 @@ const getOwnerWorkspaceMemberId = ({
   values: ObjectLiteral;
   ownerFieldName: string;
   ownerJoinColumnName: string;
-}): unknown => {
+}): OwnerWrite => {
   const hasJoinColumn = Object.prototype.hasOwnProperty.call(
     values,
     ownerJoinColumnName,
@@ -45,7 +47,7 @@ const getOwnerWorkspaceMemberId = ({
   const joinColumnValue = values[ownerJoinColumnName];
   const relationValue = values[ownerFieldName];
 
-  if (hasJoinColumn && joinColumnValue !== undefined) {
+  if (hasJoinColumn) {
     if (
       hasRelationField &&
       relationValue !== null &&
@@ -54,19 +56,35 @@ const getOwnerWorkspaceMemberId = ({
       const relationWorkspaceMemberId =
         getWorkspaceMemberIdFromRelationValue(relationValue);
 
-      if (relationWorkspaceMemberId !== joinColumnValue) {
-        return Symbol('conflicting-owner-values');
+      if (
+        joinColumnValue !== undefined &&
+        relationWorkspaceMemberId !== joinColumnValue
+      ) {
+        return {
+          isProvided: true,
+          workspaceMemberId: Symbol('conflicting-owner-values'),
+        };
+      }
+
+      if (joinColumnValue === undefined) {
+        return {
+          isProvided: true,
+          workspaceMemberId: relationWorkspaceMemberId,
+        };
       }
     }
 
-    return joinColumnValue;
+    return { isProvided: true, workspaceMemberId: joinColumnValue };
   }
 
   if (!hasRelationField) {
-    return undefined;
+    return { isProvided: false, workspaceMemberId: undefined };
   }
 
-  return getWorkspaceMemberIdFromRelationValue(relationValue);
+  return {
+    isProvided: true,
+    workspaceMemberId: getWorkspaceMemberIdFromRelationValue(relationValue),
+  };
 };
 
 const assertOwnerIsAssignable = ({
@@ -87,6 +105,13 @@ const assertOwnerIsAssignable = ({
   }
 };
 
+const throwAccessDenied = (message: string): never => {
+  throw new InconnectRecordAccessException(
+    message,
+    InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+  );
+};
+
 export const applyInconnectRecordAccessToCreateValues = ({
   decision,
   valuesSet,
@@ -94,34 +119,41 @@ export const applyInconnectRecordAccessToCreateValues = ({
   decision: InconnectRecordAccessDecision;
   valuesSet: WriteValues;
 }): WriteValues => {
-  if (hasNoInconnectRecordAccessScope(decision)) {
+  if (decision.kind === 'not-managed' || decision.kind === 'system-bypass') {
     return valuesSet;
   }
 
-  if (decision.kind === 'denied') {
-    throw new InconnectRecordAccessException(
-      'Create denied by INCONNECT Record Access',
-      InconnectRecordAccessExceptionCode.ACCESS_DENIED,
-    );
+  if (decision.kind === 'denied' || decision.createPolicy === 'denied') {
+    return throwAccessDenied('Create denied by INCONNECT Record Access');
+  }
+
+  if (decision.createPolicy === 'standardPermissionsOnly') {
+    return valuesSet;
   }
 
   const valuesArray = Array.isArray(valuesSet) ? valuesSet : [valuesSet ?? {}];
   const securedValues = valuesArray.map((values) => {
-    const ownerWorkspaceMemberId = getOwnerWorkspaceMemberId({
+    const ownerWrite = getOwnerWrite({
       values,
       ownerFieldName: decision.ownerFieldName,
       ownerJoinColumnName: decision.ownerJoinColumnName,
     });
 
-    if (ownerWorkspaceMemberId === undefined) {
+    if (!ownerWrite.isProvided) {
       return {
         ...values,
         [decision.ownerJoinColumnName]: decision.authenticatedWorkspaceMemberId,
       };
     }
 
+    if (decision.createPolicy === 'defaultOwner') {
+      return throwAccessDenied(
+        'Explicit owner is denied by the INCONNECT create policy',
+      );
+    }
+
     assertOwnerIsAssignable({
-      ownerWorkspaceMemberId,
+      ownerWorkspaceMemberId: ownerWrite.workspaceMemberId,
       assignableOwnerWorkspaceMemberIds:
         decision.assignableOwnerWorkspaceMemberIds,
     });
@@ -139,32 +171,39 @@ export const validateInconnectRecordAccessUpdateValues = ({
   decision: InconnectRecordAccessDecision;
   valuesSet: WriteValues;
 }): void => {
-  if (hasNoInconnectRecordAccessScope(decision)) {
+  if (decision.kind === 'not-managed' || decision.kind === 'system-bypass') {
     return;
   }
 
   if (decision.kind === 'denied') {
-    throw new InconnectRecordAccessException(
-      'Update denied by INCONNECT Record Access',
-      InconnectRecordAccessExceptionCode.ACCESS_DENIED,
-    );
+    return throwAccessDenied('Update denied by INCONNECT Record Access');
   }
 
   const valuesArray = Array.isArray(valuesSet) ? valuesSet : [valuesSet ?? {}];
 
   for (const values of valuesArray) {
-    const ownerWorkspaceMemberId = getOwnerWorkspaceMemberId({
+    const ownerWrite = getOwnerWrite({
       values,
       ownerFieldName: decision.ownerFieldName,
       ownerJoinColumnName: decision.ownerJoinColumnName,
     });
 
-    if (ownerWorkspaceMemberId === undefined) {
+    if (!ownerWrite.isProvided) {
+      continue;
+    }
+
+    if (decision.ownerTransferPolicy === 'denied') {
+      return throwAccessDenied(
+        'Owner transfer denied by INCONNECT Record Access',
+      );
+    }
+
+    if (decision.ownerTransferPolicy === 'standardPermissionsOnly') {
       continue;
     }
 
     assertOwnerIsAssignable({
-      ownerWorkspaceMemberId,
+      ownerWorkspaceMemberId: ownerWrite.workspaceMemberId,
       assignableOwnerWorkspaceMemberIds:
         decision.assignableOwnerWorkspaceMemberIds,
     });

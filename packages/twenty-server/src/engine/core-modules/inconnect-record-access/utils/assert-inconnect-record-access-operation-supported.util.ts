@@ -2,10 +2,7 @@ import {
   InconnectRecordAccessException,
   InconnectRecordAccessExceptionCode,
 } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.exception';
-import {
-  hasNoInconnectRecordAccessScope,
-  type InconnectRecordAccessDecision,
-} from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 
 export type InconnectUnsupportedWriteOperation =
   | 'merge'
@@ -22,7 +19,7 @@ export const assertInconnectRecordAccessOperationSupported = ({
   decision: InconnectRecordAccessDecision;
   operation: InconnectUnsupportedWriteOperation;
 }): void => {
-  if (hasNoInconnectRecordAccessScope(decision)) {
+  if (decision.kind === 'not-managed' || decision.kind === 'system-bypass') {
     return;
   }
 

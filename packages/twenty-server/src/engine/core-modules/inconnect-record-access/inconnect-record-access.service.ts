@@ -28,9 +28,9 @@ type ResolveWorkspacePolicyArgs = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const resolveEffect = (
+const resolveRecordEffect = (
   effect: unknown,
-): ResolvedInconnectRecordAccessRule['effect'] | undefined => {
+): ResolvedInconnectRecordAccessRule['recordEffect'] | undefined => {
   if (
     effect === 'ownerEqualsAuthenticatedWorkspaceMember' ||
     effect === 'ownRecords'
@@ -40,6 +40,43 @@ const resolveEffect = (
 
   if (effect === 'ownAndTeamRecords' || effect === 'allRecords') {
     return effect;
+  }
+
+  return undefined;
+};
+
+const resolveCreatePolicy = (
+  createPolicy: unknown,
+): ResolvedInconnectRecordAccessRule['createPolicy'] | undefined => {
+  if (createPolicy === undefined) {
+    return 'denied';
+  }
+
+  if (
+    createPolicy === 'denied' ||
+    createPolicy === 'defaultOwner' ||
+    createPolicy === 'assignableOwners' ||
+    createPolicy === 'standardPermissionsOnly'
+  ) {
+    return createPolicy;
+  }
+
+  return undefined;
+};
+
+const resolveOwnerTransferPolicy = (
+  ownerTransferPolicy: unknown,
+): ResolvedInconnectRecordAccessRule['ownerTransferPolicy'] | undefined => {
+  if (ownerTransferPolicy === undefined) {
+    return 'denied';
+  }
+
+  if (
+    ownerTransferPolicy === 'denied' ||
+    ownerTransferPolicy === 'assignableOwners' ||
+    ownerTransferPolicy === 'standardPermissionsOnly'
+  ) {
+    return ownerTransferPolicy;
   }
 
   return undefined;
@@ -150,7 +187,28 @@ export class InconnectRecordAccessService {
     flatObjectMetadataMaps: FlatEntityMaps<FlatObjectMetadata>;
     flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
   }): ResolvedInconnectRecordAccessRule | string {
-    const effect = isRecord(rule) ? resolveEffect(rule.effect) : undefined;
+    const legacyEffect = isRecord(rule)
+      ? resolveRecordEffect(rule.effect)
+      : undefined;
+    const configuredRecordEffect = isRecord(rule)
+      ? resolveRecordEffect(rule.recordEffect)
+      : undefined;
+    const hasLegacyEffect = isRecord(rule) && rule.effect !== undefined;
+    const hasRecordEffect = isRecord(rule) && rule.recordEffect !== undefined;
+    const recordEffect = configuredRecordEffect ?? legacyEffect;
+    const createPolicy = isRecord(rule)
+      ? resolveCreatePolicy(rule.createPolicy)
+      : undefined;
+    const ownerTransferPolicy = isRecord(rule)
+      ? resolveOwnerTransferPolicy(rule.ownerTransferPolicy)
+      : undefined;
+    const hasInvalidOrAmbiguousRecordEffect =
+      (!hasLegacyEffect && !hasRecordEffect) ||
+      (hasLegacyEffect && !isDefined(legacyEffect)) ||
+      (hasRecordEffect && !isDefined(configuredRecordEffect)) ||
+      (isDefined(legacyEffect) &&
+        isDefined(configuredRecordEffect) &&
+        legacyEffect !== configuredRecordEffect);
 
     if (
       !isRecord(rule) ||
@@ -158,7 +216,10 @@ export class InconnectRecordAccessService {
       !isNonEmptyString(rule.objectUniversalIdentifier) ||
       !isNonEmptyString(rule.ownerFieldUniversalIdentifier) ||
       rule.principal !== 'workspaceMember' ||
-      !isDefined(effect)
+      hasInvalidOrAmbiguousRecordEffect ||
+      !isDefined(recordEffect) ||
+      !isDefined(createPolicy) ||
+      !isDefined(ownerTransferPolicy)
     ) {
       return 'INCONNECT owner rule has an invalid shape';
     }
@@ -223,7 +284,9 @@ export class InconnectRecordAccessService {
       ownerJoinColumnName: computeMorphOrRelationFieldJoinColumnName({
         name: ownerField.name,
       }),
-      effect,
+      recordEffect,
+      createPolicy,
+      ownerTransferPolicy,
     };
   }
 }

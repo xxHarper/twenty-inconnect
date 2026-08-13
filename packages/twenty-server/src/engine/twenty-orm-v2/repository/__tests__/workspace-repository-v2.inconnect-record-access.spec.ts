@@ -84,19 +84,21 @@ const scopedPolicy: InconnectRecordAccessWorkspacePolicy = {
       ownerFieldMetadataId: OWNER_FIELD_ID,
       ownerFieldName: 'propietarioDeLead',
       ownerJoinColumnName: 'propietarioDeLeadId',
-      effect: 'ownRecords',
+      recordEffect: 'ownRecords',
+      createPolicy: 'denied',
+      ownerTransferPolicy: 'denied',
     },
   ],
 };
 
 const ownAndTeamPolicy: InconnectRecordAccessWorkspacePolicy = {
   status: 'configured',
-  rules: [{ ...scopedPolicy.rules[0], effect: 'ownAndTeamRecords' }],
+  rules: [{ ...scopedPolicy.rules[0], recordEffect: 'ownAndTeamRecords' }],
 };
 
 const allRecordsPolicy: InconnectRecordAccessWorkspacePolicy = {
   status: 'configured',
-  rules: [{ ...scopedPolicy.rules[0], effect: 'allRecords' }],
+  rules: [{ ...scopedPolicy.rules[0], recordEffect: 'allRecords' }],
 };
 
 const coordinatorTeamAccessMaps: InconnectTeamAccessMaps = {

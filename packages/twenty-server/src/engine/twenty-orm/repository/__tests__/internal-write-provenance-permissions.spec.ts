@@ -12,7 +12,10 @@ import {
   PermissionsException,
   PermissionsExceptionCode,
 } from 'src/engine/metadata-modules/permissions/permissions.exception';
-import { applyInconnectRecordAccessToCreateValues } from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
+import {
+  applyInconnectRecordAccessToCreateValues,
+  validateInconnectRecordAccessUpdateValues,
+} from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
 import {
   validateOperationIsPermittedOrThrow,
   validateQueryIsPermittedOrThrow,
@@ -208,7 +211,9 @@ describe('internal write provenance permissions', () => {
             'scott-workspace-member-id',
             'executive-workspace-member-id',
           ],
-          sourceEffect: 'ownAndTeamRecords',
+          createPolicy: 'defaultOwner',
+          ownerTransferPolicy: 'denied',
+          sourceRecordEffect: 'ownAndTeamRecords',
         },
         valuesSet: values,
       }),
@@ -216,6 +221,87 @@ describe('internal write provenance permissions', () => {
       ...values,
       propietarioDeLeadId: 'scott-workspace-member-id',
     });
+  });
+
+  it('applies createPolicy after standard permissions and trusted hooks', () => {
+    expect(() =>
+      validateWrite({
+        operationType: 'insert',
+        updatedColumns: ['name', 'createdBySource', 'updatedBySource'],
+        internallyInjectedFieldNames: ['createdBy', 'updatedBy'],
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      applyInconnectRecordAccessToCreateValues({
+        decision: {
+          kind: 'owner-workspace-member-ids',
+          ownerFieldMetadataId: 'owner-field-id',
+          ownerFieldName: 'propietarioDeLead',
+          ownerJoinColumnName: 'propietarioDeLeadId',
+          authenticatedWorkspaceMemberId: 'scott-workspace-member-id',
+          recordScopeOwnerWorkspaceMemberIds: ['scott-workspace-member-id'],
+          assignableOwnerWorkspaceMemberIds: ['scott-workspace-member-id'],
+          createPolicy: 'denied',
+          ownerTransferPolicy: 'denied',
+          sourceRecordEffect: 'ownRecords',
+        },
+        valuesSet: {
+          name: 'Denied Lead',
+          createdBySource: 'MANUAL',
+          updatedBySource: 'MANUAL',
+        },
+      }),
+    ).toThrow();
+  });
+
+  it('does not let standardPermissionsOnly bypass object or owner-field permissions', () => {
+    const allRecordsDecision = {
+      kind: 'all-records' as const,
+      ownerFieldMetadataId: 'owner-field-id',
+      ownerFieldName: 'propietarioDeLead',
+      ownerJoinColumnName: 'propietarioDeLeadId',
+      authenticatedWorkspaceMemberId: 'admin-workspace-member-id',
+      assignableOwnerWorkspaceMemberIds: ['admin-workspace-member-id'],
+      createPolicy: 'standardPermissionsOnly' as const,
+      ownerTransferPolicy: 'standardPermissionsOnly' as const,
+      sourceRecordEffect: 'allRecords' as const,
+    };
+
+    expect(() =>
+      validateWrite({
+        operationType: 'insert',
+        updatedColumns: ['name'],
+        objectsPermissions: buildPermissions({
+          canUpdateObjectRecords: false,
+        }),
+      }),
+    ).toThrow(PermissionsException);
+
+    expect(() =>
+      validateWrite({
+        operationType: 'update',
+        updatedColumns: ['propietarioDeLeadId'],
+      }),
+    ).toThrow(PermissionsException);
+
+    expect(() =>
+      validateWrite({
+        operationType: 'update',
+        updatedColumns: ['propietarioDeLeadId'],
+        objectsPermissions: buildPermissions({
+          canUpdateOwnerFieldValue: true,
+        }),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateInconnectRecordAccessUpdateValues({
+        decision: allRecordsDecision,
+        valuesSet: {
+          propietarioDeLeadId: 'destination-workspace-member-id',
+        },
+      }),
+    ).not.toThrow();
   });
 
   it.each([
