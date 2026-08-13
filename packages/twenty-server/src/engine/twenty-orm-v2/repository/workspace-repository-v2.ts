@@ -4,6 +4,7 @@ import { isDefined } from 'twenty-shared/utils';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
+import { hasNoInconnectRecordAccessScope } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { validateOperationIsPermittedOrThrow } from 'src/engine/twenty-orm/repository/permissions.utils';
 import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/workspace-internal-context.interface';
@@ -233,7 +234,7 @@ export class WorkspaceRepositoryV2 {
       apiKeyRoleMap: this.options.internalContext.apiKeyRoleMap,
     });
 
-    if (decision.kind === 'unrestricted') {
+    if (hasNoInconnectRecordAccessScope(decision)) {
       return;
     }
 

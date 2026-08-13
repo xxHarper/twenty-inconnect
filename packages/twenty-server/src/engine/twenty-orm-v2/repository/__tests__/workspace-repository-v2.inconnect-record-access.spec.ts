@@ -61,6 +61,7 @@ const scopedPolicy: InconnectRecordAccessWorkspacePolicy = {
       ownerFieldMetadataId: OWNER_FIELD_ID,
       ownerFieldName: 'propietarioDeLead',
       ownerJoinColumnName: 'propietarioDeLeadId',
+      effect: 'ownRecords',
     },
   ],
 };

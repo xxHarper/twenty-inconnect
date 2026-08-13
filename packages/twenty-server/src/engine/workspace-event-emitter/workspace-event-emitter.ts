@@ -1,15 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { isDefined } from 'twenty-shared/utils';
 import {
   ObjectRecordCreateEvent,
   ObjectRecordDeleteEvent,
   ObjectRecordDestroyEvent,
+  ObjectRecordRestoreEvent,
   ObjectRecordUpdateEvent,
   ObjectRecordUpsertEvent,
-  ObjectRecordRestoreEvent,
 } from 'twenty-shared/database-events';
+import { isDefined } from 'twenty-shared/utils';
+import { type QueryRunner } from 'typeorm';
 
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import type { FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
@@ -35,39 +36,115 @@ export type DatabaseBatchEventInput<T, A extends keyof ActionEventMap<T>> = {
   workspaceId: string;
 };
 
+type PendingDatabaseBatchEvent = {
+  transactionDepth: number;
+  emit: () => void;
+};
+
 @Injectable()
 export class WorkspaceEventEmitter {
+  private readonly transactionDepthByQueryRunner = new WeakMap<
+    QueryRunner,
+    number
+  >();
+  private readonly pendingDatabaseBatchEvents = new WeakMap<
+    QueryRunner,
+    PendingDatabaseBatchEvent[]
+  >();
+
   constructor(private readonly eventEmitter: EventEmitter2) {}
 
   public emitDatabaseBatchEvent<T, A extends keyof ActionEventMap<T>>(
     databaseBatchEventInput: DatabaseBatchEventInput<T, A> | undefined,
+    queryRunner?: QueryRunner,
   ) {
-    if (!isDefined(databaseBatchEventInput)) {
+    if (
+      !isDefined(databaseBatchEventInput) ||
+      databaseBatchEventInput.events.length === 0
+    ) {
       return;
     }
 
-    const {
-      objectMetadataNameSingular,
-      action,
-      events,
-      objectMetadata,
-      workspaceId,
-    } = databaseBatchEventInput;
+    if (queryRunner?.isTransactionActive) {
+      const pendingEvents =
+        this.pendingDatabaseBatchEvents.get(queryRunner) ?? [];
 
-    if (!events.length) {
+      pendingEvents.push({
+        transactionDepth:
+          this.transactionDepthByQueryRunner.get(queryRunner) ?? 1,
+        emit: () => this.emitDatabaseBatchEventNow(databaseBatchEventInput),
+      });
+      this.pendingDatabaseBatchEvents.set(queryRunner, pendingEvents);
+
       return;
     }
 
-    const eventName = computeEventName(objectMetadataNameSingular, action);
+    this.emitDatabaseBatchEventNow(databaseBatchEventInput);
+  }
 
-    const workspaceEventBatch: WorkspaceEventBatch<ActionEventMap<T>[A]> = {
-      name: eventName,
-      workspaceId,
-      objectMetadata,
-      events,
-    };
+  public markTransactionStarted(queryRunner: QueryRunner): void {
+    const currentDepth =
+      this.transactionDepthByQueryRunner.get(queryRunner) ?? 0;
 
-    this.eventEmitter.emit(eventName, workspaceEventBatch);
+    this.transactionDepthByQueryRunner.set(queryRunner, currentDepth + 1);
+  }
+
+  public flushDatabaseBatchEventsAfterCommit(queryRunner: QueryRunner): void {
+    const currentDepth =
+      this.transactionDepthByQueryRunner.get(queryRunner) ?? 1;
+
+    if (currentDepth > 1) {
+      this.transactionDepthByQueryRunner.set(queryRunner, currentDepth - 1);
+
+      return;
+    }
+
+    this.transactionDepthByQueryRunner.delete(queryRunner);
+    if (queryRunner.isTransactionActive) {
+      return;
+    }
+
+    const pendingEvents =
+      this.pendingDatabaseBatchEvents.get(queryRunner) ?? [];
+
+    this.pendingDatabaseBatchEvents.delete(queryRunner);
+
+    for (const pendingEvent of pendingEvents) {
+      pendingEvent.emit();
+    }
+  }
+
+  public discardDatabaseBatchEventsAfterRollback(
+    queryRunner: QueryRunner,
+  ): void {
+    const rolledBackTransactionDepth =
+      this.transactionDepthByQueryRunner.get(queryRunner) ?? 1;
+    const remainingEvents = (
+      this.pendingDatabaseBatchEvents.get(queryRunner) ?? []
+    ).filter(
+      (pendingEvent) =>
+        pendingEvent.transactionDepth < rolledBackTransactionDepth,
+    );
+
+    if (rolledBackTransactionDepth > 1) {
+      this.transactionDepthByQueryRunner.set(
+        queryRunner,
+        rolledBackTransactionDepth - 1,
+      );
+    } else {
+      this.transactionDepthByQueryRunner.delete(queryRunner);
+    }
+
+    if (remainingEvents.length === 0) {
+      this.pendingDatabaseBatchEvents.delete(queryRunner);
+    } else {
+      this.pendingDatabaseBatchEvents.set(queryRunner, remainingEvents);
+    }
+  }
+
+  public clearPendingDatabaseBatchEvents(queryRunner: QueryRunner): void {
+    this.transactionDepthByQueryRunner.delete(queryRunner);
+    this.pendingDatabaseBatchEvents.delete(queryRunner);
   }
 
   public emitCustomBatchEvent<T extends object>(
@@ -86,5 +163,26 @@ export class WorkspaceEventEmitter {
     };
 
     this.eventEmitter.emit(eventName, customWorkspaceEventBatch);
+  }
+
+  private emitDatabaseBatchEventNow<T, A extends keyof ActionEventMap<T>>(
+    databaseBatchEventInput: DatabaseBatchEventInput<T, A>,
+  ): void {
+    const {
+      objectMetadataNameSingular,
+      action,
+      events,
+      objectMetadata,
+      workspaceId,
+    } = databaseBatchEventInput;
+    const eventName = computeEventName(objectMetadataNameSingular, action);
+    const workspaceEventBatch: WorkspaceEventBatch<ActionEventMap<T>[A]> = {
+      name: eventName,
+      workspaceId,
+      objectMetadata,
+      events,
+    };
+
+    this.eventEmitter.emit(eventName, workspaceEventBatch);
   }
 }

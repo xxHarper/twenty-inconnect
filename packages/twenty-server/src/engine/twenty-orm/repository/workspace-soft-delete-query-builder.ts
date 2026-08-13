@@ -152,6 +152,7 @@ export class WorkspaceSoftDeleteQueryBuilder<
           recordsAfter: formattedAfter,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       return {

@@ -440,6 +440,91 @@ end`;
     return false;
   }
 
+  async incrementGenerationAndSet<T>({
+    generationKey,
+    entries,
+    ttlMs,
+  }: {
+    generationKey: string;
+    entries: Array<{ key: string; value: T }>;
+    ttlMs: Milliseconds;
+  }): Promise<number> {
+    if (!this.isRedisCache(this.cache)) {
+      throw new Error(
+        'Generation-fenced cache publication requires Redis storage',
+      );
+    }
+
+    const redisClient = this.cache.store.client;
+    const keys = [
+      this.getKey(generationKey),
+      ...entries.map(({ key }) => this.getKey(key)),
+    ];
+    const script = `
+local generation = redis.call('INCR', KEYS[1])
+redis.call('PEXPIRE', KEYS[1], ARGV[1])
+for index = 2, #KEYS do
+  redis.call('SET', KEYS[index], ARGV[index])
+  redis.call('PEXPIRE', KEYS[index], ARGV[1])
+end
+return generation
+`;
+    const result = await redisClient.eval(script, {
+      keys,
+      arguments: [
+        String(ttlMs),
+        ...entries.map(({ value }) => JSON.stringify(value)),
+      ],
+    });
+
+    return Number(result);
+  }
+
+  async setIfGenerationMatches<T>({
+    generationKey,
+    expectedGeneration,
+    entries,
+    ttlMs,
+  }: {
+    generationKey: string;
+    expectedGeneration: number;
+    entries: Array<{ key: string; value: T }>;
+    ttlMs: Milliseconds;
+  }): Promise<boolean> {
+    if (!this.isRedisCache(this.cache)) {
+      throw new Error(
+        'Generation-fenced cache publication requires Redis storage',
+      );
+    }
+
+    const redisClient = this.cache.store.client;
+    const keys = [
+      this.getKey(generationKey),
+      ...entries.map(({ key }) => this.getKey(key)),
+    ];
+    const script = `
+if tonumber(redis.call('GET', KEYS[1])) ~= tonumber(ARGV[1]) then
+  return 0
+end
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+for index = 2, #KEYS do
+  redis.call('SET', KEYS[index], ARGV[index + 1])
+  redis.call('PEXPIRE', KEYS[index], ARGV[2])
+end
+return 1
+`;
+    const result = await redisClient.eval(script, {
+      keys,
+      arguments: [
+        String(expectedGeneration),
+        String(ttlMs),
+        ...entries.map(({ value }) => JSON.stringify(value)),
+      ],
+    });
+
+    return Number(result) === 1;
+  }
+
   private isRedisCache(cache: Cache): cache is RedisCache {
     // oxlint-disable-next-line typescript/no-explicit-any
     return (cache.store as any)?.name === 'redis';

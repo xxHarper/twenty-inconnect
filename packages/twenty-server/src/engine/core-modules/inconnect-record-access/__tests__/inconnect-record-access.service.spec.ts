@@ -4,6 +4,7 @@ import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/wo
 import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
 import { type InconnectRecordAccessConfig } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-config.type';
 import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
+import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
 import { type TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { RelationType } from 'src/engine/metadata-modules/field-metadata/interfaces/relation-type.interface';
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
@@ -80,6 +81,17 @@ const config: InconnectRecordAccessConfig = {
   ],
 };
 
+const configWithEffect = (
+  effect: InconnectRecordAccessConfig['workspaces'][number]['rules'][number]['effect'],
+): InconnectRecordAccessConfig => ({
+  workspaces: [
+    {
+      workspaceId: WORKSPACE_ID,
+      rules: [{ ...config.workspaces[0].rules[0], effect }],
+    },
+  ],
+});
+
 const buildService = (configuredValue: unknown = config) =>
   new InconnectRecordAccessService({
     get: jest.fn(() => configuredValue),
@@ -121,6 +133,7 @@ describe('InconnectRecordAccessService', () => {
           ownerFieldMetadataId: OWNER_FIELD_ID,
           ownerFieldName: 'propietarioDeLead',
           ownerJoinColumnName: 'propietarioDeLeadId',
+          effect: 'ownRecords',
         },
       ],
     });
@@ -186,7 +199,7 @@ describe('InconnectRecordAccessService', () => {
     });
 
     expect(decision).toEqual({
-      kind: 'scoped',
+      kind: 'own-records',
       ownerFieldMetadataId: OWNER_FIELD_ID,
       ownerFieldName: 'propietarioDeLead',
       ownerJoinColumnName: 'propietarioDeLeadId',
@@ -194,7 +207,77 @@ describe('InconnectRecordAccessService', () => {
     });
   });
 
-  it('leaves a Role without an INCONNECT rule unrestricted', () => {
+  it('accepts the legacy owner effect as an alias for ownRecords', () => {
+    expect(resolvePolicy()).toMatchObject({
+      status: 'configured',
+      rules: [{ effect: 'ownRecords' }],
+    });
+  });
+
+  it('does not manage an object absent from the workspace rules', () => {
+    expect(
+      resolveInconnectRecordAccessDecision({
+        policy: resolvePolicy(),
+        authContext: userAuthContext,
+        objectMetadataId: 'unmanaged-object-id',
+        userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
+        apiKeyRoleMap: {},
+      }),
+    ).toEqual({ kind: 'not-managed' });
+  });
+
+  it('resolves allRecords only when explicitly configured for the Role', () => {
+    expect(
+      resolveInconnectRecordAccessDecision({
+        policy: resolvePolicy({
+          configuredValue: configWithEffect('allRecords'),
+        }),
+        authContext: userAuthContext,
+        objectMetadataId: LEAD_OBJECT_ID,
+        userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
+        apiKeyRoleMap: {},
+      }),
+    ).toEqual({ kind: 'all-records' });
+  });
+
+  it('recognizes ownAndTeamRecords but renders it fail-closed until Phase 3C', () => {
+    const decision = resolveInconnectRecordAccessDecision({
+      policy: resolvePolicy({
+        configuredValue: configWithEffect('ownAndTeamRecords'),
+      }),
+      authContext: userAuthContext,
+      objectMetadataId: LEAD_OBJECT_ID,
+      userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
+      apiKeyRoleMap: {},
+    });
+
+    expect(decision).toMatchObject({ kind: 'own-and-team-records' });
+    expect(
+      renderInconnectRecordAccessCondition({
+        decision,
+        tableAlias: 'lead',
+      }),
+    ).toMatchObject({ sql: '1 = 0' });
+  });
+
+  it('fails closed when the same Role and object are configured twice', () => {
+    const duplicateRule = config.workspaces[0].rules[0];
+
+    expect(
+      resolvePolicy({
+        configuredValue: {
+          workspaces: [
+            {
+              workspaceId: WORKSPACE_ID,
+              rules: [duplicateRule, duplicateRule],
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({ status: 'invalid' });
+  });
+
+  it('denies a Role without a rule on an INCONNECT-managed object', () => {
     expect(
       resolveInconnectRecordAccessDecision({
         policy: resolvePolicy(),
@@ -203,7 +286,7 @@ describe('InconnectRecordAccessService', () => {
         userWorkspaceRoleMap: { 'user-workspace-id': 'another-role-id' },
         apiKeyRoleMap: {},
       }),
-    ).toEqual({ kind: 'unrestricted' });
+    ).toMatchObject({ kind: 'denied' });
   });
 
   it('denies a matching API key Role because it has no Workspace Member', () => {
@@ -219,7 +302,7 @@ describe('InconnectRecordAccessService', () => {
         userWorkspaceRoleMap: {},
         apiKeyRoleMap: { 'api-key-id': ROLE_ID },
       }),
-    ).toEqual({ kind: 'denied' });
+    ).toMatchObject({ kind: 'denied' });
   });
 
   it('denies non-system reads when configured metadata is invalid', () => {
@@ -231,7 +314,7 @@ describe('InconnectRecordAccessService', () => {
         userWorkspaceRoleMap: { 'user-workspace-id': ROLE_ID },
         apiKeyRoleMap: {},
       }),
-    ).toEqual({ kind: 'denied' });
+    ).toMatchObject({ kind: 'denied' });
   });
 
   it('keeps the trusted system context unrestricted', () => {
@@ -246,6 +329,6 @@ describe('InconnectRecordAccessService', () => {
         userWorkspaceRoleMap: {},
         apiKeyRoleMap: {},
       }),
-    ).toEqual({ kind: 'unrestricted' });
+    ).toEqual({ kind: 'system-bypass' });
   });
 });

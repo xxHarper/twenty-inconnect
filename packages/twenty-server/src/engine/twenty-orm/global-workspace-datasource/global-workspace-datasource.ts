@@ -114,7 +114,7 @@ export class GlobalWorkspaceDataSource extends DataSource {
     const queryRunner = this.driver.createQueryRunner(mode);
     const manager = this.createEntityManager(queryRunner);
 
-    Object.assign(queryRunner, { manager: manager });
+    this.configureQueryRunnerForAfterCommitEvents(queryRunner, manager);
 
     // oxlint-disable-next-line typescript/no-explicit-any
     return queryRunner as any as WorkspaceQueryRunner;
@@ -131,7 +131,7 @@ export class GlobalWorkspaceDataSource extends DataSource {
         queryRunner,
       );
 
-      Object.assign(queryRunner, { manager: manager });
+      this.configureQueryRunnerForAfterCommitEvents(queryRunner, manager);
 
       return queryRunner;
     }
@@ -167,9 +167,45 @@ export class GlobalWorkspaceDataSource extends DataSource {
       queryRunner,
     );
 
-    Object.assign(queryRunner, { manager: manager });
+    this.configureQueryRunnerForAfterCommitEvents(queryRunner, manager);
 
     return queryRunner;
+  }
+
+  private configureQueryRunnerForAfterCommitEvents(
+    queryRunner: QueryRunner,
+    manager: QueryRunner['manager'],
+  ): void {
+    Object.assign(queryRunner, { manager });
+
+    const startTransaction = queryRunner.startTransaction.bind(queryRunner);
+    const commitTransaction = queryRunner.commitTransaction.bind(queryRunner);
+    const rollbackTransaction =
+      queryRunner.rollbackTransaction.bind(queryRunner);
+    const release = queryRunner.release.bind(queryRunner);
+
+    queryRunner.startTransaction = async (isolationLevel) => {
+      await startTransaction(isolationLevel);
+      this.eventEmitterService.markTransactionStarted(queryRunner);
+    };
+    queryRunner.commitTransaction = async () => {
+      await commitTransaction();
+      this.eventEmitterService.flushDatabaseBatchEventsAfterCommit(queryRunner);
+    };
+    queryRunner.rollbackTransaction = async () => {
+      try {
+        await rollbackTransaction();
+      } finally {
+        this.eventEmitterService.discardDatabaseBatchEventsAfterRollback(
+          queryRunner,
+        );
+      }
+    };
+    queryRunner.release = async () => {
+      this.eventEmitterService.clearPendingDatabaseBatchEvents(queryRunner);
+
+      return release();
+    };
   }
 
   override createQueryBuilder<Entity extends ObjectLiteral>(

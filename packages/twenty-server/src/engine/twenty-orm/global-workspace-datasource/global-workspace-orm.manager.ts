@@ -99,6 +99,7 @@ export class GlobalWorkspaceOrmManager {
       flatRoleMaps,
       flatRowLevelPermissionPredicateMaps,
       flatRowLevelPermissionPredicateGroupMaps,
+      inconnectTeamAccessMaps,
     } = await this.workspaceCacheService.getOrRecompute(workspaceId, [
       'flatObjectMetadataMaps',
       'flatFieldMetadataMaps',
@@ -111,6 +112,7 @@ export class GlobalWorkspaceOrmManager {
       'flatRoleMaps',
       'flatRowLevelPermissionPredicateMaps',
       'flatRowLevelPermissionPredicateGroupMaps',
+      'inconnectTeamAccessMaps',
     ]);
 
     const { idByNameSingular: objectIdByNameSingular } =
@@ -131,6 +133,7 @@ export class GlobalWorkspaceOrmManager {
       flatRowLevelPermissionPredicateMaps,
       flatRowLevelPermissionPredicateGroupMaps,
       inconnectRecordAccessPolicy,
+      inconnectTeamAccessMaps,
       objectIdByNameSingular,
       featureFlagsMap,
       permissionsPerRoleId,
@@ -152,6 +155,7 @@ export class GlobalWorkspaceOrmManager {
       userWorkspaceRoleMap,
       apiKeyRoleMap,
       ORMEntityMetadatas: entityMetadatas,
+      inconnectTeamAccessMaps,
     } = await this.workspaceCacheService.getOrRecompute(workspaceId, [
       'flatObjectMetadataMaps',
       'flatFieldMetadataMaps',
@@ -159,6 +163,7 @@ export class GlobalWorkspaceOrmManager {
       'userWorkspaceRoleMap',
       'apiKeyRoleMap',
       'ORMEntityMetadatas',
+      'inconnectTeamAccessMaps',
     ]);
 
     const { idByNameSingular: objectIdByNameSingular } =
@@ -191,6 +196,7 @@ export class GlobalWorkspaceOrmManager {
         universalIdentifiersByApplicationId: {},
       },
       inconnectRecordAccessPolicy,
+      inconnectTeamAccessMaps,
       objectIdByNameSingular,
       featureFlagsMap: {} as ORMWorkspaceContext['featureFlagsMap'],
       permissionsPerRoleId: {},

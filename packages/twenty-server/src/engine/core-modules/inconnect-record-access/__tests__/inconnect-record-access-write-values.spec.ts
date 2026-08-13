@@ -13,7 +13,7 @@ const SCOTT_WORKSPACE_MEMBER_ID = 'scott-workspace-member-id';
 const TIM_WORKSPACE_MEMBER_ID = 'tim-workspace-member-id';
 
 const scopedDecision: InconnectRecordAccessDecision = {
-  kind: 'scoped',
+  kind: 'own-records',
   ownerFieldMetadataId: 'owner-field-id',
   ownerFieldName: 'propietarioDeLead',
   ownerJoinColumnName: 'propietarioDeLeadId',
@@ -159,7 +159,7 @@ describe('INCONNECT record access write values', () => {
   it('does not restrict unsupported operations for a Role without a policy', () => {
     expect(() =>
       assertInconnectRecordAccessOperationSupported({
-        decision: { kind: 'unrestricted' },
+        decision: { kind: 'not-managed' },
         operation: 'upsert',
       }),
     ).not.toThrow();

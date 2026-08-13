@@ -32,6 +32,7 @@ const buildInternalContext = (
         ownerFieldMetadataId: 'owner-field-id',
         ownerFieldName: 'propietarioDeLead',
         ownerJoinColumnName: 'propietarioDeLeadId',
+        effect: 'ownRecords',
       },
     ],
   },

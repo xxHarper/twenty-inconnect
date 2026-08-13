@@ -169,7 +169,7 @@ describe('internal write provenance permissions', () => {
     expect(
       applyInconnectRecordAccessToCreateValues({
         decision: {
-          kind: 'scoped',
+          kind: 'own-records',
           ownerFieldMetadataId: 'owner-field-id',
           ownerFieldName: 'propietarioDeLead',
           ownerJoinColumnName: 'propietarioDeLeadId',

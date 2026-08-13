@@ -272,6 +272,7 @@ export class WorkspaceUpdateQueryBuilder<
           recordsBefore: formattedBefore,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       this.internalContext.eventEmitterService.emitDatabaseBatchEvent(
@@ -284,6 +285,7 @@ export class WorkspaceUpdateQueryBuilder<
           recordsBefore: formattedBefore,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       const formattedResult = formatResult<T[]>(
@@ -506,6 +508,7 @@ export class WorkspaceUpdateQueryBuilder<
           recordsBefore: formattedBefore,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       this.internalContext.eventEmitterService.emitDatabaseBatchEvent(
@@ -518,6 +521,7 @@ export class WorkspaceUpdateQueryBuilder<
           recordsBefore: formattedBefore,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       const formattedResults = formatResult<T[]>(

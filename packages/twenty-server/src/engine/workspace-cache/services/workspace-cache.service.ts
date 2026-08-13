@@ -76,6 +76,10 @@ type RecomputeHashResolution =
       adoptableHashes: Partial<Record<WorkspaceCacheKeyName, string>>;
     };
 
+export type WorkspaceCacheGenerations = Partial<
+  Record<WorkspaceCacheKeyName, number>
+>;
+
 @Injectable()
 export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
   private readonly localCache = new Map<
@@ -89,6 +93,8 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
     WorkspaceCacheProvider<CacheDataType, StoredCacheDataType>
   >();
   private readonly localDataOnlyKeys = new Set<WorkspaceCacheKeyName>();
+  private readonly generationFencedKeys = new Set<WorkspaceCacheKeyName>();
+  private readonly strictSharedCacheKeys = new Set<WorkspaceCacheKeyName>();
   private readonly memoizer = new PromiseMemoizer<CacheEntriesResult>(
     MEMOIZER_TTL_MS,
   );
@@ -133,6 +139,14 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
 
         if (options?.localDataOnly) {
           this.localDataOnlyKeys.add(workspaceCacheKeyName);
+        }
+
+        if (options?.generationFenced) {
+          this.generationFencedKeys.add(workspaceCacheKeyName);
+        }
+
+        if (options?.strictSharedCache) {
+          this.strictSharedCacheKeys.add(workspaceCacheKeyName);
         }
       }
     }
@@ -185,65 +199,64 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
   ): Promise<WorkspaceCacheResultWithHashes<K>> {
     this.assertValidCacheParameters(workspaceId, cacheKeyNames);
 
+    const execute = async (): Promise<CacheEntriesResult> => {
+      // Stage 1: Check local TTL
+      const { freshKeys, staleKeys } = this.checkLocalTTL(
+        workspaceId,
+        cacheKeyNames,
+      );
+      const freshEntries = this.getFromLocalCache(workspaceId, freshKeys);
+
+      if (staleKeys.length === 0) {
+        return freshEntries;
+      }
+
+      // Stage 2: Validate ttl stale keys against Redis hash
+      const {
+        validKeys,
+        keysNeedingDataFromRedis,
+        keysNeedingRecompute,
+        adoptableHashes,
+      } = await this.validateLocalHashAgainstRedisHash(workspaceId, staleKeys);
+      const validatedEntries = this.getFromLocalCache(workspaceId, validKeys);
+
+      // Stage 3: Fetch data from Redis
+      const { redisEntries, missingInRedis } = await this.fetchDataFromRedis(
+        workspaceId,
+        keysNeedingDataFromRedis,
+      );
+
+      // Stage 4: Recompute remaining
+      const keysToRecompute = [...keysNeedingRecompute, ...missingInRedis];
+      const recomputedEntries = await this.recomputeDataFromProvider(
+        workspaceId,
+        keysToRecompute,
+        { strategy: 'recover', adoptableHashes },
+      );
+
+      return {
+        data: {
+          ...freshEntries.data,
+          ...validatedEntries.data,
+          ...redisEntries.data,
+          ...recomputedEntries.data,
+        },
+        hashes: {
+          ...freshEntries.hashes,
+          ...validatedEntries.hashes,
+          ...redisEntries.hashes,
+          ...recomputedEntries.hashes,
+        },
+      };
+    };
+    const usesStrictSharedCache = cacheKeyNames.some((keyName) =>
+      this.strictSharedCacheKeys.has(keyName),
+    );
     const memoKey =
       `${workspaceId}-${[...cacheKeyNames].sort().join(',')}` as const;
-
-    const result = await this.memoizer.memoizePromiseAndExecute(
-      memoKey,
-      async () => {
-        // Stage 1: Check local TTL
-        const { freshKeys, staleKeys } = this.checkLocalTTL(
-          workspaceId,
-          cacheKeyNames,
-        );
-        const freshEntries = this.getFromLocalCache(workspaceId, freshKeys);
-
-        if (staleKeys.length === 0) {
-          return freshEntries;
-        }
-
-        // Stage 2: Validate ttl stale keys against Redis hash
-        const {
-          validKeys,
-          keysNeedingDataFromRedis,
-          keysNeedingRecompute,
-          adoptableHashes,
-        } = await this.validateLocalHashAgainstRedisHash(
-          workspaceId,
-          staleKeys,
-        );
-        const validatedEntries = this.getFromLocalCache(workspaceId, validKeys);
-
-        // Stage 3: Fetch data from Redis
-        const { redisEntries, missingInRedis } = await this.fetchDataFromRedis(
-          workspaceId,
-          keysNeedingDataFromRedis,
-        );
-
-        // Stage 4: Recompute remaining
-        const keysToRecompute = [...keysNeedingRecompute, ...missingInRedis];
-        const recomputedEntries = await this.recomputeDataFromProvider(
-          workspaceId,
-          keysToRecompute,
-          { strategy: 'recover', adoptableHashes },
-        );
-
-        return {
-          data: {
-            ...freshEntries.data,
-            ...validatedEntries.data,
-            ...redisEntries.data,
-            ...recomputedEntries.data,
-          },
-          hashes: {
-            ...freshEntries.hashes,
-            ...validatedEntries.hashes,
-            ...redisEntries.hashes,
-            ...recomputedEntries.hashes,
-          },
-        };
-      },
-    );
+    const result = usesStrictSharedCache
+      ? await execute()
+      : await this.memoizer.memoizePromiseAndExecute(memoKey, execute);
 
     return result as WorkspaceCacheResultWithHashes<K>;
   }
@@ -288,16 +301,103 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
       async () => {
         await this.memoizer.clearKeys(`${workspaceId}-`);
 
-        await this.flush(workspaceId, cacheKeyNames);
-        await this.recomputeDataFromProvider(workspaceId, cacheKeyNames, {
+        const fencedKeyNames = cacheKeyNames.filter((keyName) =>
+          this.generationFencedKeys.has(keyName),
+        );
+        const regularKeyNames = cacheKeyNames.filter(
+          (keyName) => !this.generationFencedKeys.has(keyName),
+        );
+        const generations = await this.revokeGenerationFencedEntries(
+          workspaceId,
+          fencedKeyNames,
+          'Cache invalidated before recomputation',
+        );
+
+        await this.flush(workspaceId, regularKeyNames);
+        await this.recomputeDataFromProvider(workspaceId, regularKeyNames, {
           strategy: 'mint',
         });
+        await this.recomputeGenerationFencedEntries(workspaceId, generations);
 
         // Clear memoizer again after recomputation to evict any stale entries
         // cached by concurrent getOrRecompute calls during the flush window.
         await this.memoizer.clearKeys(`${workspaceId}-`);
       },
     );
+  }
+
+  public async revokeGenerationFencedEntries(
+    workspaceId: string,
+    cacheKeyNames: WorkspaceCacheKeyName[],
+    reason: string,
+  ): Promise<WorkspaceCacheGenerations> {
+    if (cacheKeyNames.length === 0) {
+      return {};
+    }
+
+    this.assertValidCacheParameters(workspaceId, cacheKeyNames);
+
+    const ttlMs = this.twentyConfigService.get('CACHE_STORAGE_TTL') * 1000;
+    const generations: WorkspaceCacheGenerations = {};
+
+    for (const keyName of cacheKeyNames) {
+      if (!this.generationFencedKeys.has(keyName)) {
+        throw new Error(
+          `Cache key "${keyName}" does not support generation fencing`,
+        );
+      }
+
+      const provider = this.getProviderOrThrow(keyName);
+      const invalidationValue = provider.getInvalidationValue(reason);
+
+      if (!isDefined(invalidationValue)) {
+        throw new Error(
+          `Cache provider "${keyName}" has no fail-closed invalidation value`,
+        );
+      }
+
+      const baseKey = this.buildCacheKey(workspaceId, keyName);
+      const hash = crypto.randomUUID();
+      const generation = await this.cacheStorage.incrementGenerationAndSet<
+        StoredCacheDataType | string
+      >({
+        generationKey: `${baseKey}:generation`,
+        entries: [
+          {
+            key: `${baseKey}:data`,
+            value: provider.encodeForCacheStorage(invalidationValue),
+          },
+          { key: `${baseKey}:hash`, value: hash },
+        ],
+        ttlMs,
+      });
+
+      generations[keyName] = generation;
+      this.setInLocalCache(workspaceId, keyName, invalidationValue, hash);
+    }
+
+    await this.memoizer.clearKeys(`${workspaceId}-`);
+
+    return generations;
+  }
+
+  public async recomputeGenerationFencedEntries(
+    workspaceId: string,
+    generations: WorkspaceCacheGenerations,
+  ): Promise<void> {
+    const cacheKeyNames = Object.keys(generations) as WorkspaceCacheKeyName[];
+
+    if (cacheKeyNames.length === 0) {
+      return;
+    }
+
+    await this.recomputeDataFromProvider(
+      workspaceId,
+      cacheKeyNames,
+      { strategy: 'mint' },
+      generations,
+    );
+    await this.memoizer.clearKeys(`${workspaceId}-`);
   }
 
   public async getCacheHashes(
@@ -359,6 +459,12 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
 
     for (const keyName of cacheKeyNames) {
+      if (this.strictSharedCacheKeys.has(keyName)) {
+        staleKeys.push(keyName);
+
+        continue;
+      }
+
       const localKey = this.buildCacheKey(workspaceId, keyName);
       const cached = this.localCache.get(localKey);
 
@@ -491,6 +597,7 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
     workspaceId: string,
     cacheKeyNames: WorkspaceCacheKeyName[],
     hashResolution: RecomputeHashResolution,
+    expectedGenerations: WorkspaceCacheGenerations = {},
   ): Promise<CacheEntriesResult> {
     const result: CacheEntriesResult = { data: {}, hashes: {} };
 
@@ -498,7 +605,41 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
       return result;
     }
 
-    const computePromises = cacheKeyNames.map(async (keyName) => {
+    const fencedKeyNames = cacheKeyNames.filter((keyName) =>
+      this.generationFencedKeys.has(keyName),
+    );
+    const regularKeyNames = cacheKeyNames.filter(
+      (keyName) => !this.generationFencedKeys.has(keyName),
+    );
+
+    for (const keyName of fencedKeyNames) {
+      const expectedGeneration =
+        expectedGenerations[keyName] ??
+        (
+          await this.revokeGenerationFencedEntries(
+            workspaceId,
+            [keyName],
+            'Cache entry was absent and requires secure recomputation',
+          )
+        )[keyName];
+
+      if (!isDefined(expectedGeneration)) {
+        throw new Error(
+          `No generation was allocated for fenced cache "${keyName}"`,
+        );
+      }
+
+      const fencedEntry = await this.recomputeGenerationFencedEntry(
+        workspaceId,
+        keyName,
+        expectedGeneration,
+      );
+
+      Object.assign(result.data, fencedEntry.data);
+      Object.assign(result.hashes, fencedEntry.hashes);
+    }
+
+    const computePromises = regularKeyNames.map(async (keyName) => {
       const provider = this.getProviderOrThrow(keyName);
       const isLocalDataOnly = this.localDataOnlyKeys.has(keyName);
       const computeStartedAt = performance.now();
@@ -597,6 +738,65 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
+  private async recomputeGenerationFencedEntry(
+    workspaceId: string,
+    keyName: WorkspaceCacheKeyName,
+    expectedGeneration: number,
+  ): Promise<CacheEntriesResult> {
+    const provider = this.getProviderOrThrow(keyName);
+    const computeStartedAt = performance.now();
+    let data: CacheDataType;
+
+    try {
+      data = await provider.computeForCache(workspaceId);
+    } finally {
+      this.cacheMetricsService.recordRecompute(
+        (performance.now() - computeStartedAt) / 1000,
+        keyName,
+      );
+    }
+
+    const baseKey = this.buildCacheKey(workspaceId, keyName);
+    const hash = crypto.randomUUID();
+    const ttlMs = this.twentyConfigService.get('CACHE_STORAGE_TTL') * 1000;
+    const published = await this.cacheStorage.setIfGenerationMatches<
+      StoredCacheDataType | string
+    >({
+      generationKey: `${baseKey}:generation`,
+      expectedGeneration,
+      entries: [
+        {
+          key: `${baseKey}:data`,
+          value: provider.encodeForCacheStorage(data),
+        },
+        { key: `${baseKey}:hash`, value: hash },
+      ],
+      ttlMs,
+    });
+
+    if (published) {
+      this.setInLocalCache(workspaceId, keyName, data, hash);
+
+      return {
+        data: { [keyName]: data } as Partial<WorkspaceCacheDataMap>,
+        hashes: { [keyName]: hash },
+      };
+    }
+
+    const { redisEntries, missingInRedis } = await this.fetchDataFromRedis(
+      workspaceId,
+      [keyName],
+    );
+
+    if (missingInRedis.length > 0) {
+      throw new Error(
+        `Fenced cache "${keyName}" lost publication and has no authoritative value`,
+      );
+    }
+
+    return redisEntries;
+  }
+
   private getFromLocalCache(
     workspaceId: string,
     workspaceCacheKeyNames: WorkspaceCacheKeyName[],
@@ -645,8 +845,13 @@ export class WorkspaceCacheService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const keysToDelete = cacheKeyNames.flatMap((keyName) => {
       const baseKey = this.buildCacheKey(workspaceId, keyName);
+      const keys = [`${baseKey}:data`, `${baseKey}:hash`];
 
-      return [`${baseKey}:data`, `${baseKey}:hash`];
+      if (this.generationFencedKeys.has(keyName)) {
+        keys.push(`${baseKey}:generation`);
+      }
+
+      return keys;
     });
 
     await this.cacheStorage.mdel(keysToDelete);

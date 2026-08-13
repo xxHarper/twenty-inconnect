@@ -21,4 +21,8 @@ export abstract class WorkspaceCacheProvider<
   decodeFromCacheStorage(rawData: T | TEncoded): T {
     return rawData as T;
   }
+
+  getInvalidationValue(_reason: string): T | undefined {
+    return undefined;
+  }
 }

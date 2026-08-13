@@ -239,6 +239,13 @@ describe('WorkspaceEntityManager', () => {
         universalIdentifiersByApplicationId: {},
       },
       inconnectRecordAccessPolicy: { status: 'not-configured' },
+      inconnectTeamAccessMaps: {
+        version: 1,
+        status: 'valid',
+        membershipByWorkspaceMemberId: {},
+        memberWorkspaceMemberIdsByTeamId: {},
+        assignableMemberWorkspaceMemberIdsByTeamId: {},
+      },
       objectIdByNameSingular: {
         'test-entity': 'test-entity-id',
       },
@@ -316,6 +323,7 @@ describe('WorkspaceEntityManager', () => {
       flatRowLevelPermissionPredicateGroupMaps:
         mockInternalContext.flatRowLevelPermissionPredicateGroupMaps,
       inconnectRecordAccessPolicy: { status: 'not-configured' },
+      inconnectTeamAccessMaps: mockInternalContext.inconnectTeamAccessMaps,
       objectIdByNameSingular: mockInternalContext.objectIdByNameSingular,
       featureFlagsMap: mockInternalContext.featureFlagsMap,
       permissionsPerRoleId: mockDataSource.permissionsPerRoleId,

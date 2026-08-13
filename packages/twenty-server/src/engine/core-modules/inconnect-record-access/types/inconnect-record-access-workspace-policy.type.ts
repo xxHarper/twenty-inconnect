@@ -4,6 +4,7 @@ export type ResolvedInconnectRecordAccessRule = {
   ownerFieldMetadataId: string;
   ownerFieldName: string;
   ownerJoinColumnName: string;
+  effect: 'ownRecords' | 'ownAndTeamRecords' | 'allRecords';
 };
 
 export type InconnectRecordAccessWorkspacePolicy =
@@ -15,12 +16,31 @@ export type InconnectRecordAccessWorkspacePolicy =
     };
 
 export type InconnectRecordAccessDecision =
-  | { kind: 'unrestricted' }
-  | { kind: 'denied' }
+  | { kind: 'not-managed' }
+  | { kind: 'system-bypass' }
+  | { kind: 'all-records' }
+  | { kind: 'denied'; reason?: string }
   | {
-      kind: 'scoped';
+      kind: 'own-records';
+      ownerFieldMetadataId: string;
+      ownerFieldName: string;
+      ownerJoinColumnName: string;
+      workspaceMemberId: string;
+    }
+  | {
+      kind: 'own-and-team-records';
       ownerFieldMetadataId: string;
       ownerFieldName: string;
       ownerJoinColumnName: string;
       workspaceMemberId: string;
     };
+
+export const hasNoInconnectRecordAccessScope = (
+  decision: InconnectRecordAccessDecision,
+): decision is Extract<
+  InconnectRecordAccessDecision,
+  { kind: 'not-managed' | 'system-bypass' | 'all-records' }
+> =>
+  decision.kind === 'not-managed' ||
+  decision.kind === 'system-bypass' ||
+  decision.kind === 'all-records';

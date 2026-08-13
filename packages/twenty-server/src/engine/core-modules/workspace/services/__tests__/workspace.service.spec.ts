@@ -29,6 +29,7 @@ import { AiModelRegistryService } from 'src/engine/metadata-modules/ai/ai-models
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import { CoreEntityCacheService } from 'src/engine/core-entity-cache/services/core-entity-cache.service';
 import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage/workspace-cache-storage.service';
+import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import { WorkspaceDataSourceService } from 'src/engine/workspace-datasource/workspace-datasource.service';
 import { PrefillLogicFunctionService } from 'src/engine/workspace-manager/standard-objects-prefill-data/services/prefill-logic-function.service';
 import { ApplicationService } from 'src/engine/core-modules/application/application.service';
@@ -43,6 +44,7 @@ describe('WorkspaceService', () => {
   let userRepository: Repository<UserEntity>;
   let workspaceRepository: Repository<WorkspaceEntity>;
   let workspaceCacheStorageService: WorkspaceCacheStorageService;
+  let workspaceCacheService: WorkspaceCacheService;
   let messageQueueService: MessageQueueService;
   let dnsManagerService: DnsManagerService;
   let billingSubscriptionService: BillingSubscriptionService;
@@ -134,6 +136,12 @@ describe('WorkspaceService', () => {
           },
         },
         {
+          provide: WorkspaceCacheService,
+          useValue: {
+            flush: jest.fn(),
+          },
+        },
+        {
           provide: WorkspaceDataSourceService,
           useValue: {
             deleteWorkspaceDBSchema: jest.fn(),
@@ -190,6 +198,9 @@ describe('WorkspaceService', () => {
     );
     workspaceCacheStorageService = module.get<WorkspaceCacheStorageService>(
       WorkspaceCacheStorageService,
+    );
+    workspaceCacheService = module.get<WorkspaceCacheService>(
+      WorkspaceCacheService,
     );
     messageQueueService = module.get<MessageQueueService>(
       getQueueToken(MessageQueue.deleteCascadeQueue),
@@ -314,6 +325,10 @@ describe('WorkspaceService', () => {
       ).toHaveBeenCalledWith(mockWorkspace.id);
       expect(workspaceCacheStorageService.flush).toHaveBeenCalledWith(
         mockWorkspace.id,
+      );
+      expect(workspaceCacheService.flush).toHaveBeenCalledWith(
+        mockWorkspace.id,
+        ['inconnectTeamAccessMaps'],
       );
       expect(messageQueueService.add).toHaveBeenCalled();
       expect(workspaceRepository.delete).toHaveBeenCalledWith(mockWorkspace.id);

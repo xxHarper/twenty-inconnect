@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import {
   ObjectRecordCreateEvent,
@@ -17,6 +17,8 @@ import { WorkspaceMemberWorkspaceEntity } from 'src/modules/workspace-member/sta
 
 @Injectable()
 export class GlobalWorkspaceMemberListener {
+  private readonly logger = new Logger(GlobalWorkspaceMemberListener.name);
+
   constructor(private readonly workspaceCacheService: WorkspaceCacheService) {}
 
   @OnDatabaseBatchEvent('workspaceMember', DatabaseEventAction.CREATED)
@@ -35,9 +37,18 @@ export class GlobalWorkspaceMemberListener {
       | ObjectRecordUpsertEvent<WorkspaceMemberWorkspaceEntity>
     >,
   ) {
-    await this.workspaceCacheService.invalidateAndRecompute(
-      payload.workspaceId,
-      ['flatWorkspaceMemberMaps'],
-    );
+    try {
+      await this.workspaceCacheService.invalidateAndRecompute(
+        payload.workspaceId,
+        ['flatWorkspaceMemberMaps', 'inconnectTeamAccessMaps'],
+      );
+    } catch (error) {
+      // Database events run after commit. The fenced INCONNECT value remains
+      // invalid when recomputation fails, so this must not mimic a DB rollback.
+      this.logger.error(
+        `Workspace Member cache refresh failed after commit for workspace ${payload.workspaceId}`,
+        error,
+      );
+    }
   }
 }

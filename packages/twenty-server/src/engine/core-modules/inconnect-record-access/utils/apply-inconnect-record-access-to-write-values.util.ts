@@ -4,7 +4,10 @@ import {
   InconnectRecordAccessException,
   InconnectRecordAccessExceptionCode,
 } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.exception';
-import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import {
+  hasNoInconnectRecordAccessScope,
+  type InconnectRecordAccessDecision,
+} from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 
 type WriteValues = ObjectLiteral | ObjectLiteral[] | undefined;
 
@@ -88,11 +91,11 @@ export const applyInconnectRecordAccessToCreateValues = ({
   decision: InconnectRecordAccessDecision;
   valuesSet: WriteValues;
 }): WriteValues => {
-  if (decision.kind === 'unrestricted') {
+  if (hasNoInconnectRecordAccessScope(decision)) {
     return valuesSet;
   }
 
-  if (decision.kind === 'denied') {
+  if (decision.kind === 'denied' || decision.kind === 'own-and-team-records') {
     throw new InconnectRecordAccessException(
       'Create denied by INCONNECT Record Access',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,
@@ -132,11 +135,11 @@ export const validateInconnectRecordAccessUpdateValues = ({
   decision: InconnectRecordAccessDecision;
   valuesSet: WriteValues;
 }): void => {
-  if (decision.kind === 'unrestricted') {
+  if (hasNoInconnectRecordAccessScope(decision)) {
     return;
   }
 
-  if (decision.kind === 'denied') {
+  if (decision.kind === 'denied' || decision.kind === 'own-and-team-records') {
     throw new InconnectRecordAccessException(
       'Update denied by INCONNECT Record Access',
       InconnectRecordAccessExceptionCode.ACCESS_DENIED,

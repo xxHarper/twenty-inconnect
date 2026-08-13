@@ -1,0 +1,151 @@
+import { Injectable } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+
+import { DataSource, IsNull } from 'typeorm';
+
+import { InconnectCommercialTeamMembershipEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-commercial-team-membership.entity';
+import { InconnectCommercialTeamEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-commercial-team.entity';
+import { InconnectWorkspaceMemberService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-workspace-member.service';
+import { InconnectCommercialTeamMembershipType } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-commercial-team-membership-type.type';
+import { type InconnectTeamAccessMaps } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-team-access-maps.type';
+import {
+  invalidInconnectTeamAccessMaps,
+  parseInconnectTeamAccessMaps,
+} from 'src/engine/core-modules/inconnect-record-access/utils/parse-inconnect-team-access-maps.util';
+import { WorkspaceCache } from 'src/engine/workspace-cache/decorators/workspace-cache.decorator';
+import { WorkspaceCacheProvider } from 'src/engine/workspace-cache/interfaces/workspace-cache-provider.service';
+
+@Injectable()
+@WorkspaceCache('inconnectTeamAccessMaps', {
+  generationFenced: true,
+  strictSharedCache: true,
+})
+export class WorkspaceInconnectTeamAccessMapsCacheService extends WorkspaceCacheProvider<InconnectTeamAccessMaps> {
+  constructor(
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
+    private readonly workspaceMemberService: InconnectWorkspaceMemberService,
+  ) {
+    super();
+  }
+
+  async computeForCache(workspaceId: string): Promise<InconnectTeamAccessMaps> {
+    return this.dataSource.transaction(
+      'REPEATABLE READ',
+      async (transactionManager) => {
+        await transactionManager.query('SET TRANSACTION READ ONLY');
+
+        const teams = await transactionManager
+          .getRepository(InconnectCommercialTeamEntity)
+          .find({
+            where: { workspaceId },
+            select: { id: true, deletedAt: true },
+            withDeleted: true,
+          });
+        const activeMemberships = await transactionManager
+          .getRepository(InconnectCommercialTeamMembershipEntity)
+          .find({
+            where: { workspaceId, deletedAt: IsNull() },
+            order: { createdAt: 'ASC' },
+          });
+        const teamById = new Map(teams.map((team) => [team.id, team]));
+
+        if (
+          activeMemberships.some(
+            (membership) => teamById.get(membership.teamId)?.deletedAt !== null,
+          )
+        ) {
+          return invalidInconnectTeamAccessMaps(
+            'An active membership references a missing or deleted commercial team',
+          );
+        }
+
+        const activeTeamIds = teams
+          .filter((team) => team.deletedAt === null)
+          .map((team) => team.id);
+        const workspaceMemberIds = activeMemberships.map(
+          (membership) => membership.workspaceMemberId,
+        );
+        const uniqueWorkspaceMemberIds = new Set(workspaceMemberIds);
+        const coordinatorTeamIds = activeMemberships
+          .filter(
+            (membership) =>
+              membership.membershipType ===
+              InconnectCommercialTeamMembershipType.COORDINATOR,
+          )
+          .map((membership) => membership.teamId);
+
+        if (
+          uniqueWorkspaceMemberIds.size !== activeMemberships.length ||
+          new Set(coordinatorTeamIds).size !== coordinatorTeamIds.length
+        ) {
+          return invalidInconnectTeamAccessMaps(
+            'Commercial team memberships violate active constraints',
+          );
+        }
+
+        const workspaceMemberStates =
+          await this.workspaceMemberService.getWorkspaceMemberStates({
+            manager: transactionManager,
+            workspaceId,
+            workspaceMemberIds,
+          });
+
+        if (workspaceMemberStates.size !== uniqueWorkspaceMemberIds.size) {
+          return invalidInconnectTeamAccessMaps(
+            'At least one commercial team membership references a missing Workspace Member',
+          );
+        }
+
+        const maps: Extract<InconnectTeamAccessMaps, { status: 'valid' }> = {
+          version: 1,
+          status: 'valid',
+          membershipByWorkspaceMemberId: {},
+          memberWorkspaceMemberIdsByTeamId: Object.fromEntries(
+            activeTeamIds.map((teamId) => [teamId, []]),
+          ),
+          assignableMemberWorkspaceMemberIdsByTeamId: Object.fromEntries(
+            activeTeamIds.map((teamId) => [teamId, []]),
+          ),
+        };
+
+        for (const membership of activeMemberships) {
+          const memberState = workspaceMemberStates.get(
+            membership.workspaceMemberId,
+          );
+
+          if (!memberState) {
+            return invalidInconnectTeamAccessMaps(
+              'Commercial team membership cache is inconsistent',
+            );
+          }
+
+          maps.membershipByWorkspaceMemberId[membership.workspaceMemberId] = {
+            teamId: membership.teamId,
+            membershipType: membership.membershipType,
+            isWorkspaceMemberAssignable: memberState.isAssignable,
+          };
+          maps.memberWorkspaceMemberIdsByTeamId[membership.teamId].push(
+            membership.workspaceMemberId,
+          );
+
+          if (memberState.isAssignable) {
+            maps.assignableMemberWorkspaceMemberIdsByTeamId[
+              membership.teamId
+            ].push(membership.workspaceMemberId);
+          }
+        }
+
+        return maps;
+      },
+    );
+  }
+
+  override decodeFromCacheStorage(rawData: unknown): InconnectTeamAccessMaps {
+    return parseInconnectTeamAccessMaps(rawData);
+  }
+
+  override getInvalidationValue(reason: string): InconnectTeamAccessMaps {
+    return invalidInconnectTeamAccessMaps(reason);
+  }
+}

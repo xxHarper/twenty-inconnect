@@ -69,6 +69,7 @@ import {
 } from 'src/engine/metadata-modules/permissions/permissions.exception';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage/workspace-cache-storage.service';
+import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import { getWorkspaceSchemaName } from 'src/engine/workspace-datasource/utils/get-workspace-schema-name.util';
 import { WorkspaceDataSourceService } from 'src/engine/workspace-datasource/workspace-datasource.service';
 import { PrefillLogicFunctionService } from 'src/engine/workspace-manager/standard-objects-prefill-data/services/prefill-logic-function.service';
@@ -144,6 +145,7 @@ export class WorkspaceService {
     private readonly preInstalledAppsService: PreInstalledAppsService,
     private readonly workspaceMigrationValidateBuildAndRunService: WorkspaceMigrationValidateBuildAndRunService,
     private readonly workspaceCacheStorageService: WorkspaceCacheStorageService,
+    private readonly workspaceCacheService: WorkspaceCacheService,
     private readonly subdomainManagerService: SubdomainManagerService,
     private readonly workspaceDataSourceService: WorkspaceDataSourceService,
     private readonly customDomainManagerService: CustomDomainManagerService,
@@ -567,6 +569,7 @@ export class WorkspaceService {
     }
     this.logger.log(`workspace ${id} user workspaces deleted`);
 
+    await this.workspaceCacheService.flush(id, ['inconnectTeamAccessMaps']);
     this.logger.log(`workspace ${id} cache flushed`);
 
     if (softDelete) {

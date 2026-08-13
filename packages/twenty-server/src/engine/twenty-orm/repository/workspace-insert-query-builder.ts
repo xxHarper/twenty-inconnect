@@ -289,6 +289,7 @@ export class WorkspaceInsertQueryBuilder<
           recordsAfter: formattedResultForEvent,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       this.internalContext.eventEmitterService.emitDatabaseBatchEvent(
@@ -300,6 +301,7 @@ export class WorkspaceInsertQueryBuilder<
           recordsAfter: formattedResultForEvent,
           authContext: this.authContext,
         }),
+        this.queryRunner,
       );
 
       // TypeORM returns all entity columns for insertions

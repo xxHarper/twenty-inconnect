@@ -14,6 +14,7 @@ import { type FeatureFlagMap } from 'src/engine/core-modules/feature-flag/interf
 import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/workspace-internal-context.interface';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { hasNoInconnectRecordAccessScope } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
 import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
 import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps.util';
@@ -433,7 +434,7 @@ export class WorkspaceSelectQueryBuilder<
       apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
     });
 
-    if (decision.kind === 'unrestricted') {
+    if (hasNoInconnectRecordAccessScope(decision)) {
       return;
     }
 
@@ -509,7 +510,7 @@ export class WorkspaceSelectQueryBuilder<
         apiKeyRoleMap: this.internalContext.apiKeyRoleMap,
       });
 
-      if (decision.kind === 'unrestricted') {
+      if (hasNoInconnectRecordAccessScope(decision)) {
         markInconnectRecordAccessApplied(joinAttribute);
         continue;
       }

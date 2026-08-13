@@ -110,6 +110,7 @@ export class WorkspaceDataSourceV2Service
         workspaceContext.flatRowLevelPermissionPredicateGroupMaps,
       objectIdByNameSingular: workspaceContext.objectIdByNameSingular,
       inconnectRecordAccessPolicy: workspaceContext.inconnectRecordAccessPolicy,
+      inconnectTeamAccessMaps: workspaceContext.inconnectTeamAccessMaps,
       featureFlagsMap: workspaceContext.featureFlagsMap,
       userWorkspaceRoleMap: workspaceContext.userWorkspaceRoleMap,
       apiKeyRoleMap: workspaceContext.apiKeyRoleMap,

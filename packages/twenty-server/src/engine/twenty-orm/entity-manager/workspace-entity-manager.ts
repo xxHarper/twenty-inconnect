@@ -117,6 +117,7 @@ export class WorkspaceEntityManager extends EntityManager {
         context.flatRowLevelPermissionPredicateGroupMaps,
       objectIdByNameSingular: context.objectIdByNameSingular,
       inconnectRecordAccessPolicy: context.inconnectRecordAccessPolicy,
+      inconnectTeamAccessMaps: context.inconnectTeamAccessMaps,
       featureFlagsMap: context.featureFlagsMap,
       userWorkspaceRoleMap: context.userWorkspaceRoleMap,
       apiKeyRoleMap: context.apiKeyRoleMap,
@@ -1356,6 +1357,7 @@ export class WorkspaceEntityManager extends EntityManager {
           recordsAfter: updatedEntities,
           recordsBefore: beforeUpdate,
         }),
+        this.queryRunner,
       );
 
       this.internalContext.eventEmitterService.emitDatabaseBatchEvent(
@@ -1366,6 +1368,7 @@ export class WorkspaceEntityManager extends EntityManager {
           workspaceId: this.internalContext.workspaceId,
           recordsAfter: createdEntities,
         }),
+        this.queryRunner,
       );
 
       const permissionCheckApplies =
@@ -1570,6 +1573,7 @@ export class WorkspaceEntityManager extends EntityManager {
         workspaceId: this.internalContext.workspaceId,
         recordsBefore,
       }),
+      this.queryRunner,
     );
 
     return isEntityArray ? formattedResult : formattedResult[0];
@@ -1729,6 +1733,7 @@ export class WorkspaceEntityManager extends EntityManager {
         recordsAfter,
         recordsBefore,
       }),
+      this.queryRunner,
     );
 
     return isEntityArray ? formattedResult : formattedResult[0];
@@ -1884,6 +1889,7 @@ export class WorkspaceEntityManager extends EntityManager {
         recordsAfter,
         recordsBefore,
       }),
+      this.queryRunner,
     );
 
     return isEntityArray ? formattedResult : formattedResult[0];

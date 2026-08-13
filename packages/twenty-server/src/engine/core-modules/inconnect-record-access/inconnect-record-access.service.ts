@@ -28,6 +28,23 @@ type ResolveWorkspacePolicyArgs = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const resolveEffect = (
+  effect: unknown,
+): ResolvedInconnectRecordAccessRule['effect'] | undefined => {
+  if (
+    effect === 'ownerEqualsAuthenticatedWorkspaceMember' ||
+    effect === 'ownRecords'
+  ) {
+    return 'ownRecords';
+  }
+
+  if (effect === 'ownAndTeamRecords' || effect === 'allRecords') {
+    return effect;
+  }
+
+  return undefined;
+};
+
 @Injectable()
 export class InconnectRecordAccessService {
   constructor(private readonly twentyConfigService: TwentyConfigService) {}
@@ -133,13 +150,15 @@ export class InconnectRecordAccessService {
     flatObjectMetadataMaps: FlatEntityMaps<FlatObjectMetadata>;
     flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
   }): ResolvedInconnectRecordAccessRule | string {
+    const effect = isRecord(rule) ? resolveEffect(rule.effect) : undefined;
+
     if (
       !isRecord(rule) ||
       !isNonEmptyString(rule.roleUniversalIdentifier) ||
       !isNonEmptyString(rule.objectUniversalIdentifier) ||
       !isNonEmptyString(rule.ownerFieldUniversalIdentifier) ||
       rule.principal !== 'workspaceMember' ||
-      rule.effect !== 'ownerEqualsAuthenticatedWorkspaceMember'
+      !isDefined(effect)
     ) {
       return 'INCONNECT owner rule has an invalid shape';
     }
@@ -204,6 +223,7 @@ export class InconnectRecordAccessService {
       ownerJoinColumnName: computeMorphOrRelationFieldJoinColumnName({
         name: ownerField.name,
       }),
+      effect,
     };
   }
 }

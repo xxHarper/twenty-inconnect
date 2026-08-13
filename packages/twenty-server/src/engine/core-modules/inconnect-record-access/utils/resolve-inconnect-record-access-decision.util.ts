@@ -21,15 +21,23 @@ export const resolveInconnectRecordAccessDecision = ({
   apiKeyRoleMap: Record<string, string>;
 }): InconnectRecordAccessDecision => {
   if (authContext.type === 'system') {
-    return { kind: 'unrestricted' };
+    return { kind: 'system-bypass' };
   }
 
   if (policy.status === 'not-configured') {
-    return { kind: 'unrestricted' };
+    return { kind: 'not-managed' };
   }
 
   if (policy.status === 'invalid') {
-    return { kind: 'denied' };
+    return { kind: 'denied', reason: policy.reason };
+  }
+
+  const objectRules = policy.rules.filter(
+    (rule) => rule.objectMetadataId === objectMetadataId,
+  );
+
+  if (objectRules.length === 0) {
+    return { kind: 'not-managed' };
   }
 
   const roleIds = resolveRoleIdsFromAuthContext({
@@ -37,33 +45,42 @@ export const resolveInconnectRecordAccessDecision = ({
     userWorkspaceRoleMap,
     apiKeyRoleMap,
   });
-  const applicableRules = policy.rules.filter(
-    (rule) =>
-      rule.objectMetadataId === objectMetadataId &&
-      roleIds.includes(rule.roleId),
+  const applicableRules = objectRules.filter((rule) =>
+    roleIds.includes(rule.roleId),
   );
 
   if (applicableRules.length === 0) {
-    return { kind: 'unrestricted' };
+    return {
+      kind: 'denied',
+      reason: 'No INCONNECT rule applies to this Role on a managed object',
+    };
+  }
+
+  if (applicableRules.length !== 1) {
+    return { kind: 'denied', reason: 'Ambiguous INCONNECT Role rules' };
   }
 
   if (!isUserAuthContext(authContext)) {
-    return { kind: 'denied' };
+    return {
+      kind: 'denied',
+      reason: 'A Workspace Member is required by the INCONNECT policy',
+    };
   }
 
-  const ownerJoinColumnNames = new Set(
-    applicableRules.map((rule) => rule.ownerJoinColumnName),
-  );
+  const [applicableRule] = applicableRules;
 
-  if (ownerJoinColumnNames.size !== 1) {
-    return { kind: 'denied' };
+  if (applicableRule.effect === 'allRecords') {
+    return { kind: 'all-records' };
   }
 
   return {
-    kind: 'scoped',
-    ownerFieldMetadataId: applicableRules[0].ownerFieldMetadataId,
-    ownerFieldName: applicableRules[0].ownerFieldName,
-    ownerJoinColumnName: applicableRules[0].ownerJoinColumnName,
+    kind:
+      applicableRule.effect === 'ownRecords'
+        ? 'own-records'
+        : 'own-and-team-records',
+    ownerFieldMetadataId: applicableRule.ownerFieldMetadataId,
+    ownerFieldName: applicableRule.ownerFieldName,
+    ownerJoinColumnName: applicableRule.ownerJoinColumnName,
     workspaceMemberId: authContext.workspaceMemberId,
   };
 };

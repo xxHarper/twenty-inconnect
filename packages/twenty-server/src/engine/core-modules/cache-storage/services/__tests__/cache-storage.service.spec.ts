@@ -110,6 +110,110 @@ describe('CacheStorageService', () => {
     });
   });
 
+  describe('generation fencing', () => {
+    const createRedisCacheMock = (evalResult: number) => {
+      const evaluate = jest.fn().mockResolvedValue(evalResult);
+      const cache = {
+        store: { name: 'redis', client: { eval: evaluate } },
+      } as unknown as Cache;
+
+      return { cache, evaluate };
+    };
+
+    it('atomically increments a workspace generation and publishes invalid data', async () => {
+      const { cache, evaluate } = createRedisCacheMock(7);
+      const cacheStorageService = new CacheStorageService(
+        cache,
+        CacheStorageNamespace.EngineWorkspace,
+      );
+
+      await expect(
+        cacheStorageService.incrementGenerationAndSet<unknown>({
+          generationKey: 'team-cache:workspace-a:generation',
+          entries: [
+            {
+              key: 'team-cache:workspace-a:data',
+              value: { version: 1, status: 'invalid' },
+            },
+            { key: 'team-cache:workspace-a:hash', value: 'hash-7' },
+          ],
+          ttlMs: 5000,
+        }),
+      ).resolves.toBe(7);
+      expect(evaluate).toHaveBeenCalledWith(
+        expect.stringContaining("redis.call('INCR', KEYS[1])"),
+        {
+          keys: [
+            prefixKey('team-cache:workspace-a:generation'),
+            prefixKey('team-cache:workspace-a:data'),
+            prefixKey('team-cache:workspace-a:hash'),
+          ],
+          arguments: [
+            '5000',
+            JSON.stringify({ version: 1, status: 'invalid' }),
+            JSON.stringify('hash-7'),
+          ],
+        },
+      );
+    });
+
+    it('publishes only when the expected generation still owns the workspace key', async () => {
+      const { cache, evaluate } = createRedisCacheMock(0);
+      const cacheStorageService = new CacheStorageService(
+        cache,
+        CacheStorageNamespace.EngineWorkspace,
+      );
+
+      await expect(
+        cacheStorageService.setIfGenerationMatches({
+          generationKey: 'team-cache:workspace-a:generation',
+          expectedGeneration: 3,
+          entries: [
+            {
+              key: 'team-cache:workspace-a:data',
+              value: { version: 1, status: 'valid' },
+            },
+          ],
+          ttlMs: 5000,
+        }),
+      ).resolves.toBe(false);
+      expect(evaluate).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "tonumber(redis.call('GET', KEYS[1])) ~= tonumber(ARGV[1])",
+        ),
+        expect.objectContaining({
+          keys: [
+            prefixKey('team-cache:workspace-a:generation'),
+            prefixKey('team-cache:workspace-a:data'),
+          ],
+          arguments: [
+            '3',
+            '5000',
+            JSON.stringify({ version: 1, status: 'valid' }),
+          ],
+        }),
+      );
+    });
+
+    it('requires shared Redis authority instead of unsafe process-local fencing', async () => {
+      const cache = {
+        store: { name: 'memory' },
+      } as unknown as Cache;
+      const cacheStorageService = new CacheStorageService(
+        cache,
+        CacheStorageNamespace.EngineWorkspace,
+      );
+
+      await expect(
+        cacheStorageService.incrementGenerationAndSet({
+          generationKey: 'generation',
+          entries: [],
+          ttlMs: 5000,
+        }),
+      ).rejects.toThrow('requires Redis');
+    });
+  });
+
   describe('sorted sets', () => {
     const createRedisCacheMock = () => {
       const zAdd = jest.fn().mockResolvedValue(1);

@@ -4,6 +4,8 @@ import { type WorkspaceCacheKeyName } from 'src/engine/workspace-cache/types/wor
 
 export type WorkspaceCacheOptions = {
   localDataOnly?: boolean;
+  generationFenced?: boolean;
+  strictSharedCache?: boolean;
 };
 
 export const WORKSPACE_CACHE_KEY = 'WORKSPACE_CACHE_KEY';

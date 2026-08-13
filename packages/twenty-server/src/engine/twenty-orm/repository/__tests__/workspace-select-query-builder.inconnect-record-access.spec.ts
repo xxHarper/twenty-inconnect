@@ -31,6 +31,7 @@ const internalContext = {
         ownerFieldMetadataId: 'owner-field-id',
         ownerFieldName: 'propietarioDeLead',
         ownerJoinColumnName: 'propietarioDeLeadId',
+        effect: 'ownRecords',
       },
     ],
   },

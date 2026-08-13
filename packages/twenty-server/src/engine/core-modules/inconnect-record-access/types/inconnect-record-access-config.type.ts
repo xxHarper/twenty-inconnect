@@ -3,7 +3,11 @@ export type InconnectRecordAccessRuleConfig = {
   objectUniversalIdentifier: string;
   ownerFieldUniversalIdentifier: string;
   principal: 'workspaceMember';
-  effect: 'ownerEqualsAuthenticatedWorkspaceMember';
+  effect:
+    | 'ownerEqualsAuthenticatedWorkspaceMember'
+    | 'ownRecords'
+    | 'ownAndTeamRecords'
+    | 'allRecords';
 };
 
 export type InconnectRecordAccessWorkspaceConfig = {
