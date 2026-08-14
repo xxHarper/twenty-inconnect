@@ -14,6 +14,14 @@ export type InconnectRecordAccessOwnerTransferPolicy =
   | 'assignableOwners'
   | 'standardPermissionsOnly';
 
+export type InconnectRecordAccessOwnerRequirement = 'required' | 'optional';
+
+export type InconnectRecordAccessMissingOwnerPolicy =
+  | 'self'
+  | 'requireExplicit'
+  | 'singleActiveMemberOfRole'
+  | 'standard';
+
 type InconnectRecordAccessRuleRecordEffect =
   | {
       recordEffect: InconnectRecordAccessRecordEffect;
@@ -36,6 +44,9 @@ export type InconnectRecordAccessRuleConfig =
     principal: 'workspaceMember';
     createPolicy?: InconnectRecordAccessCreatePolicy;
     ownerTransferPolicy?: InconnectRecordAccessOwnerTransferPolicy;
+    ownerRequirement?: InconnectRecordAccessOwnerRequirement;
+    missingOwnerPolicy?: InconnectRecordAccessMissingOwnerPolicy;
+    defaultOwnerRoleUniversalIdentifier?: string;
   };
 
 export type InconnectRecordAccessWorkspaceConfig = {

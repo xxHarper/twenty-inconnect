@@ -72,6 +72,8 @@ const buildInternalContext = (
         recordEffect: 'ownRecords',
         createPolicy: 'denied',
         ownerTransferPolicy: 'denied',
+        ownerRequirement: 'required',
+        missingOwnerPolicy: 'requireExplicit',
       },
     ],
   },
@@ -189,6 +191,8 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
           recordEffect: 'ownAndTeamRecords',
           createPolicy: 'denied',
           ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'requireExplicit',
         },
       ],
     });
@@ -230,6 +234,8 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
           recordEffect: 'ownAndTeamRecords',
           createPolicy: 'denied',
           ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'requireExplicit',
         },
       ],
     });
@@ -291,6 +297,8 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
           recordEffect: 'ownAndTeamRecords',
           createPolicy: 'denied',
           ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'requireExplicit',
         },
       ],
     });

@@ -82,6 +82,87 @@ const resolveOwnerTransferPolicy = (
   return undefined;
 };
 
+const resolveOwnerRequirement = (
+  ownerRequirement: unknown,
+): ResolvedInconnectRecordAccessRule['ownerRequirement'] | undefined => {
+  if (ownerRequirement === undefined) {
+    return 'required';
+  }
+
+  if (ownerRequirement === 'required' || ownerRequirement === 'optional') {
+    return ownerRequirement;
+  }
+
+  return undefined;
+};
+
+const resolveMissingOwnerPolicy = ({
+  missingOwnerPolicy,
+  createPolicy,
+}: {
+  missingOwnerPolicy: unknown;
+  createPolicy: ResolvedInconnectRecordAccessRule['createPolicy'] | undefined;
+}): ResolvedInconnectRecordAccessRule['missingOwnerPolicy'] | undefined => {
+  if (missingOwnerPolicy === undefined) {
+    if (
+      createPolicy === 'defaultOwner' ||
+      createPolicy === 'assignableOwners'
+    ) {
+      return 'self';
+    }
+
+    return 'requireExplicit';
+  }
+
+  if (
+    missingOwnerPolicy === 'self' ||
+    missingOwnerPolicy === 'requireExplicit' ||
+    missingOwnerPolicy === 'singleActiveMemberOfRole' ||
+    missingOwnerPolicy === 'standard'
+  ) {
+    return missingOwnerPolicy;
+  }
+
+  return undefined;
+};
+
+const isValidOwnerIntegrityCombination = ({
+  createPolicy,
+  ownerRequirement,
+  missingOwnerPolicy,
+  hasDefaultOwnerRole,
+}: {
+  createPolicy: ResolvedInconnectRecordAccessRule['createPolicy'];
+  ownerRequirement: ResolvedInconnectRecordAccessRule['ownerRequirement'];
+  missingOwnerPolicy: ResolvedInconnectRecordAccessRule['missingOwnerPolicy'];
+  hasDefaultOwnerRole: boolean;
+}): boolean => {
+  if (
+    (missingOwnerPolicy === 'singleActiveMemberOfRole') !==
+    hasDefaultOwnerRole
+  ) {
+    return false;
+  }
+
+  if (ownerRequirement === 'optional') {
+    return missingOwnerPolicy === 'standard' && !hasDefaultOwnerRole;
+  }
+
+  if (missingOwnerPolicy === 'standard') {
+    return false;
+  }
+
+  if (createPolicy === 'denied') {
+    return missingOwnerPolicy === 'requireExplicit';
+  }
+
+  if (createPolicy === 'defaultOwner' || createPolicy === 'assignableOwners') {
+    return missingOwnerPolicy === 'self';
+  }
+
+  return true;
+};
+
 @Injectable()
 export class InconnectRecordAccessService {
   constructor(private readonly twentyConfigService: TwentyConfigService) {}
@@ -133,6 +214,13 @@ export class InconnectRecordAccessService {
 
     const resolvedRules: ResolvedInconnectRecordAccessRule[] = [];
     const configuredRoleAndObjectPairs = new Set<string>();
+    const configuredOwnerIntegrityByObjectId = new Map<
+      string,
+      Pick<
+        ResolvedInconnectRecordAccessRule,
+        'ownerFieldMetadataId' | 'ownerRequirement'
+      >
+    >();
 
     for (const rule of workspaceConfig.rules) {
       const resolvedRule = this.resolveRule({
@@ -156,6 +244,28 @@ export class InconnectRecordAccessService {
       }
 
       configuredRoleAndObjectPairs.add(roleAndObjectPair);
+      const configuredOwnerIntegrity = configuredOwnerIntegrityByObjectId.get(
+        resolvedRule.objectMetadataId,
+      );
+
+      if (
+        isDefined(configuredOwnerIntegrity) &&
+        (configuredOwnerIntegrity.ownerFieldMetadataId !==
+          resolvedRule.ownerFieldMetadataId ||
+          configuredOwnerIntegrity.ownerRequirement !==
+            resolvedRule.ownerRequirement)
+      ) {
+        return {
+          status: 'invalid',
+          reason:
+            'All rules for an INCONNECT-managed object must share its owner field and owner requirement',
+        };
+      }
+
+      configuredOwnerIntegrityByObjectId.set(resolvedRule.objectMetadataId, {
+        ownerFieldMetadataId: resolvedRule.ownerFieldMetadataId,
+        ownerRequirement: resolvedRule.ownerRequirement,
+      });
       resolvedRules.push(resolvedRule);
     }
 
@@ -202,6 +312,17 @@ export class InconnectRecordAccessService {
     const ownerTransferPolicy = isRecord(rule)
       ? resolveOwnerTransferPolicy(rule.ownerTransferPolicy)
       : undefined;
+    const ownerRequirement = isRecord(rule)
+      ? resolveOwnerRequirement(rule.ownerRequirement)
+      : undefined;
+    const missingOwnerPolicy = isRecord(rule)
+      ? resolveMissingOwnerPolicy({
+          missingOwnerPolicy: rule.missingOwnerPolicy,
+          createPolicy,
+        })
+      : undefined;
+    const hasDefaultOwnerRole =
+      isRecord(rule) && rule.defaultOwnerRoleUniversalIdentifier !== undefined;
     const hasInvalidOrAmbiguousRecordEffect =
       (!hasLegacyEffect && !hasRecordEffect) ||
       (hasLegacyEffect && !isDefined(legacyEffect)) ||
@@ -219,13 +340,34 @@ export class InconnectRecordAccessService {
       hasInvalidOrAmbiguousRecordEffect ||
       !isDefined(recordEffect) ||
       !isDefined(createPolicy) ||
-      !isDefined(ownerTransferPolicy)
+      !isDefined(ownerTransferPolicy) ||
+      !isDefined(ownerRequirement) ||
+      !isDefined(missingOwnerPolicy)
     ) {
       return 'INCONNECT owner rule has an invalid shape';
     }
 
+    if (
+      !isValidOwnerIntegrityCombination({
+        createPolicy,
+        ownerRequirement,
+        missingOwnerPolicy,
+        hasDefaultOwnerRole,
+      }) ||
+      (hasDefaultOwnerRole &&
+        !isNonEmptyString(rule.defaultOwnerRoleUniversalIdentifier))
+    ) {
+      return 'INCONNECT owner integrity policy has an invalid shape';
+    }
+
     const role =
       flatRoleMaps.byUniversalIdentifier[rule.roleUniversalIdentifier];
+    const defaultOwnerRole =
+      missingOwnerPolicy === 'singleActiveMemberOfRole'
+        ? flatRoleMaps.byUniversalIdentifier[
+            rule.defaultOwnerRoleUniversalIdentifier as string
+          ]
+        : undefined;
     const objectMetadata =
       flatObjectMetadataMaps.byUniversalIdentifier[
         rule.objectUniversalIdentifier
@@ -237,6 +379,13 @@ export class InconnectRecordAccessService {
 
     if (!isDefined(role)) {
       return `Configured role ${rule.roleUniversalIdentifier} does not exist`;
+    }
+
+    if (
+      missingOwnerPolicy === 'singleActiveMemberOfRole' &&
+      !isDefined(defaultOwnerRole)
+    ) {
+      return `Configured default owner role ${rule.defaultOwnerRoleUniversalIdentifier} does not exist`;
     }
 
     if (!isDefined(objectMetadata)) {
@@ -287,6 +436,11 @@ export class InconnectRecordAccessService {
       recordEffect,
       createPolicy,
       ownerTransferPolicy,
+      ownerRequirement,
+      missingOwnerPolicy,
+      ...(isDefined(defaultOwnerRole)
+        ? { defaultOwnerRoleId: defaultOwnerRole.id }
+        : {}),
     };
   }
 }

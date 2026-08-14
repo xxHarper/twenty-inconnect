@@ -49,6 +49,14 @@ const role = {
   universalIdentifier: ROLE_UNIVERSAL_IDENTIFIER,
 } as FlatRole;
 
+const DEFAULT_OWNER_ROLE_ID = 'default-owner-role-id';
+const DEFAULT_OWNER_ROLE_UNIVERSAL_IDENTIFIER =
+  'default-owner-role-universal-id';
+const defaultOwnerRole = {
+  id: DEFAULT_OWNER_ROLE_ID,
+  universalIdentifier: DEFAULT_OWNER_ROLE_UNIVERSAL_IDENTIFIER,
+} as FlatRole;
+
 const leadObject = {
   id: LEAD_OBJECT_ID,
   universalIdentifier: LEAD_OBJECT_UNIVERSAL_IDENTIFIER,
@@ -209,6 +217,8 @@ describe('InconnectRecordAccessService', () => {
           recordEffect: 'ownRecords',
           createPolicy: 'denied',
           ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'requireExplicit',
         },
       ],
     });
@@ -283,6 +293,8 @@ describe('InconnectRecordAccessService', () => {
       assignableOwnerWorkspaceMemberIds: [COORDINATOR_WORKSPACE_MEMBER_ID],
       createPolicy: 'denied',
       ownerTransferPolicy: 'denied',
+      ownerRequirement: 'required',
+      missingOwnerPolicy: 'requireExplicit',
       sourceRecordEffect: 'ownRecords',
     });
   });
@@ -332,6 +344,159 @@ describe('InconnectRecordAccessService', () => {
         },
       ],
     });
+  });
+
+  it('accepts self owner default with standardPermissionsOnly', () => {
+    const policy = resolvePolicy({
+      configuredValue: {
+        workspaces: [
+          {
+            workspaceId: WORKSPACE_ID,
+            rules: [
+              {
+                roleUniversalIdentifier: ROLE_UNIVERSAL_IDENTIFIER,
+                objectUniversalIdentifier: LEAD_OBJECT_UNIVERSAL_IDENTIFIER,
+                ownerFieldUniversalIdentifier: OWNER_FIELD_UNIVERSAL_IDENTIFIER,
+                principal: 'workspaceMember',
+                recordEffect: 'allRecords',
+                createPolicy: 'standardPermissionsOnly',
+                ownerTransferPolicy: 'standardPermissionsOnly',
+                ownerRequirement: 'required',
+                missingOwnerPolicy: 'self',
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(policy).toMatchObject({
+      status: 'configured',
+      rules: [
+        {
+          recordEffect: 'allRecords',
+          createPolicy: 'standardPermissionsOnly',
+          ownerTransferPolicy: 'standardPermissionsOnly',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'self',
+        },
+      ],
+    });
+  });
+
+  it('resolves a singleActiveMemberOfRole policy to the configured Role ID', () => {
+    const policy = resolvePolicy({
+      configuredValue: {
+        workspaces: [
+          {
+            workspaceId: WORKSPACE_ID,
+            rules: [
+              {
+                roleUniversalIdentifier: ROLE_UNIVERSAL_IDENTIFIER,
+                objectUniversalIdentifier: LEAD_OBJECT_UNIVERSAL_IDENTIFIER,
+                ownerFieldUniversalIdentifier: OWNER_FIELD_UNIVERSAL_IDENTIFIER,
+                principal: 'workspaceMember',
+                recordEffect: 'allRecords',
+                createPolicy: 'standardPermissionsOnly',
+                ownerTransferPolicy: 'standardPermissionsOnly',
+                ownerRequirement: 'required',
+                missingOwnerPolicy: 'singleActiveMemberOfRole',
+                defaultOwnerRoleUniversalIdentifier:
+                  DEFAULT_OWNER_ROLE_UNIVERSAL_IDENTIFIER,
+              },
+            ],
+          },
+        ],
+      },
+      roles: [role, defaultOwnerRole],
+    });
+
+    expect(policy).toMatchObject({
+      status: 'configured',
+      rules: [
+        {
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'singleActiveMemberOfRole',
+          defaultOwnerRoleId: DEFAULT_OWNER_ROLE_ID,
+        },
+      ],
+    });
+  });
+
+  it.each([
+    [
+      'unknown owner requirement',
+      {
+        ...config.workspaces[0].rules[0],
+        ownerRequirement: 'unknown',
+      },
+      [role],
+    ],
+    [
+      'unknown missing-owner policy',
+      {
+        ...config.workspaces[0].rules[0],
+        missingOwnerPolicy: 'unknown',
+      },
+      [role],
+    ],
+    [
+      'single-role default without a Role identifier',
+      {
+        ...config.workspaces[0].rules[0],
+        createPolicy: 'standardPermissionsOnly',
+        missingOwnerPolicy: 'singleActiveMemberOfRole',
+      },
+      [role],
+    ],
+    [
+      'default Role identifier on a non-role default',
+      {
+        ...config.workspaces[0].rules[0],
+        defaultOwnerRoleUniversalIdentifier:
+          DEFAULT_OWNER_ROLE_UNIVERSAL_IDENTIFIER,
+      },
+      [role, defaultOwnerRole],
+    ],
+    [
+      'missing configured default Role',
+      {
+        ...config.workspaces[0].rules[0],
+        createPolicy: 'standardPermissionsOnly',
+        missingOwnerPolicy: 'singleActiveMemberOfRole',
+        defaultOwnerRoleUniversalIdentifier:
+          DEFAULT_OWNER_ROLE_UNIVERSAL_IDENTIFIER,
+      },
+      [role],
+    ],
+    [
+      'required owner with standard missing-owner behavior',
+      {
+        ...config.workspaces[0].rules[0],
+        createPolicy: 'standardPermissionsOnly',
+        ownerRequirement: 'required',
+        missingOwnerPolicy: 'standard',
+      },
+      [role],
+    ],
+    [
+      'optional owner with require-explicit behavior',
+      {
+        ...config.workspaces[0].rules[0],
+        ownerRequirement: 'optional',
+        missingOwnerPolicy: 'requireExplicit',
+      },
+      [role],
+    ],
+  ])('fails closed for %s', (_name, rule, roles) => {
+    expect(
+      resolvePolicy({
+        configuredValue: {
+          workspaces: [{ workspaceId: WORKSPACE_ID, rules: [rule] }],
+        },
+        roles: roles as FlatRole[],
+      }),
+    ).toMatchObject({ status: 'invalid' });
   });
 
   it.each([
@@ -425,6 +590,35 @@ describe('InconnectRecordAccessService', () => {
         },
       ],
     });
+  });
+
+  it('rejects inconsistent owner integrity across Roles on one object', () => {
+    const secondRole = {
+      id: 'second-role-id',
+      universalIdentifier: 'second-role-universal-id',
+    } as FlatRole;
+
+    expect(
+      resolvePolicy({
+        configuredValue: {
+          workspaces: [
+            {
+              workspaceId: WORKSPACE_ID,
+              rules: [
+                config.workspaces[0].rules[0],
+                {
+                  ...config.workspaces[0].rules[0],
+                  roleUniversalIdentifier: secondRole.universalIdentifier,
+                  ownerRequirement: 'optional',
+                  missingOwnerPolicy: 'standard',
+                },
+              ],
+            },
+          ],
+        },
+        roles: [role, secondRole],
+      }),
+    ).toMatchObject({ status: 'invalid' });
   });
 
   it('does not manage an object absent from the workspace rules', () => {

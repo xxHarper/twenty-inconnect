@@ -6,6 +6,7 @@ import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inco
 import { assertInconnectRecordAccessOperationSupported } from 'src/engine/core-modules/inconnect-record-access/utils/assert-inconnect-record-access-operation-supported.util';
 import {
   applyInconnectRecordAccessToCreateValues,
+  doesInconnectCreateRequireDefaultOwnerResolution,
   validateInconnectRecordAccessUpdateValues,
 } from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
 
@@ -13,6 +14,8 @@ const SCOTT_WORKSPACE_MEMBER_ID = 'scott-workspace-member-id';
 const TIM_WORKSPACE_MEMBER_ID = 'tim-workspace-member-id';
 const HISTORICAL_WORKSPACE_MEMBER_ID = 'historical-workspace-member-id';
 const OUTSIDE_TEAM_WORKSPACE_MEMBER_ID = 'outside-team-workspace-member-id';
+const SUPERVISOR_WORKSPACE_MEMBER_ID = 'supervisor-workspace-member-id';
+const SUPERVISOR_ROLE_ID = 'supervisor-role-id';
 
 const executiveDecision: InconnectRecordAccessDecision = {
   kind: 'owner-workspace-member-ids',
@@ -24,6 +27,8 @@ const executiveDecision: InconnectRecordAccessDecision = {
   assignableOwnerWorkspaceMemberIds: [SCOTT_WORKSPACE_MEMBER_ID],
   createPolicy: 'denied',
   ownerTransferPolicy: 'denied',
+  ownerRequirement: 'required',
+  missingOwnerPolicy: 'requireExplicit',
   sourceRecordEffect: 'ownRecords',
 };
 
@@ -39,6 +44,7 @@ const coordinatorDecision: InconnectRecordAccessDecision = {
 
 const coordinatorAssignableDecision: InconnectRecordAccessDecision = {
   ...coordinatorDecision,
+  missingOwnerPolicy: 'self',
   assignableOwnerWorkspaceMemberIds: [
     SCOTT_WORKSPACE_MEMBER_ID,
     TIM_WORKSPACE_MEMBER_ID,
@@ -50,6 +56,7 @@ const coordinatorAssignableDecision: InconnectRecordAccessDecision = {
 const defaultOwnerDecision: InconnectRecordAccessDecision = {
   ...executiveDecision,
   createPolicy: 'defaultOwner',
+  missingOwnerPolicy: 'self',
 };
 
 const allRecordsStandardDecision: InconnectRecordAccessDecision = {
@@ -61,7 +68,15 @@ const allRecordsStandardDecision: InconnectRecordAccessDecision = {
   assignableOwnerWorkspaceMemberIds: [SCOTT_WORKSPACE_MEMBER_ID],
   createPolicy: 'standardPermissionsOnly',
   ownerTransferPolicy: 'standardPermissionsOnly',
+  ownerRequirement: 'required',
+  missingOwnerPolicy: 'requireExplicit',
   sourceRecordEffect: 'allRecords',
+};
+
+const singleRoleDefaultDecision: InconnectRecordAccessDecision = {
+  ...allRecordsStandardDecision,
+  missingOwnerPolicy: 'singleActiveMemberOfRole',
+  defaultOwnerRoleId: SUPERVISOR_ROLE_ID,
 };
 
 describe('INCONNECT operation policies for write values', () => {
@@ -281,6 +296,210 @@ describe('INCONNECT operation policies for write values', () => {
       propietarioDeFolioIsoId: SCOTT_WORKSPACE_MEMBER_ID,
     });
   });
+
+  it.each([
+    ['Admin', singleRoleDefaultDecision],
+    [
+      'Supervisor',
+      {
+        ...singleRoleDefaultDecision,
+        authenticatedWorkspaceMemberId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+      },
+    ],
+  ] as const)(
+    'injects the unique Supervisor default for an ownerless Lead created by %s',
+    (_actor, decision) => {
+      expect(
+        doesInconnectCreateRequireDefaultOwnerResolution({
+          decision,
+          valuesSet: { name: 'Defaulted Lead' },
+        }),
+      ).toBe(true);
+      expect(
+        applyInconnectRecordAccessToCreateValues({
+          decision,
+          valuesSet: { name: 'Defaulted Lead' },
+          resolvedDefaultOwnerWorkspaceMemberId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+        }),
+      ).toEqual({
+        name: 'Defaulted Lead',
+        propietarioDeLeadId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+      });
+    },
+  );
+
+  it('does not resolve or validate the default Role for an explicit owner', () => {
+    const values = {
+      name: 'Explicit Lead',
+      propietarioDeLeadId: TIM_WORKSPACE_MEMBER_ID,
+    };
+
+    expect(
+      doesInconnectCreateRequireDefaultOwnerResolution({
+        decision: singleRoleDefaultDecision,
+        valuesSet: values,
+      }),
+    ).toBe(false);
+    expect(
+      applyInconnectRecordAccessToCreateValues({
+        decision: singleRoleDefaultDecision,
+        valuesSet: values,
+      }),
+    ).toBe(values);
+  });
+
+  it.each([
+    ['join column', { propietarioDeLeadId: null }],
+    ['relation field', { propietarioDeLead: null }],
+  ])('denies explicit null owner through the %s', (_syntax, ownerValues) => {
+    expect(() =>
+      applyInconnectRecordAccessToCreateValues({
+        decision: singleRoleDefaultDecision,
+        valuesSet: ownerValues,
+        resolvedDefaultOwnerWorkspaceMemberId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+      }),
+    ).toThrow(InconnectRecordAccessException);
+
+    expect(() =>
+      validateInconnectRecordAccessUpdateValues({
+        decision: allRecordsStandardDecision,
+        valuesSet: ownerValues,
+      }),
+    ).toThrow(InconnectRecordAccessException);
+  });
+
+  it('denies contradictory owner representations even under standardPermissionsOnly', () => {
+    expect(() =>
+      applyInconnectRecordAccessToCreateValues({
+        decision: allRecordsStandardDecision,
+        valuesSet: {
+          propietarioDeLead: { id: SCOTT_WORKSPACE_MEMBER_ID },
+          propietarioDeLeadId: TIM_WORKSPACE_MEMBER_ID,
+        },
+      }),
+    ).toThrow(InconnectRecordAccessException);
+  });
+
+  it('resolves create-many owners per record before any insert can run', () => {
+    const values = [
+      { name: 'A', propietarioDeLeadId: SCOTT_WORKSPACE_MEMBER_ID },
+      { name: 'B' },
+      { name: 'C', propietarioDeLeadId: TIM_WORKSPACE_MEMBER_ID },
+    ];
+
+    expect(
+      doesInconnectCreateRequireDefaultOwnerResolution({
+        decision: singleRoleDefaultDecision,
+        valuesSet: values,
+      }),
+    ).toBe(true);
+    expect(
+      applyInconnectRecordAccessToCreateValues({
+        decision: singleRoleDefaultDecision,
+        valuesSet: values,
+        resolvedDefaultOwnerWorkspaceMemberId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+      }),
+    ).toEqual([
+      { name: 'A', propietarioDeLeadId: SCOTT_WORKSPACE_MEMBER_ID },
+      {
+        name: 'B',
+        propietarioDeLeadId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+      },
+      { name: 'C', propietarioDeLeadId: TIM_WORKSPACE_MEMBER_ID },
+    ]);
+
+    expect(() =>
+      applyInconnectRecordAccessToCreateValues({
+        decision: singleRoleDefaultDecision,
+        valuesSet: [...values, { name: 'Invalid', propietarioDeLeadId: null }],
+        resolvedDefaultOwnerWorkspaceMemberId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+      }),
+    ).toThrow(InconnectRecordAccessException);
+  });
+
+  it.each(['Supervisor', 'Admin'])(
+    'assigns self for ownerless Folio creation by %s under standardPermissionsOnly',
+    () => {
+      const folioDecision: InconnectRecordAccessDecision = {
+        ...allRecordsStandardDecision,
+        ownerFieldMetadataId: 'folio-owner-field-id',
+        ownerFieldName: 'propietarioDeFolioIso',
+        ownerJoinColumnName: 'propietarioDeFolioIsoId',
+        missingOwnerPolicy: 'self',
+      };
+      const explicitValues = {
+        estado: 'Nuevo',
+        propietarioDeFolioIsoId: TIM_WORKSPACE_MEMBER_ID,
+      };
+
+      expect(
+        applyInconnectRecordAccessToCreateValues({
+          decision: folioDecision,
+          valuesSet: { estado: 'Nuevo' },
+        }),
+      ).toEqual({
+        estado: 'Nuevo',
+        propietarioDeFolioIsoId: SCOTT_WORKSPACE_MEMBER_ID,
+      });
+      expect(
+        applyInconnectRecordAccessToCreateValues({
+          decision: folioDecision,
+          valuesSet: explicitValues,
+        }),
+      ).toBe(explicitValues);
+      expect(() =>
+        applyInconnectRecordAccessToCreateValues({
+          decision: folioDecision,
+          valuesSet: { propietarioDeFolioIsoId: null },
+        }),
+      ).toThrow(InconnectRecordAccessException);
+      expect(() =>
+        validateInconnectRecordAccessUpdateValues({
+          decision: folioDecision,
+          valuesSet: { propietarioDeFolioIsoId: null },
+        }),
+      ).toThrow(InconnectRecordAccessException);
+      expect(() =>
+        validateInconnectRecordAccessUpdateValues({
+          decision: folioDecision,
+          valuesSet: {
+            propietarioDeFolioIsoId: TIM_WORKSPACE_MEMBER_ID,
+          },
+        }),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(['ownRecords', 'ownAndTeamRecords'] as const)(
+    'keeps Folio defaultOwner scoped to self for %s',
+    (sourceRecordEffect) => {
+      const folioDecision: InconnectRecordAccessDecision = {
+        ...defaultOwnerDecision,
+        ownerFieldMetadataId: 'folio-owner-field-id',
+        ownerFieldName: 'propietarioDeFolioIso',
+        ownerJoinColumnName: 'propietarioDeFolioIsoId',
+        sourceRecordEffect,
+      };
+
+      expect(
+        applyInconnectRecordAccessToCreateValues({
+          decision: folioDecision,
+          valuesSet: { estado: 'Nuevo' },
+        }),
+      ).toEqual({
+        estado: 'Nuevo',
+        propietarioDeFolioIsoId: SCOTT_WORKSPACE_MEMBER_ID,
+      });
+      expect(() =>
+        applyInconnectRecordAccessToCreateValues({
+          decision: folioDecision,
+          valuesSet: {
+            propietarioDeFolioIsoId: SCOTT_WORKSPACE_MEMBER_ID,
+          },
+        }),
+      ).toThrow(InconnectRecordAccessException);
+    },
+  );
 
   it.each([
     'upsert',

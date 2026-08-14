@@ -213,6 +213,8 @@ describe('internal write provenance permissions', () => {
           ],
           createPolicy: 'defaultOwner',
           ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'self',
           sourceRecordEffect: 'ownAndTeamRecords',
         },
         valuesSet: values,
@@ -220,6 +222,46 @@ describe('internal write provenance permissions', () => {
     ).toEqual({
       ...values,
       propietarioDeLeadId: 'scott-workspace-member-id',
+    });
+  });
+
+  it('treats the Supervisor default owner as an internal security value', () => {
+    const values = {
+      name: 'Lead with Supervisor default',
+      createdBySource: 'MANUAL',
+      updatedBySource: 'MANUAL',
+    };
+
+    expect(() =>
+      validateWrite({
+        operationType: 'insert',
+        updatedColumns: ['name', 'createdBySource', 'updatedBySource'],
+        internallyInjectedFieldNames: ['createdBy', 'updatedBy'],
+      }),
+    ).not.toThrow();
+
+    expect(
+      applyInconnectRecordAccessToCreateValues({
+        decision: {
+          kind: 'all-records',
+          ownerFieldMetadataId: 'owner-field-id',
+          ownerFieldName: 'propietarioDeLead',
+          ownerJoinColumnName: 'propietarioDeLeadId',
+          authenticatedWorkspaceMemberId: 'admin-workspace-member-id',
+          assignableOwnerWorkspaceMemberIds: ['admin-workspace-member-id'],
+          createPolicy: 'standardPermissionsOnly',
+          ownerTransferPolicy: 'standardPermissionsOnly',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'singleActiveMemberOfRole',
+          defaultOwnerRoleId: 'supervisor-role-id',
+          sourceRecordEffect: 'allRecords',
+        },
+        valuesSet: values,
+        resolvedDefaultOwnerWorkspaceMemberId: 'supervisor-workspace-member-id',
+      }),
+    ).toEqual({
+      ...values,
+      propietarioDeLeadId: 'supervisor-workspace-member-id',
     });
   });
 
@@ -244,6 +286,8 @@ describe('internal write provenance permissions', () => {
           assignableOwnerWorkspaceMemberIds: ['scott-workspace-member-id'],
           createPolicy: 'denied',
           ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'requireExplicit',
           sourceRecordEffect: 'ownRecords',
         },
         valuesSet: {
@@ -265,6 +309,8 @@ describe('internal write provenance permissions', () => {
       assignableOwnerWorkspaceMemberIds: ['admin-workspace-member-id'],
       createPolicy: 'standardPermissionsOnly' as const,
       ownerTransferPolicy: 'standardPermissionsOnly' as const,
+      ownerRequirement: 'required' as const,
+      missingOwnerPolicy: 'requireExplicit' as const,
       sourceRecordEffect: 'allRecords' as const,
     };
 

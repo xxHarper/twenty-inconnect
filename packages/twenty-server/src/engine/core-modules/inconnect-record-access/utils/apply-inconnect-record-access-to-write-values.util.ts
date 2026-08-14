@@ -10,6 +10,7 @@ type WriteValues = ObjectLiteral | ObjectLiteral[] | undefined;
 
 type OwnerWrite = {
   isProvided: boolean;
+  isConflicting: boolean;
   workspaceMemberId: unknown;
 };
 
@@ -62,27 +63,38 @@ const getOwnerWrite = ({
       ) {
         return {
           isProvided: true,
-          workspaceMemberId: Symbol('conflicting-owner-values'),
+          isConflicting: true,
+          workspaceMemberId: undefined,
         };
       }
 
       if (joinColumnValue === undefined) {
         return {
           isProvided: true,
+          isConflicting: false,
           workspaceMemberId: relationWorkspaceMemberId,
         };
       }
     }
 
-    return { isProvided: true, workspaceMemberId: joinColumnValue };
+    return {
+      isProvided: true,
+      isConflicting: false,
+      workspaceMemberId: joinColumnValue,
+    };
   }
 
   if (!hasRelationField) {
-    return { isProvided: false, workspaceMemberId: undefined };
+    return {
+      isProvided: false,
+      isConflicting: false,
+      workspaceMemberId: undefined,
+    };
   }
 
   return {
     isProvided: true,
+    isConflicting: false,
     workspaceMemberId: getWorkspaceMemberIdFromRelationValue(relationValue),
   };
 };
@@ -112,12 +124,62 @@ const throwAccessDenied = (message: string): never => {
   );
 };
 
-export const applyInconnectRecordAccessToCreateValues = ({
+const assertOwnerWriteIsConsistent = (ownerWrite: OwnerWrite): void => {
+  if (ownerWrite.isConflicting) {
+    throwAccessDenied(
+      'Conflicting owner relation and join-column values are denied',
+    );
+  }
+};
+
+const assertRequiredOwnerIsPresent = (ownerWrite: OwnerWrite): void => {
+  if (
+    ownerWrite.isProvided &&
+    typeof ownerWrite.workspaceMemberId !== 'string'
+  ) {
+    throwAccessDenied(
+      'A non-null owner is required by INCONNECT Record Access',
+    );
+  }
+};
+
+export const doesInconnectCreateRequireDefaultOwnerResolution = ({
   decision,
   valuesSet,
 }: {
   decision: InconnectRecordAccessDecision;
   valuesSet: WriteValues;
+}): boolean => {
+  if (
+    decision.kind === 'not-managed' ||
+    decision.kind === 'system-bypass' ||
+    decision.kind === 'denied' ||
+    decision.createPolicy === 'denied' ||
+    decision.missingOwnerPolicy !== 'singleActiveMemberOfRole'
+  ) {
+    return false;
+  }
+
+  const valuesArray = Array.isArray(valuesSet) ? valuesSet : [valuesSet ?? {}];
+
+  return valuesArray.some(
+    (values) =>
+      !getOwnerWrite({
+        values,
+        ownerFieldName: decision.ownerFieldName,
+        ownerJoinColumnName: decision.ownerJoinColumnName,
+      }).isProvided,
+  );
+};
+
+export const applyInconnectRecordAccessToCreateValues = ({
+  decision,
+  valuesSet,
+  resolvedDefaultOwnerWorkspaceMemberId,
+}: {
+  decision: InconnectRecordAccessDecision;
+  valuesSet: WriteValues;
+  resolvedDefaultOwnerWorkspaceMemberId?: string;
 }): WriteValues => {
   if (decision.kind === 'not-managed' || decision.kind === 'system-bypass') {
     return valuesSet;
@@ -125,10 +187,6 @@ export const applyInconnectRecordAccessToCreateValues = ({
 
   if (decision.kind === 'denied' || decision.createPolicy === 'denied') {
     return throwAccessDenied('Create denied by INCONNECT Record Access');
-  }
-
-  if (decision.createPolicy === 'standardPermissionsOnly') {
-    return valuesSet;
   }
 
   const valuesArray = Array.isArray(valuesSet) ? valuesSet : [valuesSet ?? {}];
@@ -139,11 +197,48 @@ export const applyInconnectRecordAccessToCreateValues = ({
       ownerJoinColumnName: decision.ownerJoinColumnName,
     });
 
+    assertOwnerWriteIsConsistent(ownerWrite);
+
     if (!ownerWrite.isProvided) {
-      return {
-        ...values,
-        [decision.ownerJoinColumnName]: decision.authenticatedWorkspaceMemberId,
-      };
+      if (decision.missingOwnerPolicy === 'self') {
+        return {
+          ...values,
+          [decision.ownerJoinColumnName]:
+            decision.authenticatedWorkspaceMemberId,
+        };
+      }
+
+      if (decision.missingOwnerPolicy === 'singleActiveMemberOfRole') {
+        if (typeof resolvedDefaultOwnerWorkspaceMemberId !== 'string') {
+          return throwAccessDenied(
+            'The configured default owner Role does not have exactly one active Workspace Member',
+          );
+        }
+
+        return {
+          ...values,
+          [decision.ownerJoinColumnName]: resolvedDefaultOwnerWorkspaceMemberId,
+        };
+      }
+
+      if (
+        decision.missingOwnerPolicy === 'requireExplicit' ||
+        decision.ownerRequirement === 'required'
+      ) {
+        return throwAccessDenied(
+          'An explicit owner is required by INCONNECT Record Access',
+        );
+      }
+
+      return values;
+    }
+
+    if (decision.ownerRequirement === 'required') {
+      assertRequiredOwnerIsPresent(ownerWrite);
+    }
+
+    if (decision.createPolicy === 'standardPermissionsOnly') {
+      return values;
     }
 
     if (decision.createPolicy === 'defaultOwner') {
@@ -190,6 +285,12 @@ export const validateInconnectRecordAccessUpdateValues = ({
 
     if (!ownerWrite.isProvided) {
       continue;
+    }
+
+    assertOwnerWriteIsConsistent(ownerWrite);
+
+    if (decision.ownerRequirement === 'required') {
+      assertRequiredOwnerIsPresent(ownerWrite);
     }
 
     if (decision.ownerTransferPolicy === 'denied') {

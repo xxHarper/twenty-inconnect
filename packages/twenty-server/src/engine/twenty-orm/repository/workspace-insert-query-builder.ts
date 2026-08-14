@@ -12,10 +12,18 @@ import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/
 
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import {
+  InconnectRecordAccessException,
+  InconnectRecordAccessExceptionCode,
+} from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.exception';
 import { type InconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 import { assertInconnectRecordAccessOperationSupported } from 'src/engine/core-modules/inconnect-record-access/utils/assert-inconnect-record-access-operation-supported.util';
-import { applyInconnectRecordAccessToCreateValues } from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
+import {
+  applyInconnectRecordAccessToCreateValues,
+  doesInconnectCreateRequireDefaultOwnerResolution,
+} from 'src/engine/core-modules/inconnect-record-access/utils/apply-inconnect-record-access-to-write-values.util';
 import { resolveInconnectRecordAccessDecision } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-record-access-decision.util';
+import { resolveInconnectSingleActiveMemberOfRole } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-single-active-member-of-role.util';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { type QueryDeepPartialEntityWithNestedRelationFields } from 'src/engine/twenty-orm/entity-manager/types/query-deep-partial-entity-with-nested-relation-fields.type';
 import { type RelationConnectQueryConfig } from 'src/engine/twenty-orm/entity-manager/types/relation-connect-query-config.type';
@@ -242,14 +250,8 @@ export class WorkspaceInsertQueryBuilder<
         this.expressionMap.valuesSet = updatedValues;
       }
 
-      this.expressionMap.valuesSet = applyInconnectRecordAccessToCreateValues({
-        decision: inconnectDecision,
-        valuesSet: this.expressionMap.valuesSet,
-      });
-
-      this.validateRLSPredicatesForInsert();
-
-      const result = await super.execute();
+      const result =
+        await this.executeInsertWithInconnectOwnerIntegrity(inconnectDecision);
 
       if (isDefined(filesFieldFileIds)) {
         await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
@@ -345,6 +347,94 @@ export class WorkspaceInsertQueryBuilder<
         this.connection.manager as WorkspaceEntityManager,
         this.internalContext,
       );
+    }
+  }
+
+  private async executeInsertWithInconnectOwnerIntegrity(
+    decision: InconnectRecordAccessDecision,
+  ): Promise<InsertResult> {
+    const requiresDefaultOwnerResolution =
+      doesInconnectCreateRequireDefaultOwnerResolution({
+        decision,
+        valuesSet: this.expressionMap.valuesSet,
+      });
+
+    if (!requiresDefaultOwnerResolution) {
+      this.expressionMap.valuesSet = applyInconnectRecordAccessToCreateValues({
+        decision,
+        valuesSet: this.expressionMap.valuesSet,
+      });
+      this.validateRLSPredicatesForInsert();
+
+      return super.execute();
+    }
+
+    if (
+      decision.kind === 'not-managed' ||
+      decision.kind === 'system-bypass' ||
+      decision.kind === 'denied' ||
+      !isDefined(decision.defaultOwnerRoleId)
+    ) {
+      throw new InconnectRecordAccessException(
+        'The INCONNECT default owner Role could not be resolved',
+        InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+      );
+    }
+
+    const existingQueryRunner = this.queryRunner;
+    const queryRunner = this.obtainQueryRunner();
+    const shouldReleaseQueryRunner = !isDefined(existingQueryRunner);
+    const shouldManageTransaction = !queryRunner.isTransactionActive;
+
+    this.queryRunner = queryRunner;
+
+    try {
+      if (shouldManageTransaction) {
+        await queryRunner.startTransaction();
+      }
+
+      const workspaceSchema = this.expressionMap.mainAlias?.metadata.schema;
+
+      if (!isDefined(workspaceSchema)) {
+        throw new InconnectRecordAccessException(
+          'The workspace schema is unavailable for default owner resolution',
+          InconnectRecordAccessExceptionCode.ACCESS_DENIED,
+        );
+      }
+
+      const resolvedDefaultOwnerWorkspaceMemberId =
+        await resolveInconnectSingleActiveMemberOfRole({
+          queryRunner,
+          workspaceId: this.internalContext.workspaceId,
+          workspaceSchema,
+          roleId: decision.defaultOwnerRoleId,
+        });
+
+      this.expressionMap.valuesSet = applyInconnectRecordAccessToCreateValues({
+        decision,
+        valuesSet: this.expressionMap.valuesSet,
+        resolvedDefaultOwnerWorkspaceMemberId,
+      });
+      this.validateRLSPredicatesForInsert();
+
+      const result = await super.execute();
+
+      if (shouldManageTransaction) {
+        await queryRunner.commitTransaction();
+      }
+
+      return result;
+    } catch (error) {
+      if (shouldManageTransaction && queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+
+      throw error;
+    } finally {
+      if (shouldReleaseQueryRunner) {
+        this.queryRunner = undefined;
+        await queryRunner.release();
+      }
     }
   }
 

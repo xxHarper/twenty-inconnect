@@ -1,5 +1,7 @@
 import {
   type InconnectRecordAccessCreatePolicy,
+  type InconnectRecordAccessMissingOwnerPolicy,
+  type InconnectRecordAccessOwnerRequirement,
   type InconnectRecordAccessOwnerTransferPolicy,
   type InconnectRecordAccessRecordEffect,
 } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-config.type';
@@ -13,6 +15,9 @@ export type ResolvedInconnectRecordAccessRule = {
   recordEffect: InconnectRecordAccessRecordEffect;
   createPolicy: InconnectRecordAccessCreatePolicy;
   ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy;
+  ownerRequirement: InconnectRecordAccessOwnerRequirement;
+  missingOwnerPolicy: InconnectRecordAccessMissingOwnerPolicy;
+  defaultOwnerRoleId?: string;
 };
 
 export type InconnectRecordAccessWorkspacePolicy =
@@ -31,6 +36,9 @@ type InconnectManagedRecordAccessDecision = {
   assignableOwnerWorkspaceMemberIds: readonly string[];
   createPolicy: InconnectRecordAccessCreatePolicy;
   ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy;
+  ownerRequirement: InconnectRecordAccessOwnerRequirement;
+  missingOwnerPolicy: InconnectRecordAccessMissingOwnerPolicy;
+  defaultOwnerRoleId?: string;
 };
 
 export type InconnectRecordAccessDecision =

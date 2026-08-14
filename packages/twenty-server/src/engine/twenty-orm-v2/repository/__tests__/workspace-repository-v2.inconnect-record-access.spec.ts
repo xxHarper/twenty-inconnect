@@ -87,6 +87,8 @@ const scopedPolicy: InconnectRecordAccessWorkspacePolicy = {
       recordEffect: 'ownRecords',
       createPolicy: 'denied',
       ownerTransferPolicy: 'denied',
+      ownerRequirement: 'required',
+      missingOwnerPolicy: 'requireExplicit',
     },
   ],
 };

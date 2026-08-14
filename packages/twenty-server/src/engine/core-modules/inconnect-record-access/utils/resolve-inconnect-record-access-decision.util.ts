@@ -136,6 +136,11 @@ export const resolveInconnectRecordAccessDecision = ({
     assignableOwnerWorkspaceMemberIds,
     createPolicy: applicableRule.createPolicy,
     ownerTransferPolicy: applicableRule.ownerTransferPolicy,
+    ownerRequirement: applicableRule.ownerRequirement,
+    missingOwnerPolicy: applicableRule.missingOwnerPolicy,
+    ...(applicableRule.defaultOwnerRoleId
+      ? { defaultOwnerRoleId: applicableRule.defaultOwnerRoleId }
+      : {}),
   } as const;
 
   if (applicableRule.recordEffect === 'allRecords') {
