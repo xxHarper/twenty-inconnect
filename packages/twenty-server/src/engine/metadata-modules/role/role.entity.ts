@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   OneToMany,
   PrimaryGeneratedColumn,
   type Relation,
@@ -19,6 +20,9 @@ import { SyncableEntity } from 'src/engine/workspace-manager/types/syncable-enti
 
 @Entity('role')
 @Unique('IDX_ROLE_LABEL_WORKSPACE_ID_UNIQUE', ['label', 'workspaceId'])
+@Index('IDX_ROLE_ID_WORKSPACE_ID_INCONNECT_UNIQUE', ['id', 'workspaceId'], {
+  unique: true,
+})
 export class RoleEntity extends SyncableEntity implements Required<RoleEntity> {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -146,6 +146,7 @@ import { AddPreviousPeriodStartToBillingSubscriptionFastInstanceCommand } from '
 import { AddIsDeprecatedToApplicationVariablesFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-31/2-31-instance-command-fast-1786533439000-add-is-deprecated-to-application-variables';
 import { EncryptEmptyApplicationVariablesSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-31/2-31-instance-command-slow-1786533438000-encrypt-empty-application-variables';
 import { CreateInconnectCommercialTeamsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786578553730-create-inconnect-commercial-teams';
+import { CreateInconnectRecordAccessPersistenceFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786740000000-create-inconnect-record-access-persistence';
 
 export const INSTANCE_COMMANDS = [
   AddViewFieldGroupIdIndexOnViewFieldFastInstanceCommand,
@@ -294,4 +295,5 @@ export const INSTANCE_COMMANDS = [
   AddIsDeprecatedToApplicationVariablesFastInstanceCommand,
   EncryptEmptyApplicationVariablesSlowInstanceCommand,
   CreateInconnectCommercialTeamsFastInstanceCommand,
+  CreateInconnectRecordAccessPersistenceFastInstanceCommand,
 ];

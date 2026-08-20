@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   OneToMany,
   PrimaryGeneratedColumn,
   type Relation,
@@ -29,6 +30,11 @@ import { SyncableEntity } from 'src/engine/workspace-manager/types/syncable-enti
 import { type JsonbProperty } from 'src/engine/workspace-manager/workspace-migration/universal-flat-entity/types/jsonb-property.type';
 
 @Entity('objectMetadata')
+@Index(
+  'IDX_OBJECT_METADATA_ID_WORKSPACE_ID_INCONNECT_UNIQUE',
+  ['id', 'workspaceId'],
+  { unique: true },
+)
 @Unique('IDX_OBJECT_METADATA_NAME_SINGULAR_WORKSPACE_ID_UNIQUE', [
   'nameSingular',
   'workspaceId',
