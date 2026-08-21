@@ -107,12 +107,19 @@ export class InconnectRecordAccessConfigurationService {
           input,
         });
 
-        generations =
-          await this.workspaceCacheService.revokeGenerationFencedEntries(
-            workspaceId,
-            [POLICY_CACHE_KEY],
-            'INCONNECT Record Access configuration publish is awaiting commit',
+        try {
+          generations =
+            await this.workspaceCacheService.revokeGenerationFencedEntries(
+              workspaceId,
+              [POLICY_CACHE_KEY],
+              'INCONNECT Record Access configuration publish is awaiting commit',
+            );
+        } catch {
+          throw new InconnectRecordAccessConfigurationException(
+            'INCONNECT policy cache could not be revoked before publish',
+            InconnectRecordAccessConfigurationExceptionCode.CACHE_REVOCATION_FAILED,
           );
+        }
 
         await manager
           .getRepository(InconnectRecordAccessPolicyEntity)

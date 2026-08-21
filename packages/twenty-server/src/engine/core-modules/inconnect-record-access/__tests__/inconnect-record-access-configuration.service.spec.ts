@@ -432,7 +432,9 @@ describe('InconnectRecordAccessConfigurationService', () => {
         expectedRevision: null,
         ...MANAGED_INPUT,
       }),
-    ).rejects.toThrow('Redis unavailable');
+    ).rejects.toMatchObject({
+      code: InconnectRecordAccessConfigurationExceptionCode.CACHE_REVOCATION_FAILED,
+    });
     expect(harness.getState().configuration).toBeUndefined();
   });
 

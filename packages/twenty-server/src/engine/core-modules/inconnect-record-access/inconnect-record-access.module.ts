@@ -9,14 +9,17 @@ import { InconnectRecordAccessConfigurationEntity } from 'src/engine/core-module
 import { InconnectRecordAccessManagedObjectEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-managed-object.entity';
 import { InconnectRecordAccessPolicyEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-policy.entity';
 import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
+import { InconnectRecordAccessSettingsResolver } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access-settings.resolver';
 import { InconnectCommercialTeamService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-commercial-team.service';
 import { InconnectRecordAccessConfigurationCandidateService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-configuration-candidate.service';
 import { InconnectRecordAccessConfigurationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-configuration.service';
 import { InconnectRecordAccessEnvironmentImportService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-environment-import.service';
 import { InconnectRecordAccessPolicySourceService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-policy-source.service';
+import { InconnectRecordAccessSettingsService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-settings.service';
 import { InconnectWorkspaceMemberService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-workspace-member.service';
 import { WorkspaceInconnectRecordAccessPolicyMapsCacheService } from 'src/engine/core-modules/inconnect-record-access/services/workspace-inconnect-record-access-policy-maps-cache.service';
 import { WorkspaceInconnectTeamAccessMapsCacheService } from 'src/engine/core-modules/inconnect-record-access/services/workspace-inconnect-team-access-maps-cache.service';
+import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
 
 @Module({
@@ -30,6 +33,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
       InconnectRecordAccessPolicyEntity,
     ]),
     WorkspaceCacheModule,
+    PermissionsModule,
   ],
   providers: [
     InconnectRecordAccessService,
@@ -42,6 +46,8 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     InconnectRecordAccessConfigurationService,
     InconnectRecordAccessEnvironmentImportService,
     InconnectRecordAccessImportEnvCommand,
+    InconnectRecordAccessSettingsService,
+    InconnectRecordAccessSettingsResolver,
   ],
   exports: [
     InconnectRecordAccessService,
@@ -49,6 +55,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     InconnectRecordAccessPolicySourceService,
     InconnectRecordAccessConfigurationService,
     InconnectRecordAccessEnvironmentImportService,
+    InconnectRecordAccessSettingsService,
   ],
 })
 export class InconnectRecordAccessModule {}
