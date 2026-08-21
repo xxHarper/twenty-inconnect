@@ -22,9 +22,14 @@ export type ResolvedInconnectRecordAccessRule = {
 
 export type InconnectRecordAccessWorkspacePolicy =
   | { status: 'not-configured' }
+  | { status: 'unmanaged' }
   | { status: 'invalid'; reason: string }
   | {
       status: 'configured';
+      managedObjectMetadataIds: readonly string[];
+      ruleByObjectMetadataIdAndRoleId?: Readonly<
+        Record<string, ResolvedInconnectRecordAccessRule>
+      >;
       rules: ResolvedInconnectRecordAccessRule[];
     };
 

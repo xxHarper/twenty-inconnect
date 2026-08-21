@@ -74,6 +74,23 @@ export class WorkspaceMigrationRunnerService {
       flatMapsKeysSet.has('flatObjectPermissionMaps') ||
       flatMapsKeysSet.has('flatFieldPermissionMaps') ||
       flatMapsKeysSet.has('flatRolePermissionFlagMaps');
+    const inconnectRecordAccessSourceMode = this.twentyConfigService.get(
+      'INCONNECT_RECORD_ACCESS_SOURCE_MODE',
+    );
+    const shouldInvalidateInconnectRecordAccessPolicyCache =
+      (inconnectRecordAccessSourceMode === 'transition' ||
+        inconnectRecordAccessSourceMode === 'database') &&
+      (flatMapsKeysSet.has('flatObjectMetadataMaps') ||
+        flatMapsKeysSet.has('flatFieldMetadataMaps') ||
+        flatMapsKeysSet.has('flatRoleMaps'));
+
+    if (shouldInvalidateInconnectRecordAccessPolicyCache) {
+      asyncOperations.push(
+        this.workspaceCacheService.invalidateAndRecompute(workspaceId, [
+          'inconnectRecordAccessPolicyMaps',
+        ]),
+      );
+    }
 
     if (shouldIncrementMetadataGraphqlSchemaVersion) {
       asyncOperations.push(

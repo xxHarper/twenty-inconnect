@@ -62,6 +62,7 @@ const authContext = {
 const buildInternalContext = (
   policy: WorkspaceInternalContext['inconnectRecordAccessPolicy'] = {
     status: 'configured',
+    managedObjectMetadataIds: [LEAD_OBJECT_ID],
     rules: [
       {
         roleId: ROLE_ID,
@@ -181,6 +182,7 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
     ]);
     const internalContext = buildInternalContext({
       status: 'configured',
+      managedObjectMetadataIds: [LEAD_OBJECT_ID],
       rules: [
         {
           roleId: ROLE_ID,
@@ -224,6 +226,7 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
     const queryBuilder = buildQueryBuilder();
     const internalContext = buildInternalContext({
       status: 'configured',
+      managedObjectMetadataIds: [LEAD_OBJECT_ID],
       rules: [
         {
           roleId: ROLE_ID,
@@ -287,6 +290,7 @@ describe('applyInconnectRecordAccessToMutationQueryBuilder', () => {
     ]);
     const internalContext = buildInternalContext({
       status: 'configured',
+      managedObjectMetadataIds: [LEAD_OBJECT_ID],
       rules: [
         {
           roleId: ROLE_ID,

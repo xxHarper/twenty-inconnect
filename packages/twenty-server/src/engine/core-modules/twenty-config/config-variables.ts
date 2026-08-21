@@ -39,6 +39,10 @@ import {
   type TwentyLogLevel,
 } from 'src/engine/core-modules/logger/interfaces';
 import { type InconnectRecordAccessConfig } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-config.type';
+import {
+  INCONNECT_RECORD_ACCESS_SOURCE_MODES,
+  type InconnectRecordAccessSourceMode,
+} from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-persistence.type';
 import { type MeterDriver } from 'src/engine/core-modules/metrics/types/meter-driver.type';
 import { CastToLogLevelArray } from 'src/engine/core-modules/twenty-config/decorators/cast-to-log-level-array.decorator';
 import { CastToMeterDriverArray } from 'src/engine/core-modules/twenty-config/decorators/cast-to-meter-driver.decorator';
@@ -68,6 +72,16 @@ import {
 } from 'src/engine/metadata-modules/ai/ai-models/utils/load-default-model-preferences.util';
 
 export class ConfigVariables {
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ADVANCED_SETTINGS,
+    description:
+      'Authoritative source for the independent INCONNECT record access policy',
+    isEnvOnly: true,
+    type: ConfigVariableType.STRING,
+  })
+  @IsIn(INCONNECT_RECORD_ACCESS_SOURCE_MODES)
+  INCONNECT_RECORD_ACCESS_SOURCE_MODE: InconnectRecordAccessSourceMode = 'env';
+
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.ADVANCED_SETTINGS,
     description:

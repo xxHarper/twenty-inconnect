@@ -4,8 +4,13 @@ import { type ObjectLiteral } from 'typeorm';
 
 import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/workspace-auth-context.storage';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
-import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
+import { InconnectRecordAccessPolicySourceService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-policy-source.service';
+import { type InconnectRecordAccessWorkspacePolicy } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { type InconnectTeamAccessMaps } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-team-access-maps.type';
+import { doesInconnectRecordAccessPolicyRequireTeamAuthority } from 'src/engine/core-modules/inconnect-record-access/utils/does-inconnect-record-access-policy-require-team-authority.util';
+import { invalidInconnectTeamAccessMaps } from 'src/engine/core-modules/inconnect-record-access/utils/parse-inconnect-team-access-maps.util';
 import { buildObjectIdByNameMaps } from 'src/engine/metadata-modules/flat-object-metadata/utils/build-object-id-by-name-maps.util';
+import { type UserWorkspaceRoleMap } from 'src/engine/metadata-modules/role-target/types/user-workspace-role-map';
 import { GlobalWorkspaceDataSource } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource';
 import { GlobalWorkspaceDataSourceService } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource.service';
 import { ExecuteInWorkspaceContextOptions } from 'src/engine/twenty-orm/global-workspace-datasource/types/execute-in-workspace-context-options.type';
@@ -18,12 +23,20 @@ import type { RolePermissionConfig } from 'src/engine/twenty-orm/types/role-perm
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import { convertClassNameToObjectMetadataName } from 'src/engine/workspace-manager/utils/convert-class-to-object-metadata-name.util';
 
+const EMPTY_INCONNECT_TEAM_ACCESS_MAPS: InconnectTeamAccessMaps = {
+  version: 1,
+  status: 'valid',
+  membershipByWorkspaceMemberId: {},
+  memberWorkspaceMemberIdsByTeamId: {},
+  assignableMemberWorkspaceMemberIdsByTeamId: {},
+};
+
 @Injectable()
 export class GlobalWorkspaceOrmManager {
   constructor(
     private readonly globalWorkspaceDataSourceService: GlobalWorkspaceDataSourceService,
     private readonly workspaceCacheService: WorkspaceCacheService,
-    private readonly inconnectRecordAccessService: InconnectRecordAccessService,
+    private readonly inconnectRecordAccessPolicySourceService: InconnectRecordAccessPolicySourceService,
   ) {}
 
   async getRepository<T extends ObjectLiteral>(
@@ -81,7 +94,43 @@ export class GlobalWorkspaceOrmManager {
 
     return withWorkspaceContext(context, fn);
   }
+  private async loadInconnectTeamAccessMapsIfRequired({
+    workspaceId,
+    policy,
+    authContext,
+    userWorkspaceRoleMap,
+    apiKeyRoleMap,
+  }: {
+    workspaceId: string;
+    policy: InconnectRecordAccessWorkspacePolicy;
+    authContext: WorkspaceAuthContext;
+    userWorkspaceRoleMap: UserWorkspaceRoleMap;
+    apiKeyRoleMap: Record<string, string>;
+  }): Promise<InconnectTeamAccessMaps> {
+    if (
+      !doesInconnectRecordAccessPolicyRequireTeamAuthority({
+        policy,
+        authContext,
+        userWorkspaceRoleMap,
+        apiKeyRoleMap,
+      })
+    ) {
+      return EMPTY_INCONNECT_TEAM_ACCESS_MAPS;
+    }
 
+    try {
+      return (
+        await this.workspaceCacheService.getOrRecompute(workspaceId, [
+          'inconnectTeamAccessMaps',
+        ])
+      ).inconnectTeamAccessMaps;
+    } catch {
+      return invalidInconnectTeamAccessMaps(
+        'INCONNECT team cache is unavailable',
+        'recomputation-failed',
+      );
+    }
+  }
   private async loadWorkspaceContext(
     authContext: WorkspaceAuthContext,
   ): Promise<ORMWorkspaceContext> {
@@ -99,7 +148,6 @@ export class GlobalWorkspaceOrmManager {
       flatRoleMaps,
       flatRowLevelPermissionPredicateMaps,
       flatRowLevelPermissionPredicateGroupMaps,
-      inconnectTeamAccessMaps,
     } = await this.workspaceCacheService.getOrRecompute(workspaceId, [
       'flatObjectMetadataMaps',
       'flatFieldMetadataMaps',
@@ -112,17 +160,26 @@ export class GlobalWorkspaceOrmManager {
       'flatRoleMaps',
       'flatRowLevelPermissionPredicateMaps',
       'flatRowLevelPermissionPredicateGroupMaps',
-      'inconnectTeamAccessMaps',
     ]);
 
     const { idByNameSingular: objectIdByNameSingular } =
       buildObjectIdByNameMaps(flatObjectMetadataMaps);
     const inconnectRecordAccessPolicy =
-      this.inconnectRecordAccessService.resolveWorkspacePolicy({
+      await this.inconnectRecordAccessPolicySourceService.resolveWorkspacePolicy(
+        {
+          workspaceId,
+          flatRoleMaps,
+          flatObjectMetadataMaps,
+          flatFieldMetadataMaps,
+        },
+      );
+    const inconnectTeamAccessMaps =
+      await this.loadInconnectTeamAccessMapsIfRequired({
         workspaceId,
-        flatRoleMaps,
-        flatObjectMetadataMaps,
-        flatFieldMetadataMaps,
+        policy: inconnectRecordAccessPolicy,
+        authContext,
+        userWorkspaceRoleMap,
+        apiKeyRoleMap,
       });
 
     return {
@@ -155,7 +212,6 @@ export class GlobalWorkspaceOrmManager {
       userWorkspaceRoleMap,
       apiKeyRoleMap,
       ORMEntityMetadatas: entityMetadatas,
-      inconnectTeamAccessMaps,
     } = await this.workspaceCacheService.getOrRecompute(workspaceId, [
       'flatObjectMetadataMaps',
       'flatFieldMetadataMaps',
@@ -163,17 +219,26 @@ export class GlobalWorkspaceOrmManager {
       'userWorkspaceRoleMap',
       'apiKeyRoleMap',
       'ORMEntityMetadatas',
-      'inconnectTeamAccessMaps',
     ]);
 
     const { idByNameSingular: objectIdByNameSingular } =
       buildObjectIdByNameMaps(flatObjectMetadataMaps);
     const inconnectRecordAccessPolicy =
-      this.inconnectRecordAccessService.resolveWorkspacePolicy({
+      await this.inconnectRecordAccessPolicySourceService.resolveWorkspacePolicy(
+        {
+          workspaceId,
+          flatRoleMaps,
+          flatObjectMetadataMaps,
+          flatFieldMetadataMaps,
+        },
+      );
+    const inconnectTeamAccessMaps =
+      await this.loadInconnectTeamAccessMapsIfRequired({
         workspaceId,
-        flatRoleMaps,
-        flatObjectMetadataMaps,
-        flatFieldMetadataMaps,
+        policy: inconnectRecordAccessPolicy,
+        authContext,
+        userWorkspaceRoleMap,
+        apiKeyRoleMap,
       });
 
     return {

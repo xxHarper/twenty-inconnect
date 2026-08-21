@@ -9,6 +9,7 @@ import {
   type InconnectRecordAccessWorkspacePolicy,
   type ResolvedInconnectRecordAccessRule,
 } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { getInconnectRecordAccessRuleKey } from 'src/engine/core-modules/inconnect-record-access/utils/get-inconnect-record-access-rule-key.util';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { RelationType } from 'src/engine/metadata-modules/field-metadata/interfaces/relation-type.interface';
 import { computeMorphOrRelationFieldJoinColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-morph-or-relation-field-join-column-name.util';
@@ -269,7 +270,22 @@ export class InconnectRecordAccessService {
       resolvedRules.push(resolvedRule);
     }
 
-    return { status: 'configured', rules: resolvedRules };
+    return {
+      status: 'configured',
+      managedObjectMetadataIds: [
+        ...new Set(resolvedRules.map((rule) => rule.objectMetadataId)),
+      ],
+      ruleByObjectMetadataIdAndRoleId: Object.fromEntries(
+        resolvedRules.map((rule) => [
+          getInconnectRecordAccessRuleKey({
+            objectMetadataId: rule.objectMetadataId,
+            roleId: rule.roleId,
+          }),
+          rule,
+        ]),
+      ),
+      rules: resolvedRules,
+    };
   }
 
   private isValidConfigContainer(

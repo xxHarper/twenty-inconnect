@@ -8,6 +8,7 @@ import { type EncodedFlatFieldMetadataMaps } from 'src/engine/metadata-modules/f
 import { type ResolverNameMapEntry } from 'src/engine/api/graphql/direct-execution/utils/build-resolver-name-map.util';
 import { type FlatApiKey } from 'src/engine/core-modules/api-key/types/flat-api-key.type';
 import { type ApplicationVariableCacheMaps } from 'src/engine/core-modules/application/application-variable/types/application-variable-cache-maps.type';
+import { type InconnectRecordAccessPolicyMaps } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-policy-maps.type';
 import { type InconnectTeamAccessMaps } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-team-access-maps.type';
 import { type FlatApplicationCacheMaps } from 'src/engine/core-modules/application/types/flat-application-cache-maps.type';
 import { type CurrentBillingSubscription } from 'src/engine/core-modules/billing/types/flat-billing-subscription.type';
@@ -36,6 +37,7 @@ export type AdditionalCacheDataMaps = {
   currentBillingSubscription: CurrentBillingSubscription;
   workflowAutomatedTriggerMaps: WorkflowAutomatedTriggerMaps;
   inconnectTeamAccessMaps: InconnectTeamAccessMaps;
+  inconnectRecordAccessPolicyMaps: InconnectRecordAccessPolicyMaps;
 };
 
 export type WorkspaceCacheDataMap = AllFlatEntityMaps<true> &

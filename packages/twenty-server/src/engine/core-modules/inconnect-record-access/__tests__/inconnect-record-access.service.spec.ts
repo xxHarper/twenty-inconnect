@@ -207,6 +207,21 @@ describe('InconnectRecordAccessService', () => {
   it('resolves Role, Lead and owner field by universal identifier', () => {
     expect(resolvePolicy()).toEqual({
       status: 'configured',
+      managedObjectMetadataIds: [LEAD_OBJECT_ID],
+      ruleByObjectMetadataIdAndRoleId: {
+        [`${LEAD_OBJECT_ID}:${ROLE_ID}`]: {
+          roleId: ROLE_ID,
+          objectMetadataId: LEAD_OBJECT_ID,
+          ownerFieldMetadataId: OWNER_FIELD_ID,
+          ownerFieldName: 'propietarioDeLead',
+          ownerJoinColumnName: 'propietarioDeLeadId',
+          recordEffect: 'ownRecords',
+          createPolicy: 'denied',
+          ownerTransferPolicy: 'denied',
+          ownerRequirement: 'required',
+          missingOwnerPolicy: 'requireExplicit',
+        },
+      },
       rules: [
         {
           roleId: ROLE_ID,

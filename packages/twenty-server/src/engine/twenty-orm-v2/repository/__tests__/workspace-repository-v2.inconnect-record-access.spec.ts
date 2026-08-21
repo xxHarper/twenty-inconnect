@@ -77,6 +77,7 @@ const leadObjectMetadata = {
 
 const scopedPolicy: InconnectRecordAccessWorkspacePolicy = {
   status: 'configured',
+  managedObjectMetadataIds: [LEAD_OBJECT_ID],
   rules: [
     {
       roleId: ROLE_ID,
@@ -95,11 +96,13 @@ const scopedPolicy: InconnectRecordAccessWorkspacePolicy = {
 
 const ownAndTeamPolicy: InconnectRecordAccessWorkspacePolicy = {
   status: 'configured',
+  managedObjectMetadataIds: [LEAD_OBJECT_ID],
   rules: [{ ...scopedPolicy.rules[0], recordEffect: 'ownAndTeamRecords' }],
 };
 
 const allRecordsPolicy: InconnectRecordAccessWorkspacePolicy = {
   status: 'configured',
+  managedObjectMetadataIds: [LEAD_OBJECT_ID],
   rules: [{ ...scopedPolicy.rules[0], recordEffect: 'allRecords' }],
 };
 

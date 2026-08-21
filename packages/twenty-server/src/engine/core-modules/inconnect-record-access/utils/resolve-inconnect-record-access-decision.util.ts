@@ -5,6 +5,7 @@ import {
   type InconnectRecordAccessDecision,
   type InconnectRecordAccessWorkspacePolicy,
 } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { getInconnectRecordAccessRuleKey } from 'src/engine/core-modules/inconnect-record-access/utils/get-inconnect-record-access-rule-key.util';
 import { resolveInconnectTeamAccessMapsForAuthorization } from 'src/engine/core-modules/inconnect-record-access/utils/parse-inconnect-team-access-maps.util';
 import { type UserWorkspaceRoleMap } from 'src/engine/metadata-modules/role-target/types/user-workspace-role-map';
 import { resolveRoleIdsFromAuthContext } from 'src/engine/twenty-orm/utils/resolve-role-ids-from-auth-context.util';
@@ -28,7 +29,7 @@ export const resolveInconnectRecordAccessDecision = ({
     return { kind: 'system-bypass' };
   }
 
-  if (policy.status === 'not-configured') {
+  if (policy.status === 'not-configured' || policy.status === 'unmanaged') {
     return { kind: 'not-managed' };
   }
 
@@ -36,11 +37,7 @@ export const resolveInconnectRecordAccessDecision = ({
     return { kind: 'denied', reason: policy.reason };
   }
 
-  const objectRules = policy.rules.filter(
-    (rule) => rule.objectMetadataId === objectMetadataId,
-  );
-
-  if (objectRules.length === 0) {
+  if (!policy.managedObjectMetadataIds.includes(objectMetadataId)) {
     return { kind: 'not-managed' };
   }
 
@@ -49,9 +46,20 @@ export const resolveInconnectRecordAccessDecision = ({
     userWorkspaceRoleMap,
     apiKeyRoleMap,
   });
-  const applicableRules = objectRules.filter((rule) =>
-    roleIds.includes(rule.roleId),
-  );
+  const applicableRules = policy.ruleByObjectMetadataIdAndRoleId
+    ? roleIds.flatMap((roleId) => {
+        const rule =
+          policy.ruleByObjectMetadataIdAndRoleId?.[
+            getInconnectRecordAccessRuleKey({ objectMetadataId, roleId })
+          ];
+
+        return rule ? [rule] : [];
+      })
+    : policy.rules.filter(
+        (rule) =>
+          rule.objectMetadataId === objectMetadataId &&
+          roleIds.includes(rule.roleId),
+      );
 
   if (applicableRules.length === 0) {
     return {

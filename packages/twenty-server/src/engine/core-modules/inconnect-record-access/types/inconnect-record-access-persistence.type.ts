@@ -17,6 +17,15 @@ export const INCONNECT_RECORD_ACCESS_PRINCIPAL_TYPES = [
 export type InconnectRecordAccessPrincipalType =
   (typeof INCONNECT_RECORD_ACCESS_PRINCIPAL_TYPES)[number];
 
+export const INCONNECT_RECORD_ACCESS_SOURCE_MODES = [
+  'env',
+  'transition',
+  'database',
+] as const;
+
+export type InconnectRecordAccessSourceMode =
+  (typeof INCONNECT_RECORD_ACCESS_SOURCE_MODES)[number];
+
 export type InconnectRecordAccessPersistedConfigurationCandidate = {
   workspaceId: string;
   enforcementMode: string;

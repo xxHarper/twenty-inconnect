@@ -29,6 +29,7 @@ const leadObjectMetadata = {
 const internalContext = {
   inconnectRecordAccessPolicy: {
     status: 'configured',
+    managedObjectMetadataIds: [LEAD_OBJECT_ID],
     rules: [
       {
         roleId: ROLE_ID,
@@ -58,6 +59,7 @@ const internalContext = {
 
 const ownAndTeamPolicy = {
   status: 'configured',
+  managedObjectMetadataIds: [LEAD_OBJECT_ID],
   rules: [
     {
       roleId: ROLE_ID,
@@ -68,6 +70,8 @@ const ownAndTeamPolicy = {
       recordEffect: 'ownAndTeamRecords',
       createPolicy: 'denied',
       ownerTransferPolicy: 'denied',
+      ownerRequirement: 'required',
+      missingOwnerPolicy: 'requireExplicit',
     },
   ],
 } as WorkspaceInternalContext['inconnectRecordAccessPolicy'];

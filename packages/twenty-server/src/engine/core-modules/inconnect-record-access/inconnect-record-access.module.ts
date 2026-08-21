@@ -9,7 +9,9 @@ import { InconnectRecordAccessManagedObjectEntity } from 'src/engine/core-module
 import { InconnectRecordAccessPolicyEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-policy.entity';
 import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
 import { InconnectCommercialTeamService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-commercial-team.service';
+import { InconnectRecordAccessPolicySourceService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-policy-source.service';
 import { InconnectWorkspaceMemberService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-workspace-member.service';
+import { WorkspaceInconnectRecordAccessPolicyMapsCacheService } from 'src/engine/core-modules/inconnect-record-access/services/workspace-inconnect-record-access-policy-maps-cache.service';
 import { WorkspaceInconnectTeamAccessMapsCacheService } from 'src/engine/core-modules/inconnect-record-access/services/workspace-inconnect-team-access-maps-cache.service';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
 
@@ -30,7 +32,13 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     InconnectCommercialTeamService,
     InconnectWorkspaceMemberService,
     WorkspaceInconnectTeamAccessMapsCacheService,
+    WorkspaceInconnectRecordAccessPolicyMapsCacheService,
+    InconnectRecordAccessPolicySourceService,
   ],
-  exports: [InconnectRecordAccessService, InconnectCommercialTeamService],
+  exports: [
+    InconnectRecordAccessService,
+    InconnectCommercialTeamService,
+    InconnectRecordAccessPolicySourceService,
+  ],
 })
 export class InconnectRecordAccessModule {}
