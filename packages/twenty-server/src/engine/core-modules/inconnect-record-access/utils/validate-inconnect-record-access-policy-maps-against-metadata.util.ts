@@ -2,6 +2,7 @@ import { type InconnectRecordAccessPolicyMaps } from 'src/engine/core-modules/in
 import { type InconnectRecordAccessPersistedCandidate } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-persistence.type';
 import { validateInconnectRecordAccessPersistedCandidate } from 'src/engine/core-modules/inconnect-record-access/utils/validate-inconnect-record-access-persisted-candidate.util';
 import { computeMorphOrRelationFieldJoinColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-morph-or-relation-field-join-column-name.util';
+import { type SyncableFlatEntity } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-from.type';
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
@@ -18,7 +19,7 @@ type ValidatePolicyMapsAgainstMetadataArgs = {
   flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
 };
 
-const getFlatEntityById = <TEntity extends { universalIdentifier: string }>(
+const getFlatEntityById = <TEntity extends SyncableFlatEntity>(
   maps: FlatEntityMaps<TEntity>,
   id: string,
 ): TEntity | undefined => {
