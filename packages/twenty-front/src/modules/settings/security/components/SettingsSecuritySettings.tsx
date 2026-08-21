@@ -8,6 +8,8 @@ import { isClickHouseConfiguredState } from '@/client-config/states/isClickHouse
 import { isMultiWorkspaceEnabledState } from '@/client-config/states/isMultiWorkspaceEnabledState';
 import { Separator } from '@/settings/components/Separator';
 import { SettingsEnterpriseFeatureGateCard } from '@/settings/components/SettingsEnterpriseFeatureGateCard';
+import { SettingsPath } from 'twenty-shared/types';
+import { getSettingsPath } from 'twenty-shared/utils';
 import { SettingsOptionCardContentButton } from '@/settings/components/SettingsOptions/SettingsOptionCardContentButton';
 import { SettingsOptionCardContentCounter } from '@/settings/components/SettingsOptions/SettingsOptionCardContentCounter';
 import { SettingsOptionCardContentToggle } from '@/settings/components/SettingsOptions/SettingsOptionCardContentToggle';
@@ -29,10 +31,13 @@ import {
   IconClockHour8,
   IconHistory,
   IconMail,
+  IconShield,
   IconTrash,
 } from 'twenty-ui/icon';
 import { H2Title } from 'twenty-ui/typography';
 import { Section } from 'twenty-ui/layout';
+import { Button } from 'twenty-ui/input';
+import { UndecoratedLink } from 'twenty-ui/navigation';
 import { Card } from 'twenty-ui/surfaces';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
 import { UpdateWorkspaceDocument } from '~/generated-metadata/graphql';
@@ -196,6 +201,28 @@ export const SettingsSecuritySettings = () => {
           </Section>
         </StyledSectionContainer>
 
+        <Section>
+          <StyledContainer>
+            <H2Title
+              title={t`Record access`}
+              description={t`Control record visibility and ownership policies by role`}
+            />
+            <Card rounded>
+              <SettingsOptionCardContentButton
+                Icon={IconShield}
+                title={t`Record Access`}
+                description={t`Control which records members can access based on their role and record owner.`}
+                Button={
+                  <UndecoratedLink
+                    to={getSettingsPath(SettingsPath.SecurityRecordAccess)}
+                  >
+                    <Button title={t`Configure`} variant="secondary" />
+                  </UndecoratedLink>
+                }
+              />
+            </Card>
+          </StyledContainer>
+        </Section>
         <Section>
           <StyledContainer>
             <H2Title

@@ -2133,6 +2133,147 @@ export type Impersonate = {
   workspace: WorkspaceUrlsAndId;
 };
 
+export enum InconnectRecordAccessCacheStatus {
+  recomputationFailed = 'recomputationFailed',
+  recomputed = 'recomputed'
+}
+
+export enum InconnectRecordAccessConfigurationStatus {
+  ABSENT = 'ABSENT',
+  MANAGED = 'MANAGED',
+  UNMANAGED = 'UNMANAGED'
+}
+
+export enum InconnectRecordAccessCreatePolicy {
+  assignableOwners = 'assignableOwners',
+  defaultOwner = 'defaultOwner',
+  denied = 'denied',
+  standardPermissionsOnly = 'standardPermissionsOnly'
+}
+
+export enum InconnectRecordAccessEnforcementMode {
+  MANAGED = 'MANAGED',
+  UNMANAGED = 'UNMANAGED'
+}
+
+export type InconnectRecordAccessManagedObjectInput = {
+  objectMetadataId: Scalars['UUID']['input'];
+  ownerFieldMetadataId: Scalars['UUID']['input'];
+  ownerRequirement: InconnectRecordAccessOwnerRequirement;
+};
+
+export enum InconnectRecordAccessMissingOwnerPolicy {
+  requireExplicit = 'requireExplicit',
+  self = 'self',
+  singleActiveMemberOfRole = 'singleActiveMemberOfRole',
+  standard = 'standard'
+}
+
+export enum InconnectRecordAccessOwnerRequirement {
+  optional = 'optional',
+  required = 'required'
+}
+
+export enum InconnectRecordAccessOwnerTransferPolicy {
+  assignableOwners = 'assignableOwners',
+  denied = 'denied',
+  standardPermissionsOnly = 'standardPermissionsOnly'
+}
+
+export type InconnectRecordAccessPolicyInput = {
+  createPolicy: InconnectRecordAccessCreatePolicy;
+  defaultOwnerRoleId?: InputMaybe<Scalars['UUID']['input']>;
+  missingOwnerPolicy: InconnectRecordAccessMissingOwnerPolicy;
+  objectMetadataId: Scalars['UUID']['input'];
+  ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy;
+  principalType: InconnectRecordAccessPrincipalType;
+  recordEffect: InconnectRecordAccessRecordEffect;
+  roleId: Scalars['UUID']['input'];
+};
+
+export enum InconnectRecordAccessPrincipalType {
+  WORKSPACE_MEMBER = 'WORKSPACE_MEMBER'
+}
+
+export enum InconnectRecordAccessRecordEffect {
+  allRecords = 'allRecords',
+  ownAndTeamRecords = 'ownAndTeamRecords',
+  ownRecords = 'ownRecords'
+}
+
+export type InconnectRecordAccessSettingsAvailableMetadata = {
+  __typename?: 'InconnectRecordAccessSettingsAvailableMetadata';
+  objects: Array<InconnectRecordAccessSettingsObjectCandidate>;
+  roles: Array<InconnectRecordAccessSettingsRoleCandidate>;
+};
+
+export type InconnectRecordAccessSettingsConfiguration = {
+  __typename?: 'InconnectRecordAccessSettingsConfiguration';
+  enforcementMode?: Maybe<InconnectRecordAccessEnforcementMode>;
+  managedObjects: Array<InconnectRecordAccessSettingsManagedObject>;
+  revision?: Maybe<Scalars['String']['output']>;
+  status: InconnectRecordAccessConfigurationStatus;
+};
+
+export type InconnectRecordAccessSettingsManagedObject = {
+  __typename?: 'InconnectRecordAccessSettingsManagedObject';
+  id: Scalars['UUID']['output'];
+  objectLabelSingular: Scalars['String']['output'];
+  objectMetadataId: Scalars['UUID']['output'];
+  objectNameSingular: Scalars['String']['output'];
+  objectUniversalIdentifier: Scalars['UUID']['output'];
+  ownerFieldLabel: Scalars['String']['output'];
+  ownerFieldMetadataId: Scalars['UUID']['output'];
+  ownerFieldName: Scalars['String']['output'];
+  ownerFieldUniversalIdentifier: Scalars['UUID']['output'];
+  ownerRequirement: InconnectRecordAccessOwnerRequirement;
+  policies: Array<InconnectRecordAccessSettingsPolicy>;
+};
+
+export type InconnectRecordAccessSettingsObjectCandidate = {
+  __typename?: 'InconnectRecordAccessSettingsObjectCandidate';
+  isActive: Scalars['Boolean']['output'];
+  labelPlural: Scalars['String']['output'];
+  labelSingular: Scalars['String']['output'];
+  namePlural: Scalars['String']['output'];
+  nameSingular: Scalars['String']['output'];
+  objectMetadataId: Scalars['UUID']['output'];
+  ownerFields: Array<InconnectRecordAccessSettingsOwnerFieldCandidate>;
+  universalIdentifier: Scalars['UUID']['output'];
+};
+
+export type InconnectRecordAccessSettingsOwnerFieldCandidate = {
+  __typename?: 'InconnectRecordAccessSettingsOwnerFieldCandidate';
+  fieldMetadataId: Scalars['UUID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  joinColumnName: Scalars['String']['output'];
+  label: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  universalIdentifier: Scalars['UUID']['output'];
+};
+
+export type InconnectRecordAccessSettingsPolicy = {
+  __typename?: 'InconnectRecordAccessSettingsPolicy';
+  createPolicy: InconnectRecordAccessCreatePolicy;
+  defaultOwnerRoleId?: Maybe<Scalars['UUID']['output']>;
+  defaultOwnerRoleLabel?: Maybe<Scalars['String']['output']>;
+  id: Scalars['UUID']['output'];
+  missingOwnerPolicy: InconnectRecordAccessMissingOwnerPolicy;
+  ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy;
+  principalType: InconnectRecordAccessPrincipalType;
+  recordEffect: InconnectRecordAccessRecordEffect;
+  roleId: Scalars['UUID']['output'];
+  roleLabel: Scalars['String']['output'];
+  roleUniversalIdentifier: Scalars['UUID']['output'];
+};
+
+export type InconnectRecordAccessSettingsRoleCandidate = {
+  __typename?: 'InconnectRecordAccessSettingsRoleCandidate';
+  label: Scalars['String']['output'];
+  roleId: Scalars['UUID']['output'];
+  universalIdentifier: Scalars['UUID']['output'];
+};
+
 export type Index = {
   __typename?: 'Index';
   createdAt: Scalars['DateTime']['output'];
@@ -2737,6 +2878,7 @@ export type Mutation = {
   renameChatThread: AgentChatThread;
   renewApplicationToken: ApplicationTokenPair;
   renewToken: AuthTokens;
+  replaceInconnectRecordAccessConfiguration: ReplaceInconnectRecordAccessConfigurationResult;
   resendEmailVerificationToken: ResendEmailVerificationToken;
   resendWorkspaceInvitation: SendInvitations;
   resetCommandMenuItem: CommandMenuItem;
@@ -3486,6 +3628,11 @@ export type MutationRenewApplicationTokenArgs = {
 
 export type MutationRenewTokenArgs = {
   appToken: Scalars['String']['input'];
+};
+
+
+export type MutationReplaceInconnectRecordAccessConfigurationArgs = {
+  input: ReplaceInconnectRecordAccessConfigurationInput;
 };
 
 
@@ -4608,6 +4755,8 @@ export type Query = {
   getAvailablePackages: Scalars['JSON']['output'];
   getConnectedImapSmtpCaldavAccount: ConnectedImapSmtpCaldavAccount;
   getEmailingDomains: Array<EmailingDomain>;
+  getInconnectRecordAccessAvailableMetadata: InconnectRecordAccessSettingsAvailableMetadata;
+  getInconnectRecordAccessConfiguration: InconnectRecordAccessSettingsConfiguration;
   getInviteSuggestions: Array<InviteSuggestion>;
   getLogicFunctionSourceCode?: Maybe<Scalars['String']['output']>;
   getPageLayout?: Maybe<PageLayout>;
@@ -5128,6 +5277,20 @@ export enum RelationType {
 export type RemoveQueryFromEventStreamInput = {
   eventStreamId: Scalars['String']['input'];
   queryId: Scalars['String']['input'];
+};
+
+export type ReplaceInconnectRecordAccessConfigurationInput = {
+  enforcementMode: InconnectRecordAccessEnforcementMode;
+  expectedRevision?: InputMaybe<Scalars['String']['input']>;
+  managedObjects: Array<InconnectRecordAccessManagedObjectInput>;
+  policies: Array<InconnectRecordAccessPolicyInput>;
+};
+
+export type ReplaceInconnectRecordAccessConfigurationResult = {
+  __typename?: 'ReplaceInconnectRecordAccessConfigurationResult';
+  cacheStatus: InconnectRecordAccessCacheStatus;
+  changedFromManagedToUnmanaged: Scalars['Boolean']['output'];
+  revision: Scalars['String']['output'];
 };
 
 export type ResendEmailVerificationToken = {
@@ -8870,6 +9033,23 @@ export type GetSsoIdentityProvidersQueryVariables = Exact<{ [key: string]: never
 
 export type GetSsoIdentityProvidersQuery = { __typename?: 'Query', getSSOIdentityProviders: Array<{ __typename?: 'FindAvailableSSOIDP', type: IdentityProviderType, id: string, name: string, issuer: string, status: SsoIdentityProviderStatus }> };
 
+export type ReplaceInconnectRecordAccessConfigurationMutationVariables = Exact<{
+  input: ReplaceInconnectRecordAccessConfigurationInput;
+}>;
+
+
+export type ReplaceInconnectRecordAccessConfigurationMutation = { __typename?: 'Mutation', replaceInconnectRecordAccessConfiguration: { __typename?: 'ReplaceInconnectRecordAccessConfigurationResult', revision: string, cacheStatus: InconnectRecordAccessCacheStatus, changedFromManagedToUnmanaged: boolean } };
+
+export type GetInconnectRecordAccessAvailableMetadataQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetInconnectRecordAccessAvailableMetadataQuery = { __typename?: 'Query', getInconnectRecordAccessAvailableMetadata: { __typename?: 'InconnectRecordAccessSettingsAvailableMetadata', objects: Array<{ __typename?: 'InconnectRecordAccessSettingsObjectCandidate', objectMetadataId: string, universalIdentifier: string, nameSingular: string, namePlural: string, labelSingular: string, labelPlural: string, isActive: boolean, ownerFields: Array<{ __typename?: 'InconnectRecordAccessSettingsOwnerFieldCandidate', fieldMetadataId: string, universalIdentifier: string, name: string, label: string, isActive: boolean, joinColumnName: string }> }>, roles: Array<{ __typename?: 'InconnectRecordAccessSettingsRoleCandidate', roleId: string, universalIdentifier: string, label: string }> } };
+
+export type GetInconnectRecordAccessConfigurationQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetInconnectRecordAccessConfigurationQuery = { __typename?: 'Query', getInconnectRecordAccessConfiguration: { __typename?: 'InconnectRecordAccessSettingsConfiguration', status: InconnectRecordAccessConfigurationStatus, enforcementMode?: InconnectRecordAccessEnforcementMode | null, revision?: string | null, managedObjects: Array<{ __typename?: 'InconnectRecordAccessSettingsManagedObject', id: string, objectMetadataId: string, objectUniversalIdentifier: string, objectNameSingular: string, objectLabelSingular: string, ownerFieldMetadataId: string, ownerFieldUniversalIdentifier: string, ownerFieldName: string, ownerFieldLabel: string, ownerRequirement: InconnectRecordAccessOwnerRequirement, policies: Array<{ __typename?: 'InconnectRecordAccessSettingsPolicy', id: string, roleId: string, roleLabel: string, roleUniversalIdentifier: string, principalType: InconnectRecordAccessPrincipalType, recordEffect: InconnectRecordAccessRecordEffect, createPolicy: InconnectRecordAccessCreatePolicy, ownerTransferPolicy: InconnectRecordAccessOwnerTransferPolicy, missingOwnerPolicy: InconnectRecordAccessMissingOwnerPolicy, defaultOwnerRoleId?: string | null, defaultOwnerRoleLabel?: string | null }> }> } };
+
 export type VerifyTwoFactorAuthenticationMethodForAuthenticatedUserMutationVariables = Exact<{
   otp: Scalars['String']['input'];
 }>;
@@ -9666,6 +9846,9 @@ export const EditSsoIdentityProviderDocument = {"kind":"Document","definitions":
 export const ValidateApprovedAccessDomainDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ValidateApprovedAccessDomain"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ValidateApprovedAccessDomainInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"validateApprovedAccessDomain"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"isValidated"}},{"kind":"Field","name":{"kind":"Name","value":"domain"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<ValidateApprovedAccessDomainMutation, ValidateApprovedAccessDomainMutationVariables>;
 export const GetApprovedAccessDomainsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetApprovedAccessDomains"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getApprovedAccessDomains"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"domain"}},{"kind":"Field","name":{"kind":"Name","value":"isValidated"}}]}}]}}]} as unknown as DocumentNode<GetApprovedAccessDomainsQuery, GetApprovedAccessDomainsQueryVariables>;
 export const GetSsoIdentityProvidersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetSSOIdentityProviders"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getSSOIdentityProviders"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"issuer"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<GetSsoIdentityProvidersQuery, GetSsoIdentityProvidersQueryVariables>;
+export const ReplaceInconnectRecordAccessConfigurationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ReplaceInconnectRecordAccessConfiguration"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ReplaceInconnectRecordAccessConfigurationInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"replaceInconnectRecordAccessConfiguration"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"revision"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}},{"kind":"Field","name":{"kind":"Name","value":"changedFromManagedToUnmanaged"}}]}}]}}]} as unknown as DocumentNode<ReplaceInconnectRecordAccessConfigurationMutation, ReplaceInconnectRecordAccessConfigurationMutationVariables>;
+export const GetInconnectRecordAccessAvailableMetadataDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetInconnectRecordAccessAvailableMetadata"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getInconnectRecordAccessAvailableMetadata"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"objects"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"universalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"nameSingular"}},{"kind":"Field","name":{"kind":"Name","value":"namePlural"}},{"kind":"Field","name":{"kind":"Name","value":"labelSingular"}},{"kind":"Field","name":{"kind":"Name","value":"labelPlural"}},{"kind":"Field","name":{"kind":"Name","value":"isActive"}},{"kind":"Field","name":{"kind":"Name","value":"ownerFields"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"fieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"universalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"isActive"}},{"kind":"Field","name":{"kind":"Name","value":"joinColumnName"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"roles"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"universalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"label"}}]}}]}}]}}]} as unknown as DocumentNode<GetInconnectRecordAccessAvailableMetadataQuery, GetInconnectRecordAccessAvailableMetadataQueryVariables>;
+export const GetInconnectRecordAccessConfigurationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetInconnectRecordAccessConfiguration"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getInconnectRecordAccessConfiguration"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"enforcementMode"}},{"kind":"Field","name":{"kind":"Name","value":"revision"}},{"kind":"Field","name":{"kind":"Name","value":"managedObjects"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"objectUniversalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"objectNameSingular"}},{"kind":"Field","name":{"kind":"Name","value":"objectLabelSingular"}},{"kind":"Field","name":{"kind":"Name","value":"ownerFieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"ownerFieldUniversalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"ownerFieldName"}},{"kind":"Field","name":{"kind":"Name","value":"ownerFieldLabel"}},{"kind":"Field","name":{"kind":"Name","value":"ownerRequirement"}},{"kind":"Field","name":{"kind":"Name","value":"policies"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"roleLabel"}},{"kind":"Field","name":{"kind":"Name","value":"roleUniversalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"principalType"}},{"kind":"Field","name":{"kind":"Name","value":"recordEffect"}},{"kind":"Field","name":{"kind":"Name","value":"createPolicy"}},{"kind":"Field","name":{"kind":"Name","value":"ownerTransferPolicy"}},{"kind":"Field","name":{"kind":"Name","value":"missingOwnerPolicy"}},{"kind":"Field","name":{"kind":"Name","value":"defaultOwnerRoleId"}},{"kind":"Field","name":{"kind":"Name","value":"defaultOwnerRoleLabel"}}]}}]}}]}}]}}]} as unknown as DocumentNode<GetInconnectRecordAccessConfigurationQuery, GetInconnectRecordAccessConfigurationQueryVariables>;
 export const VerifyTwoFactorAuthenticationMethodForAuthenticatedUserDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"verifyTwoFactorAuthenticationMethodForAuthenticatedUser"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"otp"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"verifyTwoFactorAuthenticationMethodForAuthenticatedUser"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"otp"},"value":{"kind":"Variable","name":{"kind":"Name","value":"otp"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"success"}}]}}]}}]} as unknown as DocumentNode<VerifyTwoFactorAuthenticationMethodForAuthenticatedUserMutation, VerifyTwoFactorAuthenticationMethodForAuthenticatedUserMutationVariables>;
 export const CreateUnsubscribeTopicDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateUnsubscribeTopic"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateUnsubscribeTopicInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createUnsubscribeTopic"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"visibility"}}]}}]}}]} as unknown as DocumentNode<CreateUnsubscribeTopicMutation, CreateUnsubscribeTopicMutationVariables>;
 export const DeleteUnsubscribeTopicDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteUnsubscribeTopic"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"deleteUnsubscribeTopic"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}]}}]} as unknown as DocumentNode<DeleteUnsubscribeTopicMutation, DeleteUnsubscribeTopicMutationVariables>;

@@ -519,6 +519,14 @@ const SettingsSecurityApprovedAccessDomain = lazy(() =>
   ),
 );
 
+const SettingsSecurityRecordAccess = lazy(() =>
+  import('~/pages/settings/security/SettingsSecurityRecordAccess').then(
+    (module) => ({
+      default: module.SettingsSecurityRecordAccess,
+    }),
+  ),
+);
+
 const SettingsAdmin = lazy(() =>
   import('~/pages/settings/admin-panel/SettingsAdmin').then((module) => ({
     default: module.SettingsAdmin,
@@ -1032,6 +1040,10 @@ export const SettingsRoutes = ({ isAdminPageEnabled }: SettingsRoutesProps) => (
         <Route
           path={SettingsPath.NewApprovedAccessDomain}
           element={<SettingsSecurityApprovedAccessDomain />}
+        />
+        <Route
+          path={SettingsPath.SecurityRecordAccess}
+          element={<SettingsSecurityRecordAccess />}
         />
       </Route>
 
