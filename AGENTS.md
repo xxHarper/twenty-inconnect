@@ -231,618 +231,415 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 - `package.json` - Root package with workspace definitions
 - `.cursor/rules/` - Detailed development guidelines and best practices
 
-# INCONNECT Record Access — Project State / Handoff
+# INCONNECT - Stable Project State / Handoff
 
-This section is the technical handoff for the custom INCONNECT work. It supplements, and does not replace, the repository-wide instructions above. It was last verified on 2026-08-20 against branch feature/inconnect-policy-cache-source at commit 4acfa727ec01b43c0029f16e66c5578c3342d059.
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes the current stable capabilities rather than the implementation chronology. It was verified on 2026-08-24 against branch `chore/inconnect-stable-checkpoint` at commit `6be7733df3b52063552b6f800518ea0baa8277bc`.
 
 ## Purpose and Licensing Boundary
 
-INCONNECT Record Access is an independent record-authorization system built on Twenty OSS. Its operating model is:
+INCONNECT is an independent OSS record-authorization and commercial-team implementation built on Twenty OSS. Its operating model is:
 
 - Executive: own records.
 - Coordinator: own records plus records owned by members of the coordinator's commercial team.
-- Supervisor: all records, still subject to Twenty standard permissions.
-- Admin: all records, still subject to Twenty standard permissions.
+- Supervisor: all records, subject to Twenty standard permissions.
+- Admin: all records, subject to Twenty standard permissions.
 
-The currently managed CRM objects are Lead and Folio ISO, both custom objects in workspace metadata. The engine must remain generic: do not hardcode these object names, their physical tables, owner column names, workspace IDs, Role IDs, or Workspace Member IDs.
+Lead and Folio ISO are the currently managed custom objects, but the engine is metadata-driven and must remain generic. Never hardcode their names, physical tables, owner columns, workspace IDs, Role IDs, or Workspace Member IDs.
 
 The Enterprise boundary is strict:
 
-- Do not copy, derive, adapt, or reuse Twenty Enterprise Row-Level Permissions.
-- Do not inspect Enterprise RLS internals to design INCONNECT.
-- Do not modify engine/core-modules/enterprise/** for INCONNECT work.
-- Do not import Enterprise RLS predicates, evaluators, renderers, builders, metadata entities, migrations, or tests.
+- Never copy, derive, adapt, reuse, or inspect Twenty Enterprise Row-Level Permissions for INCONNECT design or implementation.
+- Never modify `engine/core-modules/enterprise/**` for this project.
+- Never import Enterprise RLS predicates, evaluators, renderers, builders, metadata entities, migrations, or tests.
 - OSS shared infrastructure may be reused when appropriate.
-- Keep INCONNECT an independently designed OSS implementation under engine/core-modules/inconnect-record-access/ and the OSS ORM integration points.
+- Keep INCONNECT an independently designed OSS implementation under the INCONNECT module and OSS ORM integration points.
 
-INCONNECT is operational core configuration, not a syncable metadata entity. Do not start a syncable-entity-* workflow unless a future task explicitly introduces a real syncable metadata entity and justifies it.
+INCONNECT operational configuration is not a syncable metadata entity. Do not start a `syncable-entity-*` workflow unless a future task explicitly introduces a real syncable metadata entity and justifies it.
 
-## Security Model and Decision Semantics
+## Completed Security Model
 
-Record effects are:
+Record effects:
 
-- ownRecords
-- ownAndTeamRecords
-- allRecords
+- `ownRecords`
+- `ownAndTeamRecords`
+- `allRecords`
 
-The effective authorization rule is always:
+Effective authorization is always:
 
     Twenty standard permissions
     AND INCONNECT operation policy
     AND INCONNECT record scope
     AND INCONNECT owner integrity, when configured
 
-INCONNECT must never grant an object operation or field write denied by Twenty standard Role permissions. allRecords means only that no extra INCONNECT row predicate is added; it is not a bypass of standard permissions.
+`allRecords` only omits an additional INCONNECT row predicate. It never bypasses standard object or field permissions.
 
 Strict behavior:
 
-- Managed object plus Role without exactly one applicable policy: denied.
-- Duplicate or ambiguous policy: denied.
-- Invalid policy/configuration/cache when that source is authoritative: denied.
-- Human policy requiring a Workspace Member but receiving an API key/application context without one: denied.
+- Managed object plus Role without exactly one applicable Policy: denied.
+- Duplicate, invalid, incomplete, corrupt, or unavailable authoritative policy/cache: denied.
+- Human policy requiring a Workspace Member with no authenticated Workspace Member: denied.
 - Object not managed by INCONNECT: standard Twenty behavior.
-- system auth context: the existing explicit trusted internal bypass.
+- `system` bypass is reserved only for explicitly authorized internal operations already trusted by Twenty.
+- Unsupported managed-object write paths remain fail-closed unless a later phase explicitly designs and tests them.
 
-The current resolved decision union is defined in types/inconnect-record-access-workspace-policy.type.ts and uses:
+The resolved decision model distinguishes `not-managed`, `system-bypass`, `denied`, `all-records`, and `owner-workspace-member-ids`. Scoped decisions keep two independent sets:
 
-- not-managed
-- system-bypass
-- denied
-- all-records
-- owner-workspace-member-ids
+- `recordScopeOwnerWorkspaceMemberIds`: owners whose existing records the actor may access.
+- `assignableOwnerWorkspaceMemberIds`: owners that may receive a new record or transfer when operation policy permits.
 
-For scoped decisions, recordScopeOwnerWorkspaceMemberIds controls access to current records and assignableOwnerWorkspaceMemberIds controls owner destinations. Do not conflate these arrays.
+Never cache a complete actor-specific decision by only workspace + Role. Policy snapshots and Team maps may be workspace-level; authenticated Workspace Member and owner-ID decisions must be resolved per request.
 
-## Actor-Specific Resolution
+## Completed SQL Enforcement
 
-The final authorization decision is actor-specific. Never cache a complete resolved decision solely by workspaceId + roleId when it contains any of:
+Authorization is enforced in backend SQL, never by frontend filtering or post-filtering.
 
-- authenticatedWorkspaceMemberId
-- recordScopeOwnerWorkspaceMemberIds
-- assignableOwnerWorkspaceMemberIds
+Reads cover the protected ORM v1 and ORM v2 paths, including:
 
-A policy snapshot may be cached at workspace level. Team maps may be cached at workspace level. The final decision must be resolved per request and actor.
+- list/find-many and direct find-by-ID/find-one;
+- count and pagination;
+- Search through the existing FTS/ILIKE pipelines;
+- protected raw/select execution paths;
+- relations and managed `JOIN ... ON` targets.
 
-For ownAndTeamRecords, expansion requires both a matching policy and a valid COORDINATOR membership. With a valid Team cache:
-
-- Coordinator membership: self plus memberWorkspaceMemberIdsByTeamId[teamId] for record scope.
-- Coordinator membership: self plus assignableMemberWorkspaceMemberIdsByTeamId[teamId] for assignment scope when the operation policy uses assignable owners.
-- No membership or an EXECUTIVE membership: self only.
-- Absent, invalid, corrupt, or recomputation-failed Team authority: complete denial, not self-only fallback.
-
-The main actor resolver is utils/resolve-inconnect-record-access-decision.util.ts.
-
-## Commercial Teams
-
-The INCONNECT Commercial Team subsystem is already implemented and persisted independently from CRM metadata and policy persistence.
-
-Entities/tables:
-
-- InconnectCommercialTeamEntity / core.inconnectCommercialTeam
-- InconnectCommercialTeamMembershipEntity / core.inconnectCommercialTeamMembership
-
-Membership types:
-
-- COORDINATOR
-- EXECUTIVE
-
-Active membership means deletedAt IS NULL. Database and service invariants include:
-
-- A Workspace Member has at most one active commercial-team membership.
-- A Team has at most one active Coordinator.
-- Team and membership data are workspace-isolated.
-- Role policies decide the kind of scope; Team membership decides which Workspace Members expand it.
-- A historical/non-assignable member may remain in record scope while being excluded from assignment destinations.
-
-The authoritative maps are conceptually:
-
-- membershipByWorkspaceMemberId
-- memberWorkspaceMemberIdsByTeamId
-- assignableMemberWorkspaceMemberIdsByTeamId
-
-The Team cache is security-sensitive and already hardened with:
-
-- workspace-level Redis/shared authority;
-- runtime payload validation;
-- REPEATABLE READ, read-only snapshot construction;
-- generation fencing and shared-generation validation;
-- fail-closed cache states;
-- after-commit invalidation/recomputation;
-- multi-process protection against an older recomputation overwriting a newer one.
-
-Its cache config uses generationFenced: true. Authorization understands available and denied reasons absent, invalid, corrupt, and recomputation-failed. None may become allRecords.
-
-Key files:
-
-- services/inconnect-commercial-team.service.ts
-- services/inconnect-workspace-member.service.ts
-- services/workspace-inconnect-team-access-maps-cache.service.ts
-- types/inconnect-team-access-maps.type.ts
-- utils/parse-inconnect-team-access-maps.util.ts
-
-Do not redesign Teams as part of persisted Record Access policy work unless a concrete security requirement makes it necessary.
-
-## Operation Policies and Writes
-
-Create policy values:
-
-- denied
-- defaultOwner
-- assignableOwners
-- standardPermissionsOnly
-
-Owner-transfer policy values:
-
-- denied
-- assignableOwners
-- standardPermissionsOnly
-
-These dimensions are independent of recordEffect. Twenty currently shares canUpdateObjectRecords between Create and Update, so INCONNECT intentionally separates Create policy from normal Update authorization.
-
-Write behavior:
-
-- Normal Update uses the current owner scope in the SQL mutation predicate.
-- Owner transfer validates both access to the record under its old owner and permission for the destination owner.
-- Client-supplied owner values remain subject to standard owner-field permissions.
-- Security-injected default owners are internal values and must not grant the client permission to edit the owner field.
-- Update/Delete-style mutation scopes are rendered atomically in SQL; do not add a separate permission SELECT followed by an unscoped mutation.
-- Direct-by-ID operations outside scope must behave as not found/no affected rows without existence disclosure.
-
-Internal write provenance is security-sensitive. Fields injected by trusted Twenty hooks, such as actor side effects, may bypass client field-write checks only when they were explicitly tracked as internally injected and their FieldMetadata has isSystemSideEffect === true. A client sending the same field directly must still be checked normally.
-
-The following generic EntityManager/Repository operations remain fail-closed for managed objects unless a later phase explicitly designs and tests them:
-
-- upsert
-- merge
-- save
-- remove
-- softRemove
-- recover
-
-The guard is utils/assert-inconnect-record-access-operation-supported.util.ts. Do not expand these routes accidentally.
-
-## Owner Integrity
-
-Owner requirement values:
-
-- required
-- optional
-
-Missing-owner policy values:
-
-- self
-- requireExplicit
-- singleActiveMemberOfRole
-- standard
-
-Owner omission and explicit null are different inputs. When ownerRequirement = required:
-
-- Explicit owner null on Create: denied.
-- Explicit owner null on Update: denied.
-- An omitted owner follows missingOwnerPolicy.
-
-Owner normalization must cover every supported Twenty representation, including:
-
-- relation property;
-- normalized foreign key;
-- relation object;
-- nested connect;
-- equivalent relation/FK representations reaching the common write pipeline.
-
-Contradictory relation and FK owner values must be rejected. Do not hardcode physical join-column names; derive them from the configured owner FieldMetadata using Twenty's metadata helpers.
-
-The central write normalization/enforcement helper is utils/apply-inconnect-record-access-to-write-values.util.ts. Default-owner resolution by Role is in utils/resolve-inconnect-single-active-member-of-role.util.ts.
-
-## Current Functional Policy: Lead
-
-The intended current ENV configuration represents:
-
-### Ejecutivo INCONNECT
-
-- recordEffect = ownRecords
-- createPolicy = denied
-- ownerTransferPolicy = denied
-- ownerRequirement = required
-- missingOwnerPolicy = requireExplicit, as required by the denied-Create policy contract.
-- Updates to owned records remain allowed only when Twenty object/field permissions allow them.
-
-### Coordinador INCONNECT
-
-- recordEffect = ownAndTeamRecords
-- createPolicy = denied
-- ownerTransferPolicy = denied
-- ownerRequirement = required
-- missingOwnerPolicy = requireExplicit
-- Updates to self/Team records remain allowed only when standard permissions allow them.
-
-### Supervisor INCONNECT
-
-- recordEffect = allRecords
-- createPolicy = standardPermissionsOnly
-- ownerTransferPolicy = standardPermissionsOnly
-- ownerRequirement = required
-- missingOwnerPolicy = singleActiveMemberOfRole
-- Default owner Role: Supervisor INCONNECT.
-
-### Admin
-
-- recordEffect = allRecords
-- createPolicy = standardPermissionsOnly
-- ownerTransferPolicy = standardPermissionsOnly
-- ownerRequirement = required
-- missingOwnerPolicy = singleActiveMemberOfRole
-- Default owner Role: Supervisor INCONNECT.
-
-The Lead default owner is never a hardcoded Workspace Member. It resolves the unique active/assignable Workspace Member holding the configured Supervisor Role:
-
-- 0 candidates: Create without owner is denied.
-- 1 candidate: use that Workspace Member.
-- 2 or more candidates: Create without owner is denied.
-
-An explicit valid owner does not require the default Role to have exactly one candidate and remains governed by standard permissions and the configured operation policy.
-
-## Current Functional Policy: Folio ISO
-
-The intended current ENV configuration represents:
-
-### Ejecutivo INCONNECT
-
-- recordEffect = ownRecords
-- createPolicy = defaultOwner
-- missingOwnerPolicy = self
-- ownerTransferPolicy = denied
-- ownerRequirement = required
-
-### Coordinador INCONNECT
-
-- recordEffect = ownAndTeamRecords
-- createPolicy = defaultOwner
-- missingOwnerPolicy = self
-- ownerTransferPolicy = denied
-- ownerRequirement = required
-
-### Supervisor INCONNECT
-
-- recordEffect = allRecords
-- createPolicy = standardPermissionsOnly
-- missingOwnerPolicy = self
-- ownerTransferPolicy = standardPermissionsOnly
-- ownerRequirement = required
-
-### Admin
-
-- recordEffect = allRecords
-- createPolicy = standardPermissionsOnly
-- missingOwnerPolicy = self
-- ownerTransferPolicy = standardPermissionsOnly
-- ownerRequirement = required
-
-Twenty creates a Folio ISO immediately when the UI action opens a new record, before the complete form can collect an owner. Therefore missing owner resolves to the authenticated Workspace Member for every configured Role. Supervisor/Admin may transfer the owner later only when Twenty's standard object and owner-field permissions allow it. Explicit owner null remains denied.
-
-Lead and Folio ISO owners are independent. There is currently no inherited rule such as Folio access following its related Lead, and no automatic synchronization of their owners:
-
-    Folio access != related Lead owner inheritance
-
-## SQL Enforcement, Search, and Relations
-
-INCONNECT enforcement is backend/SQL authorization, never a UI/view filter or post-query result filter.
-
-Reads are integrated into:
-
-- ORM v1;
-- ORM v2;
-- list/find-many;
-- direct find-by-ID/find-one;
-- counts and pagination;
-- Search through the existing FTS/ILIKE read pipelines;
-- raw/select execution paths already protected by the workspace query builders;
-- relations and JOINs.
-
-The security predicate is grouped as:
+Predicates preserve grouping:
 
     OWNER_SCOPE AND (USER_FILTER)
 
-User filters containing OR must never escape the owner predicate. Managed relation targets receive their own predicate in JOIN ... ON; for example, an accessible Lead must not expose an inaccessible related Folio ISO, and vice versa.
+A managed joined object receives its own scope. An accessible Lead must not expose an inaccessible related Folio ISO, and vice versa.
 
-Writes reuse the same metadata-derived owner column and apply current-owner IDs inside the mutation SQL predicate to prevent TOCTOU. UUIDs are parameters, not interpolated SQL.
+Writes cover the supported common Create/Update/Delete-style builders:
 
-Important OSS integration points include:
+- Current-owner scope is part of the same mutation SQL predicate, preventing permission-check-then-write TOCTOU.
+- Owner transfer validates both current-record scope and destination-owner policy.
+- Client-provided owner values remain subject to Twenty standard owner-field permission.
+- Security-injected owner defaults do not grant client permission to edit the owner field.
+- UUIDs are parameters and owner columns/tables are derived from metadata.
+- Direct-by-ID operations outside scope behave as not found/no affected rows without existence disclosure.
+- Internal provenance for `createdBy`/`updatedBy` remains protected and only explicitly tracked system side effects may bypass client field-write checks.
 
-- inconnect-record-access.service.ts: current ENV parse and metadata resolution.
-- utils/resolve-inconnect-record-access-decision.util.ts: per-actor decision.
-- utils/render-inconnect-record-access-condition.util.ts: reusable SQL condition rendering.
-- global-workspace-datasource/global-workspace-orm.manager.ts: workspace ORM context assembly.
-- interfaces/workspace-internal-context.interface.ts: policy and Team maps carried in ORM context.
-- ORM v1 workspace-select-query-builder.ts, workspace-insert-query-builder.ts, workspace-update-query-builder.ts, workspace-delete-query-builder.ts, and workspace-soft-delete-query-builder.ts.
-- utils/apply-inconnect-record-access-to-mutation-query-builder.util.ts: atomic mutation scope.
-- ORM v2 workspace-select-query-builder-v2.ts and workspace-repository-v2.ts for reads.
-- Common query runners for client payload provenance and Create/Update paths.
+The following generic EntityManager/Repository operations remain fail-closed for managed objects unless explicitly expanded later:
+
+- `upsert`
+- `merge`
+- `save`
+- `remove`
+- `softRemove`
+- `recover`
 
 Do not move enforcement into individual REST/GraphQL resolvers; preserve the common ORM/query-builder coverage.
 
-## Persisted Configuration: Phase 6B.1 Complete
+## Operation Policies and Owner Integrity
 
-Phase 6B.1 added relational core persistence without connecting it to runtime authorization.
+Create policy values:
 
-Model:
+- `denied`
+- `defaultOwner`
+- `assignableOwners`
+- `standardPermissionsOnly`
 
-    Configuration
-      └── ManagedObject
-            └── Policy
+Owner-transfer policy values:
 
-Entities/tables:
+- `denied`
+- `assignableOwners`
+- `standardPermissionsOnly`
 
-- InconnectRecordAccessConfigurationEntity / core.inconnectRecordAccessConfiguration
-- InconnectRecordAccessManagedObjectEntity / core.inconnectRecordAccessManagedObject
-- InconnectRecordAccessPolicyEntity / core.inconnectRecordAccessPolicy
+These are independent of `recordEffect`. Twenty shares `canUpdateObjectRecords` between Create and Update, so INCONNECT intentionally adds a separate Create dimension.
 
-Configuration:
+Owner requirement values:
 
-- workspaceId is the PK and FK to core.workspace, with cascade on workspace deletion.
-- enforcementMode is MANAGED or UNMANAGED.
-- revision is PostgreSQL bigint and a TypeScript string to avoid precision loss.
-- createdAt and updatedAt are present.
-- There is no deletedAt.
+- `required`
+- `optional`
 
-ManagedObject:
+Missing-owner policy values:
 
-- References Configuration/workspace.
-- References ObjectMetadata and owner FieldMetadata.
-- Stores ownerRequirement.
-- Is unique by workspaceId + objectMetadataId.
-- May validly have zero Policy rows; this keeps the object managed and denies all human Roles.
+- `self`
+- `requireExplicit`
+- `singleActiveMemberOfRole`
+- `standard`
 
-Policy:
+Owner omission and explicit null are distinct. When owner is required:
 
-- References ManagedObject, Role, and optional default-owner Role.
-- Stores principalType, recordEffect, createPolicy, ownerTransferPolicy, and missingOwnerPolicy.
-- Is unique by workspaceId + managedObjectId + roleId.
-- Uses principalType = WORKSPACE_MEMBER in the current schema.
-- Requires defaultOwnerRoleId if and only if missingOwnerPolicy = singleActiveMemberOfRole.
+- explicit null on Create: denied;
+- explicit null on Update: denied;
+- omitted owner: resolved according to `missingOwnerPolicy`.
 
-Real IDs/FKs are the persisted authority. Universal identifiers are deliberately not duplicated as authority; use them later only at import/export/bootstrap/API boundaries to resolve workspace-local references.
+Normalization covers relation values, normalized FK values, relation objects, nested connect, and equivalent representations reaching the common write pipeline. Contradictory relation/FK owner inputs are denied. Owner join columns are derived with Twenty metadata helpers.
 
-The pure candidate validator is utils/validate-inconnect-record-access-persisted-candidate.util.ts. It validates full-set uniqueness and references, active metadata/Role state, workspace consistency, supported policy combinations, owner Field ownership/type/cardinality/target, and derivability of the owner join column. A ManagedObject with zero Policies is valid. A MANAGED Configuration with zero ManagedObjects is invalid/fail-closed.
+For `singleActiveMemberOfRole`, the default is a Role reference, never a hardcoded person:
 
-## Strong Workspace Isolation
+- 0 active candidates: Create without owner denied.
+- 1 active candidate: use that Workspace Member.
+- 2 or more active candidates: Create without owner denied.
 
-Phase 6B.1 added the composite reference keys needed for physical workspace isolation:
+## Current Functional Policies
 
-- core.role(id, workspaceId)
-- core.objectMetadata(id, workspaceId)
-- core.fieldMetadata(id, objectMetadataId, workspaceId)
+### Lead
 
-Persisted FKs guarantee:
+- Ejecutivo INCONNECT: `ownRecords`, Create denied, transfer denied, owner required, missing owner `requireExplicit`.
+- Coordinador INCONNECT: `ownAndTeamRecords`, Create denied, transfer denied, owner required, missing owner `requireExplicit`.
+- Supervisor INCONNECT: `allRecords`, standard Create/transfer, owner required, missing owner `singleActiveMemberOfRole`, default Role Supervisor INCONNECT.
+- Admin: `allRecords`, standard Create/transfer, owner required, same Supervisor default.
 
-- Managed Object and owner Field belong to the same Object and Workspace.
-- Policy Role belongs to the same Workspace as its Managed Object.
-- Default-owner Role belongs to the same Workspace.
-- A cross-workspace UUID cannot be accepted merely because it exists globally.
+### Folio ISO
 
-Preserve the composite column order and the explicit PK/FK constraint names. Entity metadata and DDL have a real contract test; do not let them drift.
+- Ejecutivo INCONNECT: `ownRecords`, Create `defaultOwner`, missing owner `self`, transfer denied, owner required.
+- Coordinador INCONNECT: `ownAndTeamRecords`, Create `defaultOwner`, missing owner `self`, transfer denied, owner required.
+- Supervisor INCONNECT: `allRecords`, standard Create/transfer, missing owner `self`, owner required.
+- Admin: `allRecords`, standard Create/transfer, missing owner `self`, owner required.
 
-## Phase 6B.1 Fast Instance Command
+Twenty creates a Folio ISO immediately when opening a new record, so all configured Roles use self for an omitted Folio owner. Supervisor/Admin may transfer it later only when standard permissions permit. Lead and Folio ISO owners are independent; there is no inherited Lead-to-Folio access or automatic owner synchronization.
 
-The command is:
+## Commercial Teams
 
-- File: packages/twenty-server/src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786740000000-create-inconnect-record-access-persistence.ts
-- Class: CreateInconnectRecordAccessPersistenceFastInstanceCommand
-- Registration: RegisteredInstanceCommand version 2.32.0, timestamp 1786740000000.
-- Tracking name: 2.32.0_CreateInconnectRecordAccessPersistenceFastInstanceCommand_1786740000000
+Persisted entities/tables:
 
-The command was executed successfully in the local development PostgreSQL on 2026-08-20. Post-migration verification found:
+- `InconnectCommercialTeamEntity` / `core.inconnectCommercialTeam`
+- `InconnectCommercialTeamMembershipEntity` / `core.inconnectCommercialTeamMembership`
 
-- exactly one global execution at attempt 1, plus normal per-workspace tracking markers;
-- zero pending Fast Instance Commands;
-- zero pending legacy TypeORM migrations;
-- all three new tables present;
-- Entity PK/FK metadata exactly aligned with DDL;
-- expected checks, indexes, composite FKs, and delete behavior present;
-- all three new tables empty.
+Membership types:
 
-The migration contains DDL only. It does not insert the Apple workspace, Roles, Lead/Folio managed objects, or the eight policies. Other environments, including production, are separate and must run their own authorized upgrade process; local execution does not affect them.
+- `COORDINATOR`
+- `EXECUTIVE`
 
-Tests specifically cover entity metadata, schema/identifier contracts, composite reference indexes, DDL, Entity-to-DDL PK/FK alignment, and persisted-candidate validation.
+Invariants:
 
-## Current Runtime Source: ENV Only
+- A Workspace Member has at most one active commercial-team membership.
+- A Team has at most one active Coordinator.
+- Team and membership references are workspace-isolated.
+- Roles determine the type of record-access policy; Team membership determines which Workspace Members expand `ownAndTeamRecords`. They are independent dimensions.
+- A historical/non-assignable member may remain in record scope but must not be an assignment destination.
+- Workspace Member validity/assignability uses active Workspace Member, UserWorkspace, User, and supported non-disabled status checks.
 
-This is the most important operational fact for the next phase: the new DB tables do not yet participate in authorization.
+The security-sensitive Team cache provides workspace-level maps for membership, record scope, and assignable destinations. It uses:
 
-Current runtime flow:
+- read-only `REPEATABLE READ` snapshots;
+- runtime payload/version validation;
+- strict shared Redis authority;
+- shared-generation validation before trusting local state;
+- generation fencing/CAS;
+- stale recomputation protection;
+- fail-closed absent/invalid/corrupt/recomputation-failed states;
+- after-commit invalidation and recomputation;
+- multi-process protection and deterministic lock ordering.
 
-    INCONNECT_RECORD_ACCESS_CONFIG
-      -> InconnectRecordAccessService parser/metadata validation
-      -> InconnectRecordAccessWorkspacePolicy
-      -> per-actor decision resolver
-      -> ORM v1/v2 enforcement
+Authorization uses Team maps only for `ownAndTeamRecords`. `ownRecords` and `allRecords` do not depend on Team cache availability.
 
-InconnectRecordAccessService reads INCONNECT_RECORD_ACCESS_CONFIG through TwentyConfigService. The persisted entities are registered with TypeORM, but no DB loader, persisted policy cache, or source selector is wired into the authorization flow.
+Commercial Teams administration is complete:
 
-INCONNECT_RECORD_ACCESS_SOURCE_MODE does not exist in the current code yet.
+- Settings API lists Teams and available Workspace Members and exposes create, rename, assign/change Coordinator, add/remove Executive, atomic move Executive, and delete Team.
+- Every mutation derives workspace from authenticated context, uses existing Team services, and is protected by `WorkspaceAuthGuard` plus `SettingsPermissionGuard(PermissionFlagType.SECURITY)`.
+- Settings UI is available at Settings -> Security -> Commercial Teams.
+- UI and API never change Roles when memberships change.
+- Administrative reads use PostgreSQL authority; runtime authorization uses the hardened Team cache.
+- Mutation results distinguish `recomputed` from `recomputation-failed`.
+- Pre-commit revoke/validation/locking/DB failure rejects the mutation with no commit.
+- Post-commit recomputation failure reports successful persistence plus `recomputation-failed`; runtime remains fail-closed until cache recovery.
 
-Consequences:
+Do not redesign Commercial Teams while changing Record Access persistence unless a concrete security requirement demands it.
 
-- INCONNECT_RECORD_ACCESS_CONFIG must be exported in the same shell/process environment used to start Twenty.
-- A shell export is temporary and is not inherited by a separately launched process unless explicitly provided.
-- If the variable is absent, the current ENV parser returns a non-configured workspace policy; the objects are then not managed by INCONNECT and Twenty standard permissions apply.
-- This already caused Scott/Tim to see records allowed by standard permissions until the ENV configuration was exported again.
-- Do not diagnose that symptom as a failure of the Phase 6B.1 migration; first verify the actual server process environment without printing secrets.
+## Persisted Record Access Authority
 
-Do not put workspace-specific UUIDs into source constants or migrations.
+Persisted core model:
 
-## Next Phase: 6B.2 Policy Cache and Source Selector
+    inconnectRecordAccessConfiguration
+      -> inconnectRecordAccessManagedObject
+           -> inconnectRecordAccessPolicy
 
-The next implementation task is the DB Policy Cache plus the source selector. The approved target variable is:
+Configuration stores workspace, `MANAGED | UNMANAGED`, bigint revision represented as a TypeScript string, and timestamps. Managed Object stores ObjectMetadata, owner FieldMetadata, and owner requirement. Policy stores Role, principal type, record effect, operation policies, missing-owner policy, and optional default-owner Role.
 
-    INCONNECT_RECORD_ACCESS_SOURCE_MODE = env | transition | database
+Real IDs/FKs are persisted authority. Universal identifiers are used only at import/export/API boundaries. Composite reference keys enforce strong workspace isolation:
 
-Initial/default mode must be env for compatibility.
+- Role: `(id, workspaceId)`
+- ObjectMetadata: `(id, workspaceId)`
+- FieldMetadata: `(id, objectMetadataId, workspaceId)`
 
-Approved source semantics:
+The owner Field FK physically guarantees same Field -> Object -> Workspace. Runtime validation additionally requires live metadata, RELATION, MANY_TO_ONE, Workspace Member target, and derivable join column. A Managed Object with zero Policies remains managed and denies all human Roles. `MANAGED` with zero Managed Objects is invalid/fail-closed. `UNMANAGED` must have no children.
 
-### env
+The persistence DDL is the Fast Instance Command:
 
-- Use only INCONNECT_RECORD_ACCESS_CONFIG.
-- Do not require or consult the DB policy cache for authorization.
+`packages/twenty-server/src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786740000000-create-inconnect-record-access-persistence.ts`
 
-### transition
+It has been executed and audited in local development. Other environments must run their own authorized upgrade process; local execution never affects production.
 
-- DB Configuration absent: use legacy ENV.
-- DB Configuration present: DB has claimed authority for that workspace.
-- After DB claims authority, malformed DB rows, invalid configuration, unavailable/corrupt cache, or failed recomputation must deny; never fall back to ENV.
-- No partial DB configuration may silently reopen access through ENV.
+## Source Modes and Policy Cache
 
-### database
+`INCONNECT_RECORD_ACCESS_SOURCE_MODE` supports:
 
-- Use DB only.
-- Configuration absent: deny.
-- Valid MANAGED: enforce persisted managed objects and policies.
-- Explicit valid UNMANAGED: standard Twenty behavior.
-- Never fall back to ENV.
+### `env` (default)
 
-The source selector should feed the same InconnectRecordAccessWorkspacePolicy shape and existing decision/ORM layers. Enforcement should not need to know whether a valid workspace policy came from ENV or DB.
+- Uses only `INCONNECT_RECORD_ACCESS_CONFIG`.
+- Does not require the DB policy cache.
 
-## Future DB Policy Cache Requirements
+### `transition`
 
-The policy cache is security-sensitive. Do not accept the normal approximately 100 ms local-stale window as authorization authority.
+- DB Configuration absent: legacy ENV.
+- DB Configuration present: DB claims full workspace authority.
+- Once claimed, invalid DB/cache or failed recomputation denies; never fall back to ENV.
 
-Required design:
+### `database`
 
-- workspace-level policy snapshot;
-- runtime payload decoding, schema versioning, and structural validation;
-- a coherent REPEATABLE READ DB snapshot;
-- shared Redis generation as authority;
-- shared-generation validation before trusting any local snapshot;
-- generation fencing/CAS so an older recomputation cannot overwrite a newer result;
-- correct multi-instance behavior;
-- fail-closed absent/invalid/corrupt/recomputation-failed states when DB is required;
-- Redis unavailable means denial when DB policy authority is required;
-- after-commit invalidation and safe recomputation;
-- no actor-specific decision caching.
+- Uses DB only.
+- Configuration absent: denied.
+- Valid `MANAGED`: persisted policy enforcement.
+- Valid `UNMANAGED`: standard Twenty behavior.
+- Never falls back to ENV.
 
-Follow the already hardened Team cache patterns in OSS infrastructure, without importing or studying Enterprise RLS.
+ENV and DB normalize into the same `InconnectRecordAccessWorkspacePolicy`; ORM enforcement does not know the source.
 
-## Future Managed-Object Semantics
+The security-sensitive DB policy cache is workspace-level and uses runtime decoding/versioning, a read-only `REPEATABLE READ` DB snapshot, strict Redis generation validation on security retrieval, generation fencing/CAS, multi-instance protection, and fail-closed cache states. It never caches actor-specific owner IDs. Redis failure is irrelevant in `env` mode but denies when transition/database needs DB authority.
 
-With DB persistence active:
+Configuration publication is complete:
 
-- ManagedObject exists plus Role without Policy: deny.
-- ManagedObject with zero Policies: remains managed; all human Roles are denied.
-- Do not infer managed objects only from Policy rows.
-- MANAGED Configuration with zero ManagedObjects: invalid/fail-closed.
-- Valid explicit UNMANAGED: standard Twenty behavior.
-- Invalid/missing references, inactive Role/Object/Field, incompatible owner Field, ambiguous rows, or invalid cache: deny.
+- `replaceConfiguration` replaces the whole active set transactionally.
+- First publication uses `expectedRevision = null` and produces revision 1.
+- Later publication locks Configuration `FOR UPDATE`, requires exact bigint-string revision, and increments it.
+- Concurrent/stale publication conflicts instead of last-write-wins.
+- Cache generation is revoked before DB authority changes.
+- Rollback after revoke attempts to recompute the previous state; failure remains fail-closed.
+- Recompute occurs after commit and is generation-fenced.
+- Post-commit recomputation failure does not pretend DB rollback; it returns persisted success with fail-closed cache status.
+- The ENV importer supports dry-run and guarded initial publication, resolving universal identifiers to workspace-local IDs through the same candidate validator.
 
-The owner Field must remain a live RELATION, MANY_TO_ONE, targeting workspaceMember, on the same Object and Workspace, with a join column derivable by the official metadata helper.
+## Record Access Settings
 
-## Future Bootstrap and Administration
+Settings -> Security -> Record Access is complete.
 
-Not implemented yet:
+Backend:
 
-- atomic replaceConfiguration service;
-- ENV import command;
-- dry-run/bootstrap command;
-- DB source cache/selector;
-- public administrative API;
-- Settings UI.
+- `getInconnectRecordAccessConfiguration`
+- `getInconnectRecordAccessAvailableMetadata`
+- `replaceInconnectRecordAccessConfiguration(input)`
 
-Approved later migration path:
+The API derives workspace from authenticated context, uses PostgreSQL as the administrative read authority, publishes only through `replaceConfiguration`, and is protected by `WorkspaceAuthGuard` plus `SettingsPermissionGuard(PermissionFlagType.SECURITY)`. It distinguishes ABSENT, MANAGED, and UNMANAGED and returns revision plus cache status.
 
-    current ENV configuration
-      -> explicit import --dry-run
-      -> resolve universal identifiers to workspace-local IDs
-      -> validate complete candidate set
-      -> atomically persist Configuration + 2 ManagedObjects + 8 Policies
-      -> increment revision
-      -> invalidate/recompute shared policy cache
-      -> transition mode uses DB claim
-      -> compare authorization behavior
-      -> database mode
-      -> retire operational dependency on ENV JSON
+Frontend:
 
-Do not hardcode Apple workspace IDs or its Role/Object/Field identifiers in an Instance Command. Future administration should use standard OSS Settings permissions rather than treating an INCONNECT business Role as permission to administer security policy.
+- Uses backend-provided valid Objects, owner Fields, and Roles; it does not reconstruct security metadata rules.
+- Edits a local full-set draft and publishes only on Save.
+- Uses optimistic revision and surfaces conflicts without retry/overwrite.
+- Warns before MANAGED -> UNMANAGED and Managed Object removal.
+- Preserves Managed Object with zero Policies and shows its fail-closed meaning.
+- Distinguishes DB persistence success from cache recomputation failure.
+- Refetches normalized PostgreSQL state after publication.
 
-## Local Demo Model and Smoke Baseline
+Administrative visibility is controlled by `PermissionFlagType.SECURITY` in both frontend navigation and backend guards; backend remains authoritative. Record Access policy administration and Commercial Team administration are separate domains.
 
-These names are local test fixtures for manual smoke testing only; never use them as product constants:
+## Local Apple Baseline
 
-- Scott Forstall: Ejecutivo INCONNECT.
-- Tim Apple: Coordinador INCONNECT.
-- Phil Schiler: Supervisor INCONNECT.
-- Jane Austen: Admin.
-- Equipo Norte: Tim as Coordinator and Scott as Executive.
+The following is demo data for local smoke testing only and must never become product constants. It was verified read-only on 2026-08-24:
 
-Supervisor does not need Team membership because allRecords does not consult Team authority.
+Record Access:
+
+- Workspace: Apple.
+- Enforcement: `MANAGED`.
+- Revision: `5` at verification time; always re-read before an optimistic update.
+- Managed Objects: `2`.
+- Policies: `8`.
+- The local operational baseline has been manually validated with `INCONNECT_RECORD_ACCESS_SOURCE_MODE=database` and without relying on the ENV policy JSON.
+
+Commercial Teams:
+
+- Active Teams: `1`.
+- Active memberships: `2`.
+- Equipo Norte: Tim Apple as `COORDINATOR`; Scott Forstall as `EXECUTIVE`.
+- Phil Schiler and Jane Austen are not required to belong to a Team for `allRecords`.
 
 Expected smoke behavior:
 
-### Scott
+- Scott: own Leads/Folios; no Lead Create; Folio Create defaults to self; no transfer.
+- Tim: Tim + Team Leads/Folios; no Lead Create; Folio Create defaults to self; no transfer.
+- Phil: all managed records subject to standard permissions; Lead without owner defaults to the unique active Supervisor; Folio without owner defaults to self; transfer only when standard permissions allow.
+- Jane: all managed records subject to standard permissions; same Lead Supervisor default; Folio without owner defaults to self; transfer only when standard permissions allow.
 
-- Sees/updates own Leads and own Folios according to standard permissions.
-- Cannot create Leads.
-- Creating Folio ISO without owner assigns Scott.
-- Cannot transfer owners.
+Production is a separate environment. Never imply that local configuration, migrations, data, or smoke tests changed production.
 
-### Tim
+## Repository Snapshot
 
-- Sees/updates Leads and Folios owned by Tim or Scott according to standard permissions.
-- Cannot create Leads.
-- Creating Folio ISO without owner assigns Tim.
-- Cannot transfer owners under the current configured policies.
+Expected WSL path:
 
-### Phil
+`/home/alberto/projects/twenty-inconnect`
 
-- Sees all managed records, subject to standard permissions.
-- Creating Lead without owner resolves the unique active Supervisor and therefore currently assigns Phil.
-- Creating Folio ISO without owner assigns Phil.
-- May transfer owner only when standard object and field permissions allow it.
+Verified on 2026-08-24 before this AGENTS.md edit:
 
-### Jane
+- Current branch: `chore/inconnect-stable-checkpoint`.
+- HEAD: `6be7733df3b52063552b6f800518ea0baa8277bc` - `feat: add INCONNECT commercial teams settings UI`.
+- `origin`: `https://github.com/xxHarper/twenty-inconnect.git`.
+- `upstream`: `https://github.com/twentyhq/twenty.git`.
+- Current local remote-tracking refs `origin/main` and `upstream/main`: `bcdac3e8245fb55e1f3c648eb136680c79ef6312`.
+- Their recorded divergence is 0/0; no network fetch was performed during this documentation-only audit.
+- Current HEAD is 16 commits ahead of that main baseline and main is its merge base.
+- All local and origin `feature/inconnect-*` heads are reachable from current HEAD.
+- Local INCONNECT feature heads are pairwise comparable by ancestry; the completed development chain is linear.
+- The worktree was clean before this documentation edit.
+- Node: `24.16.0` from `.nvmrc`.
+- Yarn: `4.13.0` from `packageManager`.
 
-- Sees all managed records, subject to standard permissions.
-- Creating Lead without owner assigns the unique active Supervisor.
-- Creating Folio ISO without owner assigns Jane.
-- May transfer owner only when standard object and field permissions allow it.
+Always re-run Git inspection before acting; this is a dated snapshot, not authority for future destructive operations.
 
-## Repository and Development Snapshot
+## INCONNECT Upstream Upgrade Procedure
 
-Expected local repository path:
+Remote and branch model:
 
-    /home/alberto/projects/twenty-inconnect
+- `upstream`: official `twentyhq/twenty`.
+- `origin`: INCONNECT fork.
+- Stable product branch: `inconnect-main`.
+- Feature branches: `feature/*`.
+- Upgrade branches: `update/twenty-<version-or-date>`.
 
-Verified Git/runtime state on 2026-08-20:
+Before selecting an upstream reference, perform an INCONNECT impact analysis covering:
 
-- Current branch: feature/inconnect-policy-cache-source.
-- The current branch had no upstream tracking branch configured at verification time.
-- HEAD: 4acfa727ec01b43c0029f16e66c5578c3342d059 — feat: add persisted INCONNECT access schema.
-- origin: https://github.com/xxHarper/twenty-inconnect.git.
-- upstream: https://github.com/twentyhq/twenty.git.
-- Node: v24.16.0 from .nvmrc.
-- Yarn: 4.13.0 from packageManager.
+- ORM/query builders and Search;
+- workspace permissions and actor context;
+- Nest module wiring;
+- metadata and owner relation helpers;
+- GraphQL schema/codegen;
+- Settings routes, API, and UI;
+- Redis/cache contracts and generation fencing;
+- instance/workspace/legacy migrations;
+- authentication and workspace context.
 
-Recent INCONNECT history:
+Upgrade procedure:
 
-- 4acfa727ec01b43c0029f16e66c5578c3342d059 — persisted access schema.
-- ab7675edd34f48ecdd7fdaa3be35c9faad7337bc — owner integrity.
-- 3e9d85a412714187d67bd209abdbdcc9e8c72ae0 — operation policies.
-- 8a94cdade1ed34fcda0e871f2047fa4ab48fe012 — Team write access.
-- ea7ddbcb436c18b6cb066b402f6a4c1cc5c6652d — Team read access.
+1. Start from a clean, synchronized `inconnect-main`.
+2. Run `git fetch upstream --tags`.
+3. Inspect upstream commits, release notes, schema changes, and migrations before merging.
+4. Create `update/twenty-<version-or-date>` from `inconnect-main`.
+5. Merge the chosen upstream Twenty reference into the update branch without rewriting INCONNECT history.
+6. Resolve conflicts preserving both the new upstream architecture and every INCONNECT security invariant.
+7. Do not resolve generated GraphQL output manually when regeneration is the correct solution; update source operations/schema and run the repository codegen.
+8. Review every upstream migration/instance/workspace command before applying it.
+9. Never run `database:reset` against an existing environment.
+10. Test the upgrade in local development and staging before production.
+11. Run focused and regression coverage for `ownRecords`, `ownAndTeamRecords`, `allRecords`, writes, owner integrity, Team cache, policy cache, Record Access Settings, and Commercial Teams Settings.
+12. Bootstrap the real backend and frontend; do not rely only on isolated tests.
+13. Perform a manual smoke test for representative Executive, Coordinator, Supervisor, and Admin actors.
+14. Back up the production database and establish rollback/recovery steps before deployment.
+15. Merge the validated update branch into `inconnect-main` only after all checks pass.
 
-The worktree was clean before this handoff edit. Always inspect git status --short, branch, and recent history again instead of assuming this snapshot is still current.
+Suggested commands after choosing a reviewed upstream reference:
 
-Development is local under WSL. Production is separate: never imply that a local migration, configuration export, Role change, or data mutation affects production.
+```bash
+git switch inconnect-main
+git pull --ff-only origin inconnect-main
+git fetch upstream --tags
+git switch -c update/twenty-<version-or-date>
+git merge --no-ff <reviewed-upstream-reference>
+```
 
-## Working Rules for the Next Codex Session
+Do not apply migrations merely because the merge completed. Migration authorization and environment-specific backups remain separate gates.
+
+## Working Rules
 
 - Work incrementally by explicitly authorized phase.
 - Before security-sensitive migrations, perform a read-only preflight and Entity-to-DDL audit.
-- Never run database:reset, setup/reset scripts, migrations, generators, or local DB writes without explicit authorization for that exact action.
+- Never run `database:reset`, setup/reset scripts, migrations, generators, or PostgreSQL writes without explicit authorization for that exact action.
 - Do not modify local Roles, Workspace Members, Leads, Folios, Teams, memberships, or persisted policies without explicit authorization.
-- Do not make commits, push, change branches, or rewrite history unless the user explicitly asks.
+- Do not make commits, push, create/delete branches or tags, change branches, or rewrite history unless the user explicitly asks.
 - Preserve unrelated and pre-existing worktree changes.
-- Prefer focused unit/integration tests plus relevant INCONNECT regressions over giant or destructive suites.
+- Prefer focused tests plus relevant INCONNECT regressions over destructive suites.
 - Keep security predicates in SQL and fail closed at every unavailable/invalid authority boundary.
-- Do not broaden unsupported mutation or API paths silently.
-- Report important tests, typecheck/lint/format results, git status --short, and git diff --stat at the end of implementation tasks.
-- If a requirement would change security architecture, migration schema, data, permissions, or scope beyond the authorized phase, stop and report the blocker before improvising.
+- Do not broaden unsupported mutation/API paths or security scope silently.
+- Never hardcode demo workspace, user, Role, Object, Field, Lead, Folio, Team, or membership IDs in product code.
+- Report tests, typecheck/lint/format, `git status --short`, and `git diff --stat` at the end of implementation tasks.
+- If a requirement would change security architecture, schema, data, permissions, or authorized scope, stop and report the blocker before improvising.
 - Never inspect or use Enterprise RLS as a shortcut.
