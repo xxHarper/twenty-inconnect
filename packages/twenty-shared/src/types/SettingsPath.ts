@@ -69,6 +69,7 @@ export enum SettingsPath {
   Integrations = 'integrations',
   Security = 'general#security',
   SecurityRecordAccess = 'security/record-access',
+  SecurityCommercialTeams = 'security/commercial-teams',
   Logs = 'general#logs',
   NewSSOIdentityProvider = 'security/sso/new',
 

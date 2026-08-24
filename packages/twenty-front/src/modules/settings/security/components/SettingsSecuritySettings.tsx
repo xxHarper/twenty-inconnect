@@ -29,6 +29,7 @@ import { CombinedGraphQLErrors } from '@apollo/client/errors';
 import { useMutation } from '@apollo/client/react';
 import {
   IconClockHour8,
+  IconHierarchy2,
   IconHistory,
   IconMail,
   IconShield,
@@ -215,6 +216,19 @@ export const SettingsSecuritySettings = () => {
                 Button={
                   <UndecoratedLink
                     to={getSettingsPath(SettingsPath.SecurityRecordAccess)}
+                  >
+                    <Button title={t`Configure`} variant="secondary" />
+                  </UndecoratedLink>
+                }
+              />
+              <Separator />
+              <SettingsOptionCardContentButton
+                Icon={IconHierarchy2}
+                title={t`Commercial Teams`}
+                description={t`Organize workspace members for team-based record access.`}
+                Button={
+                  <UndecoratedLink
+                    to={getSettingsPath(SettingsPath.SecurityCommercialTeams)}
                   >
                     <Button title={t`Configure`} variant="secondary" />
                   </UndecoratedLink>

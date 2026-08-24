@@ -1201,6 +1201,10 @@ export type CreateFrontComponentInput = {
   sourceComponentPath: Scalars['String']['input'];
 };
 
+export type CreateInconnectCommercialTeamInput = {
+  name: Scalars['String']['input'];
+};
+
 export type CreateIndexFieldInput = {
   fieldMetadataId: Scalars['UUID']['input'];
   subFieldName?: InputMaybe<Scalars['String']['input']>;
@@ -1437,6 +1441,10 @@ export enum DatabaseEventAction {
 
 export type DeleteApprovedAccessDomainInput = {
   id: Scalars['UUID']['input'];
+};
+
+export type DeleteInconnectCommercialTeamInput = {
+  teamId: Scalars['UUID']['input'];
 };
 
 export type DeleteOneFieldInput = {
@@ -2133,6 +2141,54 @@ export type Impersonate = {
   workspace: WorkspaceUrlsAndId;
 };
 
+export enum InconnectCommercialTeamCacheStatus {
+  recomputationFailed = 'recomputationFailed',
+  recomputed = 'recomputed'
+}
+
+export type InconnectCommercialTeamMembershipInput = {
+  teamId: Scalars['UUID']['input'];
+  workspaceMemberId: Scalars['UUID']['input'];
+};
+
+export enum InconnectCommercialTeamMembershipType {
+  COORDINATOR = 'COORDINATOR',
+  EXECUTIVE = 'EXECUTIVE'
+}
+
+export type InconnectCommercialTeamSettingsAvailableMember = {
+  __typename?: 'InconnectCommercialTeamSettingsAvailableMember';
+  currentMembershipType?: Maybe<InconnectCommercialTeamMembershipType>;
+  currentTeamId?: Maybe<Scalars['UUID']['output']>;
+  displayName: Scalars['String']['output'];
+  email?: Maybe<Scalars['String']['output']>;
+  workspaceMemberId: Scalars['UUID']['output'];
+};
+
+export type InconnectCommercialTeamSettingsMember = {
+  __typename?: 'InconnectCommercialTeamSettingsMember';
+  displayName: Scalars['String']['output'];
+  email?: Maybe<Scalars['String']['output']>;
+  isAssignable: Scalars['Boolean']['output'];
+  membershipId: Scalars['UUID']['output'];
+  workspaceMemberId: Scalars['UUID']['output'];
+};
+
+export type InconnectCommercialTeamSettingsMutationResult = {
+  __typename?: 'InconnectCommercialTeamSettingsMutationResult';
+  cacheStatus: InconnectCommercialTeamCacheStatus;
+  membershipId?: Maybe<Scalars['UUID']['output']>;
+  teamId: Scalars['UUID']['output'];
+};
+
+export type InconnectCommercialTeamSettingsTeam = {
+  __typename?: 'InconnectCommercialTeamSettingsTeam';
+  coordinator?: Maybe<InconnectCommercialTeamSettingsMember>;
+  executives: Array<InconnectCommercialTeamSettingsMember>;
+  id: Scalars['UUID']['output'];
+  name: Scalars['String']['output'];
+};
+
 export enum InconnectRecordAccessCacheStatus {
   recomputationFailed = 'recomputationFailed',
   recomputed = 'recomputed'
@@ -2739,13 +2795,20 @@ export enum ModelFamily {
   MISTRAL = 'MISTRAL'
 }
 
+export type MoveInconnectCommercialTeamMemberInput = {
+  targetTeamId: Scalars['UUID']['input'];
+  workspaceMemberId: Scalars['UUID']['input'];
+};
+
 export type Mutation = {
   __typename?: 'Mutation';
   activateSkill: Skill;
   activateWorkspace: Workspace;
+  addInconnectCommercialTeamExecutive: InconnectCommercialTeamSettingsMutationResult;
   addQueryToEventStream: Scalars['Boolean']['output'];
   answerAgentChatQuestion: SendChatMessageResult;
   archiveChatThread: AgentChatThread;
+  assignInconnectCommercialTeamCoordinator: InconnectCommercialTeamSettingsMutationResult;
   assignRoleToAgent: Scalars['Boolean']['output'];
   assignRoleToApiKey: Scalars['Boolean']['output'];
   authorizeApp: AuthorizeApp;
@@ -2771,6 +2834,7 @@ export type Mutation = {
   createEmailingDomain: EmailingDomain;
   createFileUpload: FileUploadTarget;
   createFrontComponent: FrontComponent;
+  createInconnectCommercialTeam: InconnectCommercialTeamSettingsMutationResult;
   createManyNavigationMenuItems: Array<NavigationMenuItem>;
   createManyViewFieldGroups: Array<ViewFieldGroup>;
   createManyViewFields: Array<ViewField>;
@@ -2812,6 +2876,7 @@ export type Mutation = {
   deleteEmailGroupChannel: MessageChannel;
   deleteEmailingDomain: Scalars['Boolean']['output'];
   deleteFrontComponent: FrontComponent;
+  deleteInconnectCommercialTeam: InconnectCommercialTeamSettingsMutationResult;
   deleteManyNavigationMenuItems: Array<NavigationMenuItem>;
   deleteNavigationMenuItem: NavigationMenuItem;
   deleteOneAgent: Agent;
@@ -2871,11 +2936,14 @@ export type Mutation = {
   installApplication: Application;
   /** @deprecated Use installApplication instead */
   installMarketplaceApp: Scalars['Boolean']['output'];
+  moveInconnectCommercialTeamMember: InconnectCommercialTeamSettingsMutationResult;
   refreshEnterpriseValidityToken: Scalars['Boolean']['output'];
   releaseEnterpriseServerBinding: EnterpriseLicenseInfoDto;
+  removeInconnectCommercialTeamExecutive: InconnectCommercialTeamSettingsMutationResult;
   removeQueryFromEventStream: Scalars['Boolean']['output'];
   removeRoleFromAgent: Scalars['Boolean']['output'];
   renameChatThread: AgentChatThread;
+  renameInconnectCommercialTeam: InconnectCommercialTeamSettingsMutationResult;
   renewApplicationToken: ApplicationTokenPair;
   renewToken: AuthTokens;
   replaceInconnectRecordAccessConfiguration: ReplaceInconnectRecordAccessConfigurationResult;
@@ -2997,6 +3065,11 @@ export type MutationActivateWorkspaceArgs = {
 };
 
 
+export type MutationAddInconnectCommercialTeamExecutiveArgs = {
+  input: InconnectCommercialTeamMembershipInput;
+};
+
+
 export type MutationAddQueryToEventStreamArgs = {
   input: AddQuerySubscriptionInput;
 };
@@ -3012,6 +3085,11 @@ export type MutationAnswerAgentChatQuestionArgs = {
 
 export type MutationArchiveChatThreadArgs = {
   id: Scalars['UUID']['input'];
+};
+
+
+export type MutationAssignInconnectCommercialTeamCoordinatorArgs = {
+  input: InconnectCommercialTeamMembershipInput;
 };
 
 
@@ -3122,6 +3200,11 @@ export type MutationCreateFileUploadArgs = {
 
 export type MutationCreateFrontComponentArgs = {
   input: CreateFrontComponentInput;
+};
+
+
+export type MutationCreateInconnectCommercialTeamArgs = {
+  input: CreateInconnectCommercialTeamInput;
 };
 
 
@@ -3331,6 +3414,11 @@ export type MutationDeleteEmailingDomainArgs = {
 
 export type MutationDeleteFrontComponentArgs = {
   id: Scalars['UUID']['input'];
+};
+
+
+export type MutationDeleteInconnectCommercialTeamArgs = {
+  input: DeleteInconnectCommercialTeamInput;
 };
 
 
@@ -3605,6 +3693,16 @@ export type MutationInstallMarketplaceAppArgs = {
 };
 
 
+export type MutationMoveInconnectCommercialTeamMemberArgs = {
+  input: MoveInconnectCommercialTeamMemberInput;
+};
+
+
+export type MutationRemoveInconnectCommercialTeamExecutiveArgs = {
+  input: InconnectCommercialTeamMembershipInput;
+};
+
+
 export type MutationRemoveQueryFromEventStreamArgs = {
   input: RemoveQueryFromEventStreamInput;
 };
@@ -3618,6 +3716,11 @@ export type MutationRemoveRoleFromAgentArgs = {
 export type MutationRenameChatThreadArgs = {
   id: Scalars['UUID']['input'];
   title: Scalars['String']['input'];
+};
+
+
+export type MutationRenameInconnectCommercialTeamArgs = {
+  input: RenameInconnectCommercialTeamInput;
 };
 
 
@@ -4755,6 +4858,8 @@ export type Query = {
   getAvailablePackages: Scalars['JSON']['output'];
   getConnectedImapSmtpCaldavAccount: ConnectedImapSmtpCaldavAccount;
   getEmailingDomains: Array<EmailingDomain>;
+  getInconnectCommercialTeamAvailableMembers: Array<InconnectCommercialTeamSettingsAvailableMember>;
+  getInconnectCommercialTeams: Array<InconnectCommercialTeamSettingsTeam>;
   getInconnectRecordAccessAvailableMetadata: InconnectRecordAccessSettingsAvailableMetadata;
   getInconnectRecordAccessConfiguration: InconnectRecordAccessSettingsConfiguration;
   getInviteSuggestions: Array<InviteSuggestion>;
@@ -5277,6 +5382,11 @@ export enum RelationType {
 export type RemoveQueryFromEventStreamInput = {
   eventStreamId: Scalars['String']['input'];
   queryId: Scalars['String']['input'];
+};
+
+export type RenameInconnectCommercialTeamInput = {
+  name: Scalars['String']['input'];
+  teamId: Scalars['UUID']['input'];
 };
 
 export type ReplaceInconnectRecordAccessConfigurationInput = {
@@ -8974,6 +9084,67 @@ export type GetRolesQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type GetRolesQuery = { __typename?: 'Query', getRoles: Array<{ __typename?: 'Role', id: string, label: string, description?: string | null, icon?: string | null, canUpdateAllSettings: boolean, canAccessAllTools: boolean, isEditable: boolean, canReadAllObjectRecords: boolean, canUpdateAllObjectRecords: boolean, canSoftDeleteAllObjectRecords: boolean, canDestroyAllObjectRecords: boolean, canBeAssignedToUsers: boolean, canBeAssignedToAgents: boolean, canBeAssignedToApiKeys: boolean, workspaceMembers: Array<{ __typename?: 'WorkspaceMember', id: string, avatarUrl?: string | null, userEmail: string, userWorkspaceId?: string | null, name: { __typename?: 'FullName', firstName: string, lastName: string } }>, agents: Array<{ __typename?: 'Agent', id: string, name: string, label: string, description?: string | null, icon?: string | null, prompt: string, modelId: string, responseFormat?: any | null, roleId?: string | null, isCustom: boolean, modelConfiguration?: any | null, evaluationInputs: Array<string>, applicationId?: string | null, createdAt: string, updatedAt: string }>, apiKeys: Array<{ __typename?: 'ApiKeyForRole', id: string, name: string, expiresAt: string, revokedAt?: string | null }>, permissionFlags?: Array<{ __typename?: 'RolePermissionFlag', id: string, flag: string, roleId: string }> | null, objectPermissions?: Array<{ __typename?: 'ObjectPermission', objectMetadataId: string, canReadObjectRecords?: boolean | null, canUpdateObjectRecords?: boolean | null, canSoftDeleteObjectRecords?: boolean | null, canDestroyObjectRecords?: boolean | null, restrictedFields?: any | null, rowLevelPermissionPredicates?: Array<{ __typename?: 'RowLevelPermissionPredicate', id: string, fieldMetadataId: string, objectMetadataId: string, operand: RowLevelPermissionPredicateOperand, subFieldName?: string | null, workspaceMemberFieldMetadataId?: string | null, workspaceMemberSubFieldName?: string | null, rowLevelPermissionPredicateGroupId?: string | null, positionInRowLevelPermissionPredicateGroup?: number | null, roleId: string, value?: any | null }> | null, rowLevelPermissionPredicateGroups?: Array<{ __typename?: 'RowLevelPermissionPredicateGroup', id: string, parentRowLevelPermissionPredicateGroupId?: string | null, logicalOperator: RowLevelPermissionPredicateGroupLogicalOperator, positionInRowLevelPermissionPredicateGroup?: number | null, roleId: string, objectMetadataId: string }> | null }> | null, fieldPermissions?: Array<{ __typename?: 'FieldPermission', objectMetadataId: string, fieldMetadataId: string, canReadFieldValue?: boolean | null, canUpdateFieldValue?: boolean | null, id: string, roleId: string }> | null, rowLevelPermissionPredicates?: Array<{ __typename?: 'RowLevelPermissionPredicate', id: string, fieldMetadataId: string, objectMetadataId: string, operand: RowLevelPermissionPredicateOperand, subFieldName?: string | null, workspaceMemberFieldMetadataId?: string | null, workspaceMemberSubFieldName?: string | null, rowLevelPermissionPredicateGroupId?: string | null, positionInRowLevelPermissionPredicateGroup?: number | null, roleId: string, value?: any | null }> | null, rowLevelPermissionPredicateGroups?: Array<{ __typename?: 'RowLevelPermissionPredicateGroup', id: string, parentRowLevelPermissionPredicateGroupId?: string | null, logicalOperator: RowLevelPermissionPredicateGroupLogicalOperator, positionInRowLevelPermissionPredicateGroup?: number | null, roleId: string, objectMetadataId: string }> | null }> };
 
+export type InconnectCommercialTeamMutationResultFieldsFragment = { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus };
+
+export type CreateInconnectCommercialTeamMutationVariables = Exact<{
+  input: CreateInconnectCommercialTeamInput;
+}>;
+
+
+export type CreateInconnectCommercialTeamMutation = { __typename?: 'Mutation', createInconnectCommercialTeam: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type RenameInconnectCommercialTeamMutationVariables = Exact<{
+  input: RenameInconnectCommercialTeamInput;
+}>;
+
+
+export type RenameInconnectCommercialTeamMutation = { __typename?: 'Mutation', renameInconnectCommercialTeam: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type AssignInconnectCommercialTeamCoordinatorMutationVariables = Exact<{
+  input: InconnectCommercialTeamMembershipInput;
+}>;
+
+
+export type AssignInconnectCommercialTeamCoordinatorMutation = { __typename?: 'Mutation', assignInconnectCommercialTeamCoordinator: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type AddInconnectCommercialTeamExecutiveMutationVariables = Exact<{
+  input: InconnectCommercialTeamMembershipInput;
+}>;
+
+
+export type AddInconnectCommercialTeamExecutiveMutation = { __typename?: 'Mutation', addInconnectCommercialTeamExecutive: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type RemoveInconnectCommercialTeamExecutiveMutationVariables = Exact<{
+  input: InconnectCommercialTeamMembershipInput;
+}>;
+
+
+export type RemoveInconnectCommercialTeamExecutiveMutation = { __typename?: 'Mutation', removeInconnectCommercialTeamExecutive: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type MoveInconnectCommercialTeamMemberMutationVariables = Exact<{
+  input: MoveInconnectCommercialTeamMemberInput;
+}>;
+
+
+export type MoveInconnectCommercialTeamMemberMutation = { __typename?: 'Mutation', moveInconnectCommercialTeamMember: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type DeleteInconnectCommercialTeamMutationVariables = Exact<{
+  input: DeleteInconnectCommercialTeamInput;
+}>;
+
+
+export type DeleteInconnectCommercialTeamMutation = { __typename?: 'Mutation', deleteInconnectCommercialTeam: { __typename?: 'InconnectCommercialTeamSettingsMutationResult', teamId: string, membershipId?: string | null, cacheStatus: InconnectCommercialTeamCacheStatus } };
+
+export type GetInconnectCommercialTeamAvailableMembersQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetInconnectCommercialTeamAvailableMembersQuery = { __typename?: 'Query', getInconnectCommercialTeamAvailableMembers: Array<{ __typename?: 'InconnectCommercialTeamSettingsAvailableMember', workspaceMemberId: string, displayName: string, email?: string | null, currentTeamId?: string | null, currentMembershipType?: InconnectCommercialTeamMembershipType | null }> };
+
+export type GetInconnectCommercialTeamsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type GetInconnectCommercialTeamsQuery = { __typename?: 'Query', getInconnectCommercialTeams: Array<{ __typename?: 'InconnectCommercialTeamSettingsTeam', id: string, name: string, coordinator?: { __typename?: 'InconnectCommercialTeamSettingsMember', membershipId: string, workspaceMemberId: string, displayName: string, email?: string | null, isAssignable: boolean } | null, executives: Array<{ __typename?: 'InconnectCommercialTeamSettingsMember', membershipId: string, workspaceMemberId: string, displayName: string, email?: string | null, isAssignable: boolean }> }> };
+
 export type CreateApprovedAccessDomainMutationVariables = Exact<{
   input: CreateApprovedAccessDomainInput;
 }>;
@@ -9583,6 +9754,7 @@ export const WebhookFragmentFragmentDoc = {"kind":"Document","definitions":[{"ki
 export const ApiKeyForRoleFragmentFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ApiKeyForRoleFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ApiKeyForRole"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}},{"kind":"Field","name":{"kind":"Name","value":"revokedAt"}}]}}]} as unknown as DocumentNode<ApiKeyForRoleFragmentFragment, unknown>;
 export const FieldPermissionFragmentFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"FieldPermissionFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"FieldPermission"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"fieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"canReadFieldValue"}},{"kind":"Field","name":{"kind":"Name","value":"canUpdateFieldValue"}},{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}}]}}]} as unknown as DocumentNode<FieldPermissionFragmentFragment, unknown>;
 export const RolePermissionFlagFragmentFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RolePermissionFlagFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RolePermissionFlag"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"flag"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}}]}}]} as unknown as DocumentNode<RolePermissionFlagFragmentFragment, unknown>;
+export const InconnectCommercialTeamMutationResultFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<InconnectCommercialTeamMutationResultFieldsFragment, unknown>;
 export const WorkspaceMemberQueryFragmentFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"WorkspaceMemberQueryFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"WorkspaceMember"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}}]}},{"kind":"Field","name":{"kind":"Name","value":"colorScheme"}},{"kind":"Field","name":{"kind":"Name","value":"openRecordIn"}},{"kind":"Field","name":{"kind":"Name","value":"avatarUrl"}},{"kind":"Field","name":{"kind":"Name","value":"locale"}},{"kind":"Field","name":{"kind":"Name","value":"userEmail"}},{"kind":"Field","name":{"kind":"Name","value":"userWorkspaceId"}},{"kind":"Field","name":{"kind":"Name","value":"timeZone"}},{"kind":"Field","name":{"kind":"Name","value":"dateFormat"}},{"kind":"Field","name":{"kind":"Name","value":"timeFormat"}},{"kind":"Field","name":{"kind":"Name","value":"calendarStartDay"}},{"kind":"Field","name":{"kind":"Name","value":"numberFormat"}}]}}]} as unknown as DocumentNode<WorkspaceMemberQueryFragmentFragment, unknown>;
 export const PartialWorkspaceMemberQueryFragmentFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"PartialWorkspaceMemberQueryFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"WorkspaceMember"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}}]}},{"kind":"Field","name":{"kind":"Name","value":"avatarUrl"}},{"kind":"Field","name":{"kind":"Name","value":"userEmail"}},{"kind":"Field","name":{"kind":"Name","value":"userWorkspaceId"}}]}}]} as unknown as DocumentNode<PartialWorkspaceMemberQueryFragmentFragment, unknown>;
 export const DeletedWorkspaceMemberQueryFragmentFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"DeletedWorkspaceMemberQueryFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"DeletedWorkspaceMember"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}}]}},{"kind":"Field","name":{"kind":"Name","value":"avatarUrl"}},{"kind":"Field","name":{"kind":"Name","value":"userEmail"}}]}}]} as unknown as DocumentNode<DeletedWorkspaceMemberQueryFragmentFragment, unknown>;
@@ -9837,6 +10009,15 @@ export const UpsertObjectPermissionsDocument = {"kind":"Document","definitions":
 export const UpsertPermissionFlagsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpsertPermissionFlags"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"upsertPermissionFlagsInput"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UpsertPermissionFlagsInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"upsertPermissionFlags"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"upsertPermissionFlagsInput"},"value":{"kind":"Variable","name":{"kind":"Name","value":"upsertPermissionFlagsInput"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RolePermissionFlagFragment"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RolePermissionFlagFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RolePermissionFlag"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"flag"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}}]}}]} as unknown as DocumentNode<UpsertPermissionFlagsMutation, UpsertPermissionFlagsMutationVariables>;
 export const UpsertRowLevelPermissionPredicatesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpsertRowLevelPermissionPredicates"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UpsertRowLevelPermissionPredicatesInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"upsertRowLevelPermissionPredicates"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"predicates"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RowLevelPermissionPredicateFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"predicateGroups"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroupFragment"}}]}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RowLevelPermissionPredicateFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RowLevelPermissionPredicate"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"fieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"operand"}},{"kind":"Field","name":{"kind":"Name","value":"subFieldName"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberFieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberSubFieldName"}},{"kind":"Field","name":{"kind":"Name","value":"rowLevelPermissionPredicateGroupId"}},{"kind":"Field","name":{"kind":"Name","value":"positionInRowLevelPermissionPredicateGroup"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroupFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroup"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"parentRowLevelPermissionPredicateGroupId"}},{"kind":"Field","name":{"kind":"Name","value":"logicalOperator"}},{"kind":"Field","name":{"kind":"Name","value":"positionInRowLevelPermissionPredicateGroup"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}}]}}]} as unknown as DocumentNode<UpsertRowLevelPermissionPredicatesMutation, UpsertRowLevelPermissionPredicatesMutationVariables>;
 export const GetRolesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetRoles"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getRoles"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RoleFragment"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMembers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"PartialWorkspaceMemberQueryFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"agents"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"AgentFields"}}]}},{"kind":"Field","name":{"kind":"Name","value":"apiKeys"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"ApiKeyForRoleFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"permissionFlags"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RolePermissionFlagFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"objectPermissions"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"ObjectPermissionFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"fieldPermissions"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"FieldPermissionFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"rowLevelPermissionPredicates"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RowLevelPermissionPredicateFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"rowLevelPermissionPredicateGroups"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroupFragment"}}]}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RowLevelPermissionPredicateFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RowLevelPermissionPredicate"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"fieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"operand"}},{"kind":"Field","name":{"kind":"Name","value":"subFieldName"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberFieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberSubFieldName"}},{"kind":"Field","name":{"kind":"Name","value":"rowLevelPermissionPredicateGroupId"}},{"kind":"Field","name":{"kind":"Name","value":"positionInRowLevelPermissionPredicateGroup"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroupFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroup"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"parentRowLevelPermissionPredicateGroupId"}},{"kind":"Field","name":{"kind":"Name","value":"logicalOperator"}},{"kind":"Field","name":{"kind":"Name","value":"positionInRowLevelPermissionPredicateGroup"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RoleFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Role"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"icon"}},{"kind":"Field","name":{"kind":"Name","value":"canUpdateAllSettings"}},{"kind":"Field","name":{"kind":"Name","value":"canAccessAllTools"}},{"kind":"Field","name":{"kind":"Name","value":"isEditable"}},{"kind":"Field","name":{"kind":"Name","value":"canReadAllObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canUpdateAllObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canSoftDeleteAllObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canDestroyAllObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canBeAssignedToUsers"}},{"kind":"Field","name":{"kind":"Name","value":"canBeAssignedToAgents"}},{"kind":"Field","name":{"kind":"Name","value":"canBeAssignedToApiKeys"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"PartialWorkspaceMemberQueryFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"WorkspaceMember"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"firstName"}},{"kind":"Field","name":{"kind":"Name","value":"lastName"}}]}},{"kind":"Field","name":{"kind":"Name","value":"avatarUrl"}},{"kind":"Field","name":{"kind":"Name","value":"userEmail"}},{"kind":"Field","name":{"kind":"Name","value":"userWorkspaceId"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"AgentFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"Agent"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"icon"}},{"kind":"Field","name":{"kind":"Name","value":"prompt"}},{"kind":"Field","name":{"kind":"Name","value":"modelId"}},{"kind":"Field","name":{"kind":"Name","value":"responseFormat"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}},{"kind":"Field","name":{"kind":"Name","value":"isCustom"}},{"kind":"Field","name":{"kind":"Name","value":"modelConfiguration"}},{"kind":"Field","name":{"kind":"Name","value":"evaluationInputs"}},{"kind":"Field","name":{"kind":"Name","value":"applicationId"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ApiKeyForRoleFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ApiKeyForRole"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}},{"kind":"Field","name":{"kind":"Name","value":"revokedAt"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"RolePermissionFlagFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"RolePermissionFlag"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"flag"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ObjectPermissionFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ObjectPermission"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"canReadObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canUpdateObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canSoftDeleteObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"canDestroyObjectRecords"}},{"kind":"Field","name":{"kind":"Name","value":"restrictedFields"}},{"kind":"Field","name":{"kind":"Name","value":"rowLevelPermissionPredicates"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RowLevelPermissionPredicateFragment"}}]}},{"kind":"Field","name":{"kind":"Name","value":"rowLevelPermissionPredicateGroups"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"RowLevelPermissionPredicateGroupFragment"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"FieldPermissionFragment"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"FieldPermission"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"objectMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"fieldMetadataId"}},{"kind":"Field","name":{"kind":"Name","value":"canReadFieldValue"}},{"kind":"Field","name":{"kind":"Name","value":"canUpdateFieldValue"}},{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"roleId"}}]}}]} as unknown as DocumentNode<GetRolesQuery, GetRolesQueryVariables>;
+export const CreateInconnectCommercialTeamDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateInconnectCommercialTeam"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateInconnectCommercialTeamInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createInconnectCommercialTeam"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<CreateInconnectCommercialTeamMutation, CreateInconnectCommercialTeamMutationVariables>;
+export const RenameInconnectCommercialTeamDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RenameInconnectCommercialTeam"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"RenameInconnectCommercialTeamInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"renameInconnectCommercialTeam"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<RenameInconnectCommercialTeamMutation, RenameInconnectCommercialTeamMutationVariables>;
+export const AssignInconnectCommercialTeamCoordinatorDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AssignInconnectCommercialTeamCoordinator"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamMembershipInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"assignInconnectCommercialTeamCoordinator"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<AssignInconnectCommercialTeamCoordinatorMutation, AssignInconnectCommercialTeamCoordinatorMutationVariables>;
+export const AddInconnectCommercialTeamExecutiveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AddInconnectCommercialTeamExecutive"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamMembershipInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"addInconnectCommercialTeamExecutive"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<AddInconnectCommercialTeamExecutiveMutation, AddInconnectCommercialTeamExecutiveMutationVariables>;
+export const RemoveInconnectCommercialTeamExecutiveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RemoveInconnectCommercialTeamExecutive"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamMembershipInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"removeInconnectCommercialTeamExecutive"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<RemoveInconnectCommercialTeamExecutiveMutation, RemoveInconnectCommercialTeamExecutiveMutationVariables>;
+export const MoveInconnectCommercialTeamMemberDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"MoveInconnectCommercialTeamMember"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"MoveInconnectCommercialTeamMemberInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"moveInconnectCommercialTeamMember"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<MoveInconnectCommercialTeamMemberMutation, MoveInconnectCommercialTeamMemberMutationVariables>;
+export const DeleteInconnectCommercialTeamDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteInconnectCommercialTeam"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"DeleteInconnectCommercialTeamInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"deleteInconnectCommercialTeam"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"InconnectCommercialTeamMutationResultFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectCommercialTeamSettingsMutationResult"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"teamId"}},{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"cacheStatus"}}]}}]} as unknown as DocumentNode<DeleteInconnectCommercialTeamMutation, DeleteInconnectCommercialTeamMutationVariables>;
+export const GetInconnectCommercialTeamAvailableMembersDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetInconnectCommercialTeamAvailableMembers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getInconnectCommercialTeamAvailableMembers"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"email"}},{"kind":"Field","name":{"kind":"Name","value":"currentTeamId"}},{"kind":"Field","name":{"kind":"Name","value":"currentMembershipType"}}]}}]}}]} as unknown as DocumentNode<GetInconnectCommercialTeamAvailableMembersQuery, GetInconnectCommercialTeamAvailableMembersQueryVariables>;
+export const GetInconnectCommercialTeamsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetInconnectCommercialTeams"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getInconnectCommercialTeams"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"coordinator"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"email"}},{"kind":"Field","name":{"kind":"Name","value":"isAssignable"}}]}},{"kind":"Field","name":{"kind":"Name","value":"executives"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"membershipId"}},{"kind":"Field","name":{"kind":"Name","value":"workspaceMemberId"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"email"}},{"kind":"Field","name":{"kind":"Name","value":"isAssignable"}}]}}]}}]}}]} as unknown as DocumentNode<GetInconnectCommercialTeamsQuery, GetInconnectCommercialTeamsQueryVariables>;
 export const CreateApprovedAccessDomainDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateApprovedAccessDomain"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateApprovedAccessDomainInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createApprovedAccessDomain"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"domain"}},{"kind":"Field","name":{"kind":"Name","value":"isValidated"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<CreateApprovedAccessDomainMutation, CreateApprovedAccessDomainMutationVariables>;
 export const CreateOidcIdentityProviderDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateOIDCIdentityProvider"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"SetupOIDCSsoInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createOIDCIdentityProvider"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"issuer"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<CreateOidcIdentityProviderMutation, CreateOidcIdentityProviderMutationVariables>;
 export const CreateSamlIdentityProviderDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateSAMLIdentityProvider"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"SetupSAMLSsoInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createSAMLIdentityProvider"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"issuer"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<CreateSamlIdentityProviderMutation, CreateSamlIdentityProviderMutationVariables>;

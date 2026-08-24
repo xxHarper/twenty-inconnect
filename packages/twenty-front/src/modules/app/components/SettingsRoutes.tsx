@@ -527,6 +527,14 @@ const SettingsSecurityRecordAccess = lazy(() =>
   ),
 );
 
+const SettingsSecurityCommercialTeams = lazy(() =>
+  import('~/pages/settings/security/SettingsSecurityCommercialTeams').then(
+    (module) => ({
+      default: module.SettingsSecurityCommercialTeams,
+    }),
+  ),
+);
+
 const SettingsAdmin = lazy(() =>
   import('~/pages/settings/admin-panel/SettingsAdmin').then((module) => ({
     default: module.SettingsAdmin,
@@ -1044,6 +1052,10 @@ export const SettingsRoutes = ({ isAdminPageEnabled }: SettingsRoutesProps) => (
         <Route
           path={SettingsPath.SecurityRecordAccess}
           element={<SettingsSecurityRecordAccess />}
+        />
+        <Route
+          path={SettingsPath.SecurityCommercialTeams}
+          element={<SettingsSecurityCommercialTeams />}
         />
       </Route>
 
