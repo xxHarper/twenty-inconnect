@@ -209,8 +209,20 @@ const buildHarness = () => {
   const manager = { getRepository } as unknown as EntityManager;
   const dataSource = {
     transaction: jest.fn(
-      async (operation: (transactionManager: EntityManager) => unknown) =>
-        operation(manager),
+      async (operation: (transactionManager: EntityManager) => unknown) => {
+        const teamsSnapshot = teams.map((team) => ({ ...team }));
+        const membershipsSnapshot = memberships.map((membership) => ({
+          ...membership,
+        }));
+
+        try {
+          return await operation(manager);
+        } catch (error) {
+          teams.splice(0, teams.length, ...teamsSnapshot);
+          memberships.splice(0, memberships.length, ...membershipsSnapshot);
+          throw error;
+        }
+      },
     ),
     getRepository,
   } as unknown as DataSource;
@@ -261,7 +273,7 @@ const buildHarness = () => {
 describe('InconnectCommercialTeamService', () => {
   it('creates, renames and soft-deletes a team while invalidating its workspace cache', async () => {
     const harness = buildHarness();
-    const team = await harness.service.createTeam({
+    const { result: team } = await harness.service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: '  Equipo Norte  ',
     });
@@ -271,7 +283,7 @@ describe('InconnectCommercialTeamService', () => {
       normalizedName: 'equipo norte',
     });
 
-    const renamed = await harness.service.renameTeam({
+    const { result: renamed } = await harness.service.renameTeam({
       workspaceId: WORKSPACE_A_ID,
       teamId: team.id,
       name: 'Equipo Centro',
@@ -324,7 +336,7 @@ describe('InconnectCommercialTeamService', () => {
 
   it('adds members, changes coordinator atomically and keeps one active coordinator', async () => {
     const { service, memberships } = buildHarness();
-    const team = await service.createTeam({
+    const { result: team } = await service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: 'Equipo Norte',
     });
@@ -362,11 +374,11 @@ describe('InconnectCommercialTeamService', () => {
 
   it('rejects a second active team for a Workspace Member and supports an atomic move', async () => {
     const { service, teamRepository } = buildHarness();
-    const firstTeam = await service.createTeam({
+    const { result: firstTeam } = await service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: 'Equipo Norte',
     });
-    const secondTeam = await service.createTeam({
+    const { result: secondTeam } = await service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: 'Equipo Sur',
     });
@@ -384,7 +396,7 @@ describe('InconnectCommercialTeamService', () => {
       }),
     ).rejects.toThrow();
 
-    const moved = await service.moveMember({
+    const { result: moved } = await service.moveMember({
       workspaceId: WORKSPACE_A_ID,
       workspaceMemberId: SCOTT_ID,
       targetTeamId: secondTeam.id,
@@ -401,11 +413,11 @@ describe('InconnectCommercialTeamService', () => {
 
   it('allows membership again after soft removal', async () => {
     const { service } = buildHarness();
-    const firstTeam = await service.createTeam({
+    const { result: firstTeam } = await service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: 'Equipo Norte',
     });
-    const secondTeam = await service.createTeam({
+    const { result: secondTeam } = await service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: 'Equipo Sur',
     });
@@ -426,12 +438,15 @@ describe('InconnectCommercialTeamService', () => {
         teamId: secondTeam.id,
         workspaceMemberId: SCOTT_ID,
       }),
-    ).resolves.toMatchObject({ teamId: secondTeam.id });
+    ).resolves.toMatchObject({
+      result: { teamId: secondTeam.id },
+      cacheStatus: 'recomputed',
+    });
   });
 
   it('rejects a Workspace Member that does not belong to the target workspace', async () => {
     const { service, activeMembersByWorkspace } = buildHarness();
-    const team = await service.createTeam({
+    const { result: team } = await service.createTeam({
       workspaceId: WORKSPACE_A_ID,
       name: 'Equipo Norte',
     });
@@ -459,10 +474,32 @@ describe('InconnectCommercialTeamService', () => {
         workspaceId: WORKSPACE_A_ID,
         name: 'Equipo Norte',
       }),
-    ).resolves.toBeDefined();
+    ).resolves.toMatchObject({
+      result: { name: 'Equipo Norte' },
+      cacheStatus: 'recomputation-failed',
+    });
     expect(
       workspaceCacheService.revokeGenerationFencedEntries,
     ).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects and rolls back when cache revocation fails before commit', async () => {
+    const { service, teams, workspaceCacheService } = buildHarness();
+
+    (
+      workspaceCacheService.revokeGenerationFencedEntries as jest.Mock
+    ).mockRejectedValueOnce(new Error('generation revoke unavailable'));
+
+    await expect(
+      service.createTeam({
+        workspaceId: WORKSPACE_A_ID,
+        name: 'Equipo Norte',
+      }),
+    ).rejects.toThrow('generation revoke unavailable');
+    expect(teams).toHaveLength(0);
+    expect(
+      workspaceCacheService.recomputeGenerationFencedEntries,
+    ).not.toHaveBeenCalled();
   });
 
   it('adds active-Team predicates to both membership getters', async () => {
@@ -493,5 +530,80 @@ describe('InconnectCommercialTeamService', () => {
         }),
       }),
     );
+  });
+
+  it('removes only the requested Executive membership and never the Coordinator', async () => {
+    const { service, memberships } = buildHarness();
+    const { result: team } = await service.createTeam({
+      workspaceId: WORKSPACE_A_ID,
+      name: 'Equipo Norte',
+    });
+
+    await service.assignCoordinator({
+      workspaceId: WORKSPACE_A_ID,
+      teamId: team.id,
+      workspaceMemberId: TIM_ID,
+    });
+    await service.addExecutive({
+      workspaceId: WORKSPACE_A_ID,
+      teamId: team.id,
+      workspaceMemberId: SCOTT_ID,
+    });
+
+    await service.removeExecutive({
+      workspaceId: WORKSPACE_A_ID,
+      teamId: team.id,
+      workspaceMemberId: SCOTT_ID,
+    });
+
+    expect(
+      memberships.find(
+        (membership) => membership.workspaceMemberId === SCOTT_ID,
+      )?.deletedAt,
+    ).toBeInstanceOf(Date);
+    await expect(
+      service.removeExecutive({
+        workspaceId: WORKSPACE_A_ID,
+        teamId: team.id,
+        workspaceMemberId: TIM_ID,
+      }),
+    ).rejects.toThrow('Executive membership');
+    expect(
+      memberships.find((membership) => membership.workspaceMemberId === TIM_ID)
+        ?.deletedAt,
+    ).toBeNull();
+  });
+
+  it('rejects cross-workspace Team IDs for rename and move operations', async () => {
+    const { service } = buildHarness();
+    const { result: workspaceATeam } = await service.createTeam({
+      workspaceId: WORKSPACE_A_ID,
+      name: 'Equipo Norte',
+    });
+    const { result: workspaceBTeam } = await service.createTeam({
+      workspaceId: WORKSPACE_B_ID,
+      name: 'Equipo Sur',
+    });
+
+    await service.addExecutive({
+      workspaceId: WORKSPACE_A_ID,
+      teamId: workspaceATeam.id,
+      workspaceMemberId: SCOTT_ID,
+    });
+
+    await expect(
+      service.renameTeam({
+        workspaceId: WORKSPACE_A_ID,
+        teamId: workspaceBTeam.id,
+        name: 'Cross workspace',
+      }),
+    ).rejects.toThrow('does not exist in this workspace');
+    await expect(
+      service.moveMember({
+        workspaceId: WORKSPACE_A_ID,
+        workspaceMemberId: SCOTT_ID,
+        targetTeamId: workspaceBTeam.id,
+      }),
+    ).rejects.toThrow('does not exist in this workspace');
   });
 });

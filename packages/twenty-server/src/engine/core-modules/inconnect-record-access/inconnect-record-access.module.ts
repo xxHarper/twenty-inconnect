@@ -8,8 +8,10 @@ import { InconnectCommercialTeamEntity } from 'src/engine/core-modules/inconnect
 import { InconnectRecordAccessConfigurationEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-configuration.entity';
 import { InconnectRecordAccessManagedObjectEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-managed-object.entity';
 import { InconnectRecordAccessPolicyEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-policy.entity';
+import { InconnectCommercialTeamSettingsResolver } from 'src/engine/core-modules/inconnect-record-access/inconnect-commercial-team-settings.resolver';
 import { InconnectRecordAccessService } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.service';
 import { InconnectRecordAccessSettingsResolver } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access-settings.resolver';
+import { InconnectCommercialTeamSettingsService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-commercial-team-settings.service';
 import { InconnectCommercialTeamService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-commercial-team.service';
 import { InconnectRecordAccessConfigurationCandidateService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-configuration-candidate.service';
 import { InconnectRecordAccessConfigurationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-configuration.service';
@@ -38,6 +40,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
   providers: [
     InconnectRecordAccessService,
     InconnectCommercialTeamService,
+    InconnectCommercialTeamSettingsService,
     InconnectWorkspaceMemberService,
     WorkspaceInconnectTeamAccessMapsCacheService,
     WorkspaceInconnectRecordAccessPolicyMapsCacheService,
@@ -48,10 +51,12 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     InconnectRecordAccessImportEnvCommand,
     InconnectRecordAccessSettingsService,
     InconnectRecordAccessSettingsResolver,
+    InconnectCommercialTeamSettingsResolver,
   ],
   exports: [
     InconnectRecordAccessService,
     InconnectCommercialTeamService,
+    InconnectCommercialTeamSettingsService,
     InconnectRecordAccessPolicySourceService,
     InconnectRecordAccessConfigurationService,
     InconnectRecordAccessEnvironmentImportService,

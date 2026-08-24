@@ -14,9 +14,21 @@ export type InconnectWorkspaceMemberState = {
   isAssignable: boolean;
 };
 
+export type InconnectWorkspaceMemberProfile = InconnectWorkspaceMemberState & {
+  firstName: string;
+  lastName: string;
+  email: string | null;
+};
+
 type WorkspaceMemberStateRow = {
   id: string;
   isAssignable: boolean;
+};
+
+type WorkspaceMemberProfileRow = WorkspaceMemberStateRow & {
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
 };
 
 @Injectable()
@@ -66,6 +78,86 @@ export class InconnectWorkspaceMemberService {
     );
   }
 
+  async getWorkspaceMemberProfiles({
+    manager,
+    workspaceId,
+    workspaceMemberIds,
+  }: {
+    manager: EntityManager;
+    workspaceId: string;
+    workspaceMemberIds: string[];
+  }): Promise<Map<string, InconnectWorkspaceMemberProfile>> {
+    if (workspaceMemberIds.length === 0) {
+      return new Map();
+    }
+
+    const databaseSchema = await this.getWorkspaceDatabaseSchema({
+      manager,
+      workspaceId,
+    });
+    const rows = (await manager.query(
+      `SELECT
+        workspace_member."id",
+        workspace_member."nameFirstName" AS "firstName",
+        workspace_member."nameLastName" AS "lastName",
+        workspace_member."userEmail" AS "email",
+        (
+          workspace_member."deletedAt" IS NULL
+          AND user_workspace."id" IS NOT NULL
+          AND workspace_user."id" IS NOT NULL
+        ) AS "isAssignable"
+      FROM ${escapeIdentifier(databaseSchema)}."workspaceMember" workspace_member
+      LEFT JOIN "core"."userWorkspace" user_workspace
+        ON user_workspace."workspaceId" = $2
+        AND user_workspace."userId" = workspace_member."userId"
+        AND user_workspace."deletedAt" IS NULL
+      LEFT JOIN "core"."user" workspace_user
+        ON workspace_user."id" = workspace_member."userId"
+        AND workspace_user."deletedAt" IS NULL
+      WHERE workspace_member."id" = ANY($1::uuid[])`,
+      [workspaceMemberIds, workspaceId],
+    )) as WorkspaceMemberProfileRow[];
+
+    return this.toWorkspaceMemberProfileMap(rows);
+  }
+
+  async getAssignableWorkspaceMemberProfiles({
+    manager,
+    workspaceId,
+  }: {
+    manager: EntityManager;
+    workspaceId: string;
+  }): Promise<InconnectWorkspaceMemberProfile[]> {
+    const databaseSchema = await this.getWorkspaceDatabaseSchema({
+      manager,
+      workspaceId,
+    });
+    const rows = (await manager.query(
+      `SELECT
+        workspace_member."id",
+        workspace_member."nameFirstName" AS "firstName",
+        workspace_member."nameLastName" AS "lastName",
+        workspace_member."userEmail" AS "email",
+        true AS "isAssignable"
+      FROM ${escapeIdentifier(databaseSchema)}."workspaceMember" workspace_member
+      INNER JOIN "core"."userWorkspace" user_workspace
+        ON user_workspace."workspaceId" = $1
+        AND user_workspace."userId" = workspace_member."userId"
+        AND user_workspace."deletedAt" IS NULL
+      INNER JOIN "core"."user" workspace_user
+        ON workspace_user."id" = workspace_member."userId"
+        AND workspace_user."deletedAt" IS NULL
+      WHERE workspace_member."deletedAt" IS NULL
+      ORDER BY
+        workspace_member."nameFirstName",
+        workspace_member."nameLastName",
+        workspace_member."id"`,
+      [workspaceId],
+    )) as WorkspaceMemberProfileRow[];
+
+    return [...this.toWorkspaceMemberProfileMap(rows).values()];
+  }
+
   async assertAssignableWorkspaceMember({
     manager,
     workspaceId,
@@ -109,6 +201,23 @@ export class InconnectWorkspaceMemberService {
     workspaceMemberId: string;
   }): Promise<void> {
     return this.assertAssignableWorkspaceMember(args);
+  }
+
+  private toWorkspaceMemberProfileMap(
+    rows: WorkspaceMemberProfileRow[],
+  ): Map<string, InconnectWorkspaceMemberProfile> {
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        {
+          id: row.id,
+          firstName: row.firstName ?? '',
+          lastName: row.lastName ?? '',
+          email: row.email,
+          isAssignable: row.isAssignable,
+        },
+      ]),
+    );
   }
 
   private async getWorkspaceDatabaseSchema({

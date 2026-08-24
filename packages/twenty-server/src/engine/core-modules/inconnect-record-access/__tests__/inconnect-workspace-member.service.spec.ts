@@ -87,4 +87,82 @@ describe('InconnectWorkspaceMemberService', () => {
     expect(sql).not.toContain('disabled');
     expect(sql).not.toContain('FOR UPDATE');
   });
+
+  it('loads presentation profiles for active and historical Team members without making historical members assignable', async () => {
+    const { manager, query } = buildManager([
+      {
+        id: WORKSPACE_MEMBER_ID,
+        firstName: 'Scott',
+        lastName: 'Forstall',
+        email: 'scott@apple.dev',
+        isAssignable: false,
+      },
+    ]);
+    const service = new InconnectWorkspaceMemberService();
+
+    await expect(
+      service.getWorkspaceMemberProfiles({
+        manager,
+        workspaceId: WORKSPACE_ID,
+        workspaceMemberIds: [WORKSPACE_MEMBER_ID],
+      }),
+    ).resolves.toEqual(
+      new Map([
+        [
+          WORKSPACE_MEMBER_ID,
+          {
+            id: WORKSPACE_MEMBER_ID,
+            firstName: 'Scott',
+            lastName: 'Forstall',
+            email: 'scott@apple.dev',
+            isAssignable: false,
+          },
+        ],
+      ]),
+    );
+
+    const [sql, parameters] = query.mock.calls[0];
+
+    expect(sql).toContain('LEFT JOIN "core"."userWorkspace"');
+    expect(sql).toContain('LEFT JOIN "core"."user"');
+    expect(sql).toContain('workspace_member."userEmail" AS "email"');
+    expect(sql).not.toContain('disabled');
+    expect(parameters).toEqual([[WORKSPACE_MEMBER_ID], WORKSPACE_ID]);
+  });
+
+  it('lists assignable member profiles from the canonical WorkspaceMember, UserWorkspace and User lifecycle', async () => {
+    const { manager, query } = buildManager([
+      {
+        id: WORKSPACE_MEMBER_ID,
+        firstName: 'Tim',
+        lastName: 'Apple',
+        email: 'tim@apple.dev',
+        isAssignable: true,
+      },
+    ]);
+    const service = new InconnectWorkspaceMemberService();
+
+    await expect(
+      service.getAssignableWorkspaceMemberProfiles({
+        manager,
+        workspaceId: WORKSPACE_ID,
+      }),
+    ).resolves.toEqual([
+      {
+        id: WORKSPACE_MEMBER_ID,
+        firstName: 'Tim',
+        lastName: 'Apple',
+        email: 'tim@apple.dev',
+        isAssignable: true,
+      },
+    ]);
+
+    const [sql, parameters] = query.mock.calls[0];
+
+    expect(sql).toContain('INNER JOIN "core"."userWorkspace"');
+    expect(sql).toContain('INNER JOIN "core"."user"');
+    expect(sql).toContain('workspace_member."deletedAt" IS NULL');
+    expect(sql).not.toContain('disabled');
+    expect(parameters).toEqual([WORKSPACE_ID]);
+  });
 });

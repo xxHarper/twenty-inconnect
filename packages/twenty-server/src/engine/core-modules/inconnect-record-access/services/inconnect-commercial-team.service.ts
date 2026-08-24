@@ -10,6 +10,7 @@ import {
   InconnectCommercialTeamExceptionCode,
 } from 'src/engine/core-modules/inconnect-record-access/inconnect-commercial-team.exception';
 import { InconnectWorkspaceMemberService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-workspace-member.service';
+import { type InconnectCommercialTeamOperationResult } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-commercial-team-settings.type';
 import { InconnectCommercialTeamMembershipType } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-commercial-team-membership-type.type';
 import {
   type WorkspaceCacheGenerations,
@@ -36,7 +37,9 @@ export class InconnectCommercialTeamService {
   }: {
     workspaceId: string;
     name: string;
-  }): Promise<InconnectCommercialTeamEntity> {
+  }): Promise<
+    InconnectCommercialTeamOperationResult<InconnectCommercialTeamEntity>
+  > {
     const team = await this.runTransactionAndInvalidate(
       workspaceId,
       async (manager) => {
@@ -56,7 +59,11 @@ export class InconnectCommercialTeamService {
     workspaceId,
     teamId,
     name,
-  }: TeamIdentity & { name: string }): Promise<InconnectCommercialTeamEntity> {
+  }: TeamIdentity & {
+    name: string;
+  }): Promise<
+    InconnectCommercialTeamOperationResult<InconnectCommercialTeamEntity>
+  > {
     return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
       const team = await this.getActiveTeamOrThrow({
         manager,
@@ -72,8 +79,11 @@ export class InconnectCommercialTeamService {
     });
   }
 
-  async deleteTeam({ workspaceId, teamId }: TeamIdentity): Promise<void> {
-    await this.runTransactionAndInvalidate(workspaceId, async (manager) => {
+  async deleteTeam({
+    workspaceId,
+    teamId,
+  }: TeamIdentity): Promise<InconnectCommercialTeamOperationResult<void>> {
+    return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
       await this.getActiveTeamOrThrow({
         manager,
         workspaceId,
@@ -99,8 +109,9 @@ export class InconnectCommercialTeamService {
     workspaceId,
     teamId,
     workspaceMemberId,
-  }: TeamIdentity &
-    MemberIdentity): Promise<InconnectCommercialTeamMembershipEntity> {
+  }: TeamIdentity & MemberIdentity): Promise<
+    InconnectCommercialTeamOperationResult<InconnectCommercialTeamMembershipEntity>
+  > {
     return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
       await this.getActiveTeamOrThrow({
         manager,
@@ -134,8 +145,9 @@ export class InconnectCommercialTeamService {
     workspaceId,
     teamId,
     workspaceMemberId,
-  }: TeamIdentity &
-    MemberIdentity): Promise<InconnectCommercialTeamMembershipEntity> {
+  }: TeamIdentity & MemberIdentity): Promise<
+    InconnectCommercialTeamOperationResult<InconnectCommercialTeamMembershipEntity>
+  > {
     return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
       await this.getActiveTeamOrThrow({
         manager,
@@ -209,8 +221,8 @@ export class InconnectCommercialTeamService {
   async removeMember({
     workspaceId,
     workspaceMemberId,
-  }: MemberIdentity): Promise<void> {
-    await this.runTransactionAndInvalidate(workspaceId, async (manager) => {
+  }: MemberIdentity): Promise<InconnectCommercialTeamOperationResult<void>> {
+    return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
       const membershipSnapshot = await this.getActiveMembershipOrThrow({
         manager,
         workspaceId,
@@ -242,13 +254,63 @@ export class InconnectCommercialTeamService {
     });
   }
 
+  async removeExecutive({
+    workspaceId,
+    teamId,
+    workspaceMemberId,
+  }: TeamIdentity & MemberIdentity): Promise<
+    InconnectCommercialTeamOperationResult<void>
+  > {
+    return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
+      const membershipSnapshot = await this.getActiveMembershipOrThrow({
+        manager,
+        workspaceId,
+        workspaceMemberId,
+        lock: false,
+      });
+
+      await this.lockActiveTeamsInOrder({
+        manager,
+        workspaceId,
+        teamIds: [teamId],
+      });
+
+      const membership = await this.getActiveMembershipOrThrow({
+        manager,
+        workspaceId,
+        workspaceMemberId,
+        lock: true,
+      });
+
+      this.assertMembershipStillBelongsToTeam(membership, teamId);
+
+      if (
+        membershipSnapshot.teamId !== teamId ||
+        membership.membershipType !==
+          InconnectCommercialTeamMembershipType.EXECUTIVE
+      ) {
+        throw new InconnectCommercialTeamException(
+          'The requested Executive membership does not exist in this team',
+          InconnectCommercialTeamExceptionCode.MEMBERSHIP_CONFLICT,
+        );
+      }
+
+      membership.deletedAt = new Date();
+      await manager
+        .getRepository(InconnectCommercialTeamMembershipEntity)
+        .save(membership);
+    });
+  }
+
   async moveMember({
     workspaceId,
     workspaceMemberId,
     targetTeamId,
   }: MemberIdentity & {
     targetTeamId: string;
-  }): Promise<InconnectCommercialTeamMembershipEntity> {
+  }): Promise<
+    InconnectCommercialTeamOperationResult<InconnectCommercialTeamMembershipEntity>
+  > {
     return this.runTransactionAndInvalidate(workspaceId, async (manager) => {
       const membershipSnapshot = await this.getActiveMembershipOrThrow({
         manager,
@@ -465,7 +527,7 @@ export class InconnectCommercialTeamService {
   private async runTransactionAndInvalidate<TResult>(
     workspaceId: string,
     operation: (manager: EntityManager) => Promise<TResult>,
-  ): Promise<TResult> {
+  ): Promise<InconnectCommercialTeamOperationResult<TResult>> {
     let generations: WorkspaceCacheGenerations = {};
     const result = await this.dataSource.transaction(async (manager) => {
       const operationResult = await operation(manager);
@@ -480,12 +542,16 @@ export class InconnectCommercialTeamService {
       return operationResult;
     });
 
+    let cacheStatus: InconnectCommercialTeamOperationResult<TResult>['cacheStatus'] =
+      'recomputed';
+
     try {
       await this.workspaceCacheService.recomputeGenerationFencedEntries(
         workspaceId,
         generations,
       );
     } catch (error) {
+      cacheStatus = 'recomputation-failed';
       // The database commit already succeeded. The fenced invalid value remains
       // authoritative, so callers get the persisted result without stale access.
       this.logger.error(
@@ -494,6 +560,6 @@ export class InconnectCommercialTeamService {
       );
     }
 
-    return result;
+    return { result, cacheStatus };
   }
 }
