@@ -47,10 +47,12 @@ export const typeORMCoreModuleOptions: TypeOrmModuleOptions = {
       ? [
           `${isJest ? 'src/' : 'dist/'}engine/core-modules/**/*.entity{.ts,.js}`,
           `${isJest ? 'src/' : 'dist/'}engine/metadata-modules/**/*.entity{.ts,.js}`,
+          `${isJest ? 'src/' : 'dist/'}modules/inconnect-messaging/**/*.entity{.ts,.js}`,
         ]
       : [
           `${isJest ? 'src/' : 'dist/'}engine/core-modules/**/!(billing-*).entity.{ts,js}`,
           `${isJest ? 'src/' : 'dist/'}engine/metadata-modules/**/*.entity{.ts,.js}`,
+          `${isJest ? 'src/' : 'dist/'}modules/inconnect-messaging/**/*.entity{.ts,.js}`,
         ],
   synchronize: false,
   migrationsRun: false,
