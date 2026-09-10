@@ -10,7 +10,7 @@ Twenty is an open-source CRM built with modern technologies in a monorepo struct
 
 - Do not use or derive Enterprise-licensed implementations for INCONNECT custom features.
 - INCONNECT Record Access must be implemented independently using modifiable open-source code.
-- Context7 and PostgreSQL MCP availability must not be assumed.
+- Context7 and PostgreSQL MCP availability must not be assumed. Use them when available and appropriate, but do not block a task solely because they are unavailable unless the task genuinely requires that external source.
 - The syncable-entity skills apply only when actually creating or modifying syncable metadata entities.
 - Record-level authorization work must not be treated as creation of a syncable entity unless explicitly justified.
 
@@ -61,9 +61,11 @@ npx nx lint twenty-server
 npx nx typecheck twenty-front
 npx nx typecheck twenty-server
 
-# Format code
-npx nx fmt twenty-front
-npx nx fmt twenty-server
+# Format selected files
+npx nx format:write --files=path/to/file.ts,path/to/other-file.ts
+
+# Check formatting without writing
+npx oxfmt --check path/to/file.ts path/to/other-file.ts
 ```
 
 ### Build
@@ -87,14 +89,14 @@ npx nx run twenty-server:database:migrate:generate --name <name> --type <fast|sl
 
 ### Database Inspection (Postgres MCP)
 
-A read-only Postgres MCP server is configured in `.mcp.json`. Use it to:
+The repository includes a read-only Postgres MCP configuration in `.mcp.json`. When that MCP is available in the current runtime, use it to:
 - Inspect workspace data, metadata, and object definitions while developing
 - Verify migration results (columns, types, constraints) after running migrations
 - Explore the multi-tenant schema structure (core, metadata, workspace-specific schemas)
 - Debug issues by querying raw data to confirm whether a bug is frontend, backend, or data-level
 - Inspect metadata tables to debug GraphQL schema generation issues
 
-This server is read-only — for write operations (reset, migrations, sync), use the CLI commands above.
+Do not assume the MCP is available. When it is, treat it as read-only; for authorized write operations (reset, migrations, sync), use the CLI commands above.
 
 ### GraphQL
 ```bash
@@ -185,7 +187,7 @@ Use existing helpers from `twenty-shared` instead of manual type guards:
 
 ## Development Workflow
 
-IMPORTANT: Use Context7 for code generation, setup or configuration steps, or library/API documentation. Automatically use the Context7 MCP tools to resolve library IDs and get library docs without waiting for explicit requests.
+IMPORTANT: When Context7 is available and appropriate, use it for code generation, setup or configuration steps, and library/API documentation. Do not assume Context7 or another MCP is configured, and do not block work only because it is absent unless the requested task genuinely depends on that external source.
 
 ### Before Making Changes
 1. Always run linting (`lint:diff-with-main`) and type checking after code changes
@@ -233,7 +235,7 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes the current stable capabilities rather than the implementation chronology. It was verified on 2026-08-24 against branch `chore/inconnect-stable-checkpoint` at commit `6be7733df3b52063552b6f800518ea0baa8277bc`.
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. It was updated on 2026-09-10 against feature-branch HEAD `7583c51d323633e1cd1e1790f203f0ea9ec1b584` to include the implemented Messaging foundation; that feature HEAD is a verified development checkpoint, not a stable product release. Always use live Git state as authority and retain the dated evidence stated by older sections.
 
 ## Purpose and Licensing Boundary
 
@@ -524,6 +526,138 @@ Frontend:
 
 Administrative visibility is controlled by `PermissionFlagType.SECURITY` in both frontend navigation and backend guards; backend remains authoritative. Record Access policy administration and Commercial Team administration are separate domains.
 
+## INCONNECT Messaging
+
+Current location: `packages/twenty-server/src/modules/inconnect-messaging/`.
+
+INCONNECT Messaging is an implemented provider-neutral foundation and security boundary inside the Twenty fork. It is a native vertical module, not a Twenty App, and it must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio is reserved for a future adapter; provider-specific concepts must not become domain authority.
+
+### Implemented Persistence Foundation
+
+The following TypeORM entities and dedicated `core` tables are implemented:
+
+- `InconnectMessagingConfigurationEntity` / `core.inconnectMessagingConfiguration`
+- `InconnectMessagingProviderConnectionEntity` / `core.inconnectMessagingProviderConnection`
+- `InconnectMessagingConversationEntity` / `core.inconnectMessagingConversation`
+- `InconnectMessagingMessageEntity` / `core.inconnectMessagingMessage`
+- `InconnectMessagingDispatchAttemptEntity` / `core.inconnectMessagingDispatchAttempt`
+- `InconnectMessagingWebhookReceiptEntity` / `core.inconnectMessagingWebhookReceipt`
+- `InconnectMessagingProviderStatusEventEntity` / `core.inconnectMessagingProviderStatusEvent`
+- `InconnectMessagingOutboxEventEntity` / `core.inconnectMessagingOutboxEvent`
+
+These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies the durable-inbox and transactional-outbox records, idempotency keys, leases, attempts, checks, and workspace-isolated composite foreign keys. Webhook processing, outbox publishing, and dispatch workers are not yet implemented. BullMQ is planned only as at-least-once transport and must never become authority.
+
+`MessagingConfiguration` selects the anchor through a real workspace-local `ObjectMetadata` reference. A `Conversation` references the CRM record with:
+
+    workspaceId
+    linkedRecordObjectMetadataId
+    linkedRecordId
+
+The linked tuple is either fully null or fully present, and a composite FK requires its ObjectMetadata to match the configured workspace anchor. Runtime authority must not come from physical names, schema names, a hardcoded `lead`, an owner column, or a universal identifier. Dynamic table and owner details come from live metadata.
+
+`Message.providerConnectionId` is persisted because provider message identity is connection-scoped. Its composite FK `(conversationId, providerConnectionId, workspaceId)` to `Conversation` prevents the Message connection or workspace from diverging from its Conversation. Retry lineage is also connection/workspace constrained.
+
+### Implemented Outbound State Machine
+
+Persisted outbound states are `QUEUED`, `SENDING`, `SENT`, `DELIVERED`, `READ`, `FAILED`, and `UNKNOWN`.
+
+The pure central authority is `resolveInconnectMessagingOutboundStateTransition` in `state-machine/outbound-message-state-machine.ts`. Its authoritative transition table rejects undeclared transitions and ignores duplicate or lower-progress callbacks.
+
+- `LOCAL_PENDING` is UI-only and must never be persisted.
+- `READ` never degrades and is terminal.
+- `FAILED` is terminal and never reopens.
+- `UNKNOWN` represents an ambiguous provider outcome and must not trigger blind automatic retry; a later definitive callback may resolve it.
+- A future business retry creates a new `Message` linked through `retryOfMessageId`; it does not reopen the old Message.
+- A future real adapter must normalize provider `UNDELIVERED` to `FAILED` while preserving provider status/error metadata.
+
+### Implemented Provider Architecture
+
+The current symbols are `InconnectMessagingProvider`, `InconnectMessagingProviderRegistry`, and `FakeInconnectMessagingProvider`.
+
+- `(provider, channel)` identifies an adapter.
+- Unknown combinations and duplicate registrations fail closed.
+- The Fake Provider is for tests/development and is not registered automatically by `InconnectMessagingModule`.
+- A real Twilio adapter is **PLANNED / NOT IMPLEMENTED**.
+
+### Implemented Security Foundation
+
+#### Public Record Access Facade
+
+`InconnectRecordAccessAuthorizationService` is implemented at `packages/twenty-server/src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service.ts` and exported by `InconnectRecordAccessModule`. Its public API is:
+
+- `resolveReadScope`
+- `applyReadScopeToQueryBuilder`
+- `isRecordReadable`
+- `buildAuthorizedRecordExistsCondition`
+- `isAuthenticatedWorkspaceMemberValid`
+
+Core consumers receive only the public scopes `not-managed`, `system-bypass`, `denied`, `all-records`, and `owner-scoped`. The facade encapsulates raw policies, Redis/cache payloads, Team maps, owner parsing, ENV/database source internals, renderers, and generation fencing. `not-managed` means only that INCONNECT adds no record predicate; it is not authorization and never bypasses Twenty standard permissions. Invalid or unavailable actor, workspace, metadata, policy, cache, or required Team authority denies.
+
+#### Messaging Authorization
+
+`InconnectMessagingAuthorizationService` is the centralized authority for human Messaging operations. It exposes authorized lookup/read/send/triage/manage capabilities and composes:
+
+    authenticated Workspace
+    AND valid authenticated Workspace Member
+    AND Messaging functional permission
+    AND Twenty standard object permission
+    AND INCONNECT Record Access
+    AND resource-specific authorization
+
+For a linked Conversation the chain is `Conversation -> configured dynamic anchor record -> Twenty standard permission -> INCONNECT Record Access`. Messaging has no parallel owner or Team. Knowing a Conversation UUID grants nothing; unauthorized direct lookup returns no Conversation to avoid existence disclosure. Human operations reject system contexts and permission-bypass role configurations.
+
+`InconnectMessagingConversationQueryService` implements internal list, count, search, and pagination helpers. It applies workspace, permission, anchor, and correlated authorized-record `EXISTS` conditions in SQL before search results, counting, ordering, or pagination. Never fetch all Conversations and filter in memory or in the frontend.
+
+#### Permission Flags
+
+All defaults are `false`:
+
+- `INCONNECT_MESSAGING` — tool; enables the module but grants no universal Conversation access.
+- `SEND_INCONNECT_MESSAGING` — tool; also requires access to the Conversation and, when linked, its anchor record.
+- `TRIAGE_INCONNECT_MESSAGING` — tool; with the base flag permits access to unassigned Conversations only.
+- `MANAGE_INCONNECT_MESSAGING` — settings; does not imply Read.
+
+`canAccessAllTools` and `canUpdateAllSettings` retain standard Twenty semantics; neither converts a functional flag into record authorization.
+
+#### Unassigned Conversations
+
+A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `linkedRecordId` are null. Human access requires `INCONNECT_MESSAGING AND TRIAGE_INCONNECT_MESSAGING`. There is no Messaging owner, parallel Team, auto-link, or automatic Lead creation. The unassigned inbox/UI is **NOT IMPLEMENTED**.
+
+### Planned / Not Implemented
+
+Personal/shared state is approved but absent:
+
+- Favorite — personal per Workspace Member.
+- Unread — personal per Workspace Member.
+- Pending — shared per Conversation.
+
+Realtime is **PLANNED / NOT IMPLEMENTED**. Do not publish Messaging through generic object SSE. The future design must be member-scoped and reauthorize through Messaging and Record Access.
+
+Attachments are **PLANNED / NOT IMPLEMENTED**. Reuse `FileEntity`/`FileStorage`; do not create parallel storage. Every download must reauthorize `Conversation -> anchor record -> Record Access`. `workspaceId + fileId` is never sufficient authorization.
+
+The following operational product functionality does not exist yet:
+
+- real Twilio adapter, inbound webhook, or status callbacks;
+- outbound WhatsApp dispatch;
+- operational Messaging GraphQL/resolvers;
+- SSE/realtime;
+- frontend chat or inbox;
+- attachments/FileStorage integration, media, or templates;
+- `ConversationMemberState`, favorite, unread, or operational pending state;
+- Lead matching, auto-link, or automatic Lead creation.
+
+The next planned checkpoint is **Twilio WhatsApp inbound + status callbacks**, still **PLANNED / NOT IMPLEMENTED**. Its intended boundary is:
+
+    Twilio
+      -> ProviderConnection routing
+      -> signature validation
+      -> durable WebhookReceipt
+      -> async/idempotent processing
+      -> Conversation/Message or ProviderStatusEvent
+      -> OutboxEvent
+
+Do not implement or describe that pipeline as operational until a later authorized phase supplies and tests it.
+
 ## Local Apple Baseline
 
 The following is demo data for local smoke testing only and must never become product constants. It was verified read-only on 2026-08-24:
@@ -559,22 +693,17 @@ Expected WSL path:
 
 `/home/alberto/projects/twenty-inconnect`
 
-Verified on 2026-08-24 before this AGENTS.md edit:
+Verified from local Git on 2026-09-10 before this documentation edit:
 
-- Current branch: `chore/inconnect-stable-checkpoint`.
-- HEAD: `6be7733df3b52063552b6f800518ea0baa8277bc` - `feat: add INCONNECT commercial teams settings UI`.
+- Stable product branch: `inconnect-main`.
+- Current checkout: feature branch `feature/inconnect-messaging`; it is not a stable release.
+- HEAD: `7583c51d323633e1cd1e1790f203f0ea9ec1b584` - `feat: add INCONNECT Messaging security foundation`.
 - `origin`: `https://github.com/xxHarper/twenty-inconnect.git`.
 - `upstream`: `https://github.com/twentyhq/twenty.git`.
-- Current local remote-tracking refs `origin/main` and `upstream/main`: `bcdac3e8245fb55e1f3c648eb136680c79ef6312`.
-- Their recorded divergence is 0/0; no network fetch was performed during this documentation-only audit.
-- Current HEAD is 16 commits ahead of that main baseline and main is its merge base.
-- All local and origin `feature/inconnect-*` heads are reachable from current HEAD.
-- Local INCONNECT feature heads are pairwise comparable by ancestry; the completed development chain is linear.
-- The worktree was clean before this documentation edit.
-- Node: `24.16.0` from `.nvmrc`.
-- Yarn: `4.13.0` from `packageManager`.
+- The worktree was clean at preflight.
+- No fetch was performed; remote-tracking freshness and divergence were not inferred.
 
-Always re-run Git inspection before acting; this is a dated snapshot, not authority for future destructive operations.
+The earlier 2026-08-24 checkpoint at `6be7733df3` remains historical context in Git history, not current repository state. Always re-run Git inspection before acting; this snapshot is dated and is not authority for future operations.
 
 ## INCONNECT Upstream Upgrade Procedure
 
@@ -643,3 +772,16 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Report tests, typecheck/lint/format, `git status --short`, and `git diff --stat` at the end of implementation tasks.
 - If a requirement would change security architecture, schema, data, permissions, or authorized scope, stop and report the blocker before improvising.
 - Never inspect or use Enterprise RLS as a shortcut.
+
+### Messaging Rules
+
+- Do not create parallel permission, owner, or Team systems for Messaging.
+- Human operations must go through `InconnectMessagingAuthorizationService`; do not add resolver/controller/repository shortcuts.
+- Consume Record Access only through `InconnectRecordAccessAuthorizationService`; Messaging must not consume raw policies, cache payloads, Team maps, owner parsing, source-mode internals, or generation fencing.
+- Preserve fail-closed behavior and enforce list/count/search/pagination scope in backend SQL, never in memory or the frontend.
+- Never hardcode Lead, schema, physical table, owner field, workspace, ObjectMetadata, Role, or Workspace Member identifiers.
+- Keep the domain provider-neutral and do not couple it to Twilio.
+- PostgreSQL is operational authority. BullMQ may provide at-least-once transport but is never authority.
+- Do not reuse email `modules/messaging` as the WhatsApp domain.
+- Do not publish realtime events until member-scoped authorization and invalidation behavior are explicitly designed and tested.
+- Do not authorize files from only `workspaceId` and `fileId`; always reauthorize the owning Conversation and anchor record.
