@@ -94,6 +94,11 @@ const STANDARD_PERMISSION_FLAG_METADATA: Record<
     description: 'Create and configure AI agents',
     icon: 'IconSparkles',
   },
+  [PermissionFlagType.MANAGE_INCONNECT_MESSAGING]: {
+    label: 'Manage INCONNECT Messaging',
+    description: 'Configure INCONNECT Messaging',
+    icon: 'IconMessageCog',
+  },
   [PermissionFlagType.AI]: {
     label: 'Ask AI',
     description: 'Chat with AI agents and use AI features',
@@ -153,6 +158,21 @@ const STANDARD_PERMISSION_FLAG_METADATA: Record<
     label: 'Edit Profile',
     description: 'Edit own profile information',
     icon: 'IconUser',
+  },
+  [PermissionFlagType.INCONNECT_MESSAGING]: {
+    label: 'INCONNECT Messaging',
+    description: 'Use INCONNECT Messaging',
+    icon: 'IconMessages',
+  },
+  [PermissionFlagType.SEND_INCONNECT_MESSAGING]: {
+    label: 'Send INCONNECT Messages',
+    description: 'Request sends from authorized INCONNECT conversations',
+    icon: 'IconSend',
+  },
+  [PermissionFlagType.TRIAGE_INCONNECT_MESSAGING]: {
+    label: 'Triage INCONNECT Messages',
+    description: 'Work with unassigned INCONNECT conversations',
+    icon: 'IconInbox',
   },
 };
 

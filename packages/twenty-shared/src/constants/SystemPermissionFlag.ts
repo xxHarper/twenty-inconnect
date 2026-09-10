@@ -15,6 +15,7 @@ export const SystemPermissionFlag = {
   LAYOUTS: '458d1ee5-ba12-5f4e-9d17-6f8c11fcd7fd',
   BILLING: '24b66701-ed97-51e4-aa63-794e1b31414c',
   AI_SETTINGS: 'e8cc4a30-c120-5925-8f5d-73d6a2247fee',
+  MANAGE_INCONNECT_MESSAGING: '55903e3d-c66e-4011-ad9b-49ef0e9a541e',
   AI: '1c7f09a7-367d-568b-a0e8-c274eccd6ee3',
   VIEWS: 'c68354c4-535d-53a9-848a-e3a6774b5fb8',
   UPLOAD_FILE: 'dc6931a9-44bd-5164-a983-3db5db837f54',
@@ -27,4 +28,7 @@ export const SystemPermissionFlag = {
   EXPORT_CSV: '88efced9-ca6d-5316-a695-f1b9158e7370',
   CONNECTED_ACCOUNTS: 'e5f63b2d-5369-5df6-8f32-a8bd9e79e653',
   PROFILE_INFORMATION: '7c13f23f-78d8-5e7d-8963-a7c8772fb4e8',
+  INCONNECT_MESSAGING: '0a6a4d1e-60d0-459e-bc6e-696a74da75cd',
+  SEND_INCONNECT_MESSAGING: 'a2a6fbc8-115c-4a3e-b373-1add79911751',
+  TRIAGE_INCONNECT_MESSAGING: 'd696f05d-5619-4e6f-96ab-f7dde85a6367',
 } as const satisfies Record<PermissionFlagType, string>;

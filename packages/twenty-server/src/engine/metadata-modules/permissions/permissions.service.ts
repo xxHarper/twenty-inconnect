@@ -140,6 +140,10 @@ export class PermissionsService {
         [PermissionFlagType.SSO_BYPASS]: false,
         [PermissionFlagType.PROFILE_INFORMATION]: false,
         [PermissionFlagType.MARKETPLACE_APPS]: false,
+        [PermissionFlagType.INCONNECT_MESSAGING]: false,
+        [PermissionFlagType.SEND_INCONNECT_MESSAGING]: false,
+        [PermissionFlagType.TRIAGE_INCONNECT_MESSAGING]: false,
+        [PermissionFlagType.MANAGE_INCONNECT_MESSAGING]: false,
       },
       objectsPermissions: {},
     }) as const satisfies UserWorkspacePermissions;

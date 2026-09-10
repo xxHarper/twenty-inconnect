@@ -3,10 +3,27 @@ import { GUARDS_METADATA, MODULE_METADATA } from '@nestjs/common/constants';
 import { InconnectCommercialTeamSettingsResolver } from 'src/engine/core-modules/inconnect-record-access/inconnect-commercial-team-settings.resolver';
 import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { InconnectRecordAccessSettingsResolver } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access-settings.resolver';
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 
 describe('InconnectRecordAccessModule Settings wiring', () => {
+  it('provides and exports the core-consumer authorization facade', () => {
+    const moduleProviders = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      InconnectRecordAccessModule,
+    ) as unknown[];
+    const moduleExports = Reflect.getMetadata(
+      MODULE_METADATA.EXPORTS,
+      InconnectRecordAccessModule,
+    ) as unknown[];
+
+    expect(moduleProviders).toContain(
+      InconnectRecordAccessAuthorizationService,
+    );
+    expect(moduleExports).toContain(InconnectRecordAccessAuthorizationService);
+  });
+
   it.each([
     InconnectRecordAccessSettingsResolver,
     InconnectCommercialTeamSettingsResolver,

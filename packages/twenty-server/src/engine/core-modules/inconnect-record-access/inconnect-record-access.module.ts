@@ -17,6 +17,7 @@ import { InconnectRecordAccessConfigurationCandidateService } from 'src/engine/c
 import { InconnectRecordAccessConfigurationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-configuration.service';
 import { InconnectRecordAccessEnvironmentImportService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-environment-import.service';
 import { InconnectRecordAccessPolicySourceService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-policy-source.service';
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { InconnectRecordAccessSettingsService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-settings.service';
 import { InconnectWorkspaceMemberService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-workspace-member.service';
 import { WorkspaceInconnectRecordAccessPolicyMapsCacheService } from 'src/engine/core-modules/inconnect-record-access/services/workspace-inconnect-record-access-policy-maps-cache.service';
@@ -45,6 +46,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     WorkspaceInconnectTeamAccessMapsCacheService,
     WorkspaceInconnectRecordAccessPolicyMapsCacheService,
     InconnectRecordAccessPolicySourceService,
+    InconnectRecordAccessAuthorizationService,
     InconnectRecordAccessConfigurationCandidateService,
     InconnectRecordAccessConfigurationService,
     InconnectRecordAccessEnvironmentImportService,
@@ -54,6 +56,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     InconnectCommercialTeamSettingsResolver,
   ],
   exports: [
+    InconnectRecordAccessAuthorizationService,
     InconnectRecordAccessService,
     InconnectCommercialTeamService,
     InconnectCommercialTeamSettingsService,
