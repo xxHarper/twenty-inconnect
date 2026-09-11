@@ -1,6 +1,8 @@
 import { DataSource, getMetadataArgsStorage, type EntityTarget } from 'typeorm';
 
 import { CreateInconnectMessagingTransportSpineFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1788982508902-create-inconnect-messaging-transport-spine';
+import { AddInconnectMessagingWebhookProjectionFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789040000000-add-inconnect-messaging-webhook-projection';
+import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
@@ -45,6 +47,9 @@ describe('INCONNECT Messaging persistence model', () => {
     const query = jest.fn().mockResolvedValue(undefined);
 
     await new CreateInconnectMessagingTransportSpineFastInstanceCommand().up({
+      query,
+    } as never);
+    await new AddInconnectMessagingWebhookProjectionFastInstanceCommand().up({
       query,
     } as never);
 
@@ -155,6 +160,16 @@ describe('INCONNECT Messaging persistence model', () => {
       'IDX_INCONNECT_MSG_MESSAGE_PROVIDER_ID_UNIQUE',
       ['providerConnectionId', 'providerMessageId'],
     ],
+    [
+      InconnectMessagingConversationEntity,
+      'IDX_INCONNECT_MSG_CONVERSATION_CONNECTION_ADDRESS_UNIQUE',
+      ['providerConnectionId', 'externalAddressNormalized'],
+    ],
+    [
+      InconnectMessagingProviderStatusEventEntity,
+      'IDX_INCONNECT_MSG_STATUS_RECEIPT_UNIQUE',
+      ['webhookReceiptId'],
+    ],
   ] as [EntityTarget<object>, string, string[]][])(
     'defines required unique index %s',
     async (entity, indexName, expectedColumns) => {
@@ -188,5 +203,66 @@ describe('INCONNECT Messaging persistence model', () => {
       'providerConnectionId',
       'workspaceId',
     ]);
+  });
+
+  it('persists the required inbound timestamp contract without changing outbound rows', async () => {
+    const dataSource = await buildMetadataDataSource();
+    const messageMetadata = dataSource.getMetadata(
+      InconnectMessagingMessageEntity,
+    );
+    const conversationMetadata = dataSource.getMetadata(
+      InconnectMessagingConversationEntity,
+    );
+    const timestampCheck = messageMetadata.checks.find(
+      ({ name }) => name === 'CHK_INCONNECT_MSG_MESSAGE_INBOUND_TIMESTAMPS',
+    );
+
+    expect(
+      messageMetadata.columns.map(({ databaseName }) => databaseName),
+    ).toEqual(
+      expect.arrayContaining([
+        'serverReceivedAt',
+        'providerOccurredAt',
+        'effectiveInboundAt',
+        'timestampSource',
+      ]),
+    );
+    expect(
+      conversationMetadata.columns.map(({ databaseName }) => databaseName),
+    ).toContain('lastInboundAt');
+    expect(timestampCheck?.expression).toContain('"direction" = \'INBOUND\'');
+    expect(timestampCheck?.expression).toContain('"direction" = \'OUTBOUND\'');
+  });
+
+  it('keeps projection backfills out of the fast command and validates after the slow backfill', async () => {
+    const fastQuery = jest.fn().mockResolvedValue(undefined);
+
+    await new AddInconnectMessagingWebhookProjectionFastInstanceCommand().up({
+      query: fastQuery,
+    } as never);
+
+    expect(
+      fastQuery.mock.calls.some(([statement]) => /^UPDATE\s/i.test(statement)),
+    ).toBe(false);
+    expect(
+      fastQuery.mock.calls.some(([statement]) =>
+        statement.includes('CHK_INCONNECT_MSG_MESSAGE_INBOUND_TIMESTAMPS'),
+      ),
+    ).toBe(true);
+
+    const slowQuery = jest.fn().mockResolvedValue(undefined);
+
+    await new BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand().runDataMigration(
+      { query: slowQuery } as unknown as DataSource,
+    );
+
+    expect(slowQuery).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE "core"."inconnectMessagingMessage"'),
+    );
+    expect(slowQuery).toHaveBeenLastCalledWith(
+      expect.stringContaining(
+        'VALIDATE CONSTRAINT "CHK_INCONNECT_MSG_MESSAGE_INBOUND_TIMESTAMPS"',
+      ),
+    );
   });
 });

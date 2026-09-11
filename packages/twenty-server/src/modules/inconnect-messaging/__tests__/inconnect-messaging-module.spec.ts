@@ -5,6 +5,9 @@ import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permi
 import { InconnectMessagingModule } from 'src/modules/inconnect-messaging/inconnect-messaging.module';
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
 import { FakeInconnectMessagingProvider } from 'src/modules/inconnect-messaging/providers/testing/fake-messaging-provider';
+import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-messaging-provider';
+import { InconnectMessagingWebhookController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-webhook.controller';
+import { InconnectMessagingWebhookRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-webhook-recovery.cron.command';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { ModulesModule } from 'src/modules/modules.module';
@@ -32,6 +35,19 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(InconnectMessagingProviderRegistry);
     expect(moduleExports).toContain(InconnectMessagingProviderRegistry);
     expect(moduleProviders).not.toContain(FakeInconnectMessagingProvider);
+    expect(moduleProviders).toContain(TwilioWhatsappMessagingProvider);
+    expect(moduleExports).toContain(
+      InconnectMessagingWebhookRecoveryCronCommand,
+    );
+  });
+
+  it('registers only the localized public webhook controller', () => {
+    const controllers = Reflect.getMetadata(
+      MODULE_METADATA.CONTROLLERS,
+      InconnectMessagingModule,
+    ) as unknown[];
+
+    expect(controllers).toContain(InconnectMessagingWebhookController);
   });
 
   it('wires the centralized authorization boundary and its scoped query service', () => {

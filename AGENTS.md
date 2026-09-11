@@ -530,7 +530,7 @@ Administrative visibility is controlled by `PermissionFlagType.SECURITY` in both
 
 Current location: `packages/twenty-server/src/modules/inconnect-messaging/`.
 
-INCONNECT Messaging is an implemented provider-neutral foundation and security boundary inside the Twenty fork. It is a native vertical module, not a Twenty App, and it must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio is reserved for a future adapter; provider-specific concepts must not become domain authority.
+INCONNECT Messaging is an implemented provider-neutral foundation and security boundary inside the Twenty fork. It is a native vertical module, not a Twenty App, and it must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio WhatsApp inbound and status callbacks are implemented behind the provider port; provider-specific concepts must not become domain authority.
 
 ### Implemented Persistence Foundation
 
@@ -545,7 +545,7 @@ The following TypeORM entities and dedicated `core` tables are implemented:
 - `InconnectMessagingProviderStatusEventEntity` / `core.inconnectMessagingProviderStatusEvent`
 - `InconnectMessagingOutboxEventEntity` / `core.inconnectMessagingOutboxEvent`
 
-These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies the durable-inbox and transactional-outbox records, idempotency keys, leases, attempts, checks, and workspace-isolated composite foreign keys. Webhook processing, outbox publishing, and dispatch workers are not yet implemented. BullMQ is planned only as at-least-once transport and must never become authority.
+These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies the durable-inbox and transactional-outbox records, idempotency keys, leases, attempts, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery are implemented; outbox publishing and outbound dispatch workers are not. BullMQ is only at-least-once transport and must never become authority.
 
 `MessagingConfiguration` selects the anchor through a real workspace-local `ObjectMetadata` reference. A `Conversation` references the CRM record with:
 
@@ -568,7 +568,7 @@ The pure central authority is `resolveInconnectMessagingOutboundStateTransition`
 - `FAILED` is terminal and never reopens.
 - `UNKNOWN` represents an ambiguous provider outcome and must not trigger blind automatic retry; a later definitive callback may resolve it.
 - A future business retry creates a new `Message` linked through `retryOfMessageId`; it does not reopen the old Message.
-- A future real adapter must normalize provider `UNDELIVERED` to `FAILED` while preserving provider status/error metadata.
+- The Twilio adapter normalizes provider `UNDELIVERED` to `FAILED` while preserving provider status/error metadata.
 
 ### Implemented Provider Architecture
 
@@ -577,7 +577,18 @@ The current symbols are `InconnectMessagingProvider`, `InconnectMessagingProvide
 - `(provider, channel)` identifies an adapter.
 - Unknown combinations and duplicate registrations fail closed.
 - The Fake Provider is for tests/development and is not registered automatically by `InconnectMessagingModule`.
-- A real Twilio adapter is **PLANNED / NOT IMPLEMENTED**.
+- `TwilioWhatsappMessagingProvider` is registered by `InconnectMessagingModule` for inbound normalization and status callbacks.
+- Twilio outbound capabilities remain unsupported and fail closed.
+
+### Implemented Twilio Inbound and Status Pipeline
+
+Public Twilio WhatsApp endpoints route only by the opaque `ProviderConnection.inboundRoutingKey`. They resolve exactly one enabled connection before decrypting its provider credential object with `SecretEncryptionService`; no webhook-supplied workspace identifier is authoritative. The Twilio adapter validates the effective proxy-aware request URL and form/body data with the official Twilio validator before any receipt or domain effect is written.
+
+Validated events are normalized provider-neutrally and persisted idempotently in `WebhookReceipt`. The HTTP path commits PostgreSQL before requesting BullMQ processing. A recurring recovery scan re-enqueues `RECEIVED` receipts and expired `PROCESSING` leases, covering a successful DB commit followed by enqueue failure. Processing claims receipts with a lease and performs each domain effect, receipt completion, and `OutboxEvent` in one transaction.
+
+Inbound senders are canonicalized within their Provider Connection. Processing creates or reuses one unassigned Conversation and creates one inbound Message per connection-scoped provider message ID. It records server/provider/effective timestamps, advances `lastInboundAt` monotonically, and preserves Twilio media locators or structured location metadata without downloading content.
+
+Status callbacks resolve only an exact local outbound Message by workspace, Provider Connection, and provider message ID. Every accepted callback can produce a `ProviderStatusEvent`; projection changes use the existing outbound state machine, so duplicates and late lower-progress states do not degrade the Message. Missing local Messages remain durable and retryable until controlled operational failure. Webhook processing has no CRM-record, Lead, linking, ownership, or human-authorization capability.
 
 ### Implemented Security Foundation
 
@@ -637,16 +648,15 @@ Attachments are **PLANNED / NOT IMPLEMENTED**. Reuse `FileEntity`/`FileStorage`;
 
 The following operational product functionality does not exist yet:
 
-- real Twilio adapter, inbound webhook, or status callbacks;
 - outbound WhatsApp dispatch;
 - operational Messaging GraphQL/resolvers;
 - SSE/realtime;
 - frontend chat or inbox;
-- attachments/FileStorage integration, media, or templates;
+- attachments/FileStorage integration, media download, or templates;
 - `ConversationMemberState`, favorite, unread, or operational pending state;
 - Lead matching, auto-link, or automatic Lead creation.
 
-The next planned checkpoint is **Twilio WhatsApp inbound + status callbacks**, still **PLANNED / NOT IMPLEMENTED**. Its intended boundary is:
+The implemented Twilio inbound/status boundary is:
 
     Twilio
       -> ProviderConnection routing
@@ -656,7 +666,7 @@ The next planned checkpoint is **Twilio WhatsApp inbound + status callbacks**, s
       -> Conversation/Message or ProviderStatusEvent
       -> OutboxEvent
 
-Do not implement or describe that pipeline as operational until a later authorized phase supplies and tests it.
+This pipeline does not authorize or imply outbound WhatsApp, operational GraphQL, frontend chat, realtime, media download, or CRM matching/linking.
 
 ## Local Apple Baseline
 

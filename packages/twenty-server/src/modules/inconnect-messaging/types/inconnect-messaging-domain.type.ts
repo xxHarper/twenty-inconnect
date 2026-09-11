@@ -3,7 +3,14 @@ export const INCONNECT_MESSAGING_DIRECTIONS = ['INBOUND', 'OUTBOUND'] as const;
 export type InconnectMessagingDirection =
   (typeof INCONNECT_MESSAGING_DIRECTIONS)[number];
 
-export const INCONNECT_MESSAGING_MESSAGE_TYPES = ['TEXT'] as const;
+export const INCONNECT_MESSAGING_MESSAGE_TYPES = [
+  'TEXT',
+  'IMAGE',
+  'AUDIO',
+  'VIDEO',
+  'DOCUMENT',
+  'LOCATION',
+] as const;
 
 export type InconnectMessagingMessageType =
   (typeof INCONNECT_MESSAGING_MESSAGE_TYPES)[number];
@@ -55,3 +62,5 @@ export type InconnectMessagingOutboxProcessingState =
   | 'FAILED';
 
 export type InconnectMessagingJson = Record<string, unknown>;
+
+export type InconnectMessagingInboundTimestampSource = 'PROVIDER' | 'SERVER';

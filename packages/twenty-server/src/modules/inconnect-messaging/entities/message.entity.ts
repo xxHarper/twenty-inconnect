@@ -15,6 +15,7 @@ import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.ent
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import {
   type InconnectMessagingDirection,
+  type InconnectMessagingInboundTimestampSource,
   type InconnectMessagingJson,
   type InconnectMessagingMessageType,
   type InconnectMessagingOutboundState,
@@ -26,7 +27,10 @@ import {
   'CHK_INCONNECT_MSG_MESSAGE_DIRECTION',
   `"direction" IN ('INBOUND', 'OUTBOUND')`,
 )
-@Check('CHK_INCONNECT_MSG_MESSAGE_TYPE', `"type" = 'TEXT'`)
+@Check(
+  'CHK_INCONNECT_MSG_MESSAGE_TYPE',
+  `"type" IN ('TEXT', 'IMAGE', 'AUDIO', 'VIDEO', 'DOCUMENT', 'LOCATION')`,
+)
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_SEND_MODE',
   `"sendMode" IS NULL OR "sendMode" = 'FREEFORM'`,
@@ -42,6 +46,10 @@ import {
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_RETRY',
   `"retryOfMessageId" IS NULL OR ("direction" = 'OUTBOUND' AND "retryOfMessageId" <> "id")`,
+)
+@Check(
+  'CHK_INCONNECT_MSG_MESSAGE_INBOUND_TIMESTAMPS',
+  `("direction" = 'INBOUND' AND "serverReceivedAt" IS NOT NULL AND "effectiveInboundAt" IS NOT NULL AND "timestampSource" IN ('PROVIDER', 'SERVER')) OR ("direction" = 'OUTBOUND' AND "serverReceivedAt" IS NULL AND "providerOccurredAt" IS NULL AND "effectiveInboundAt" IS NULL AND "timestampSource" IS NULL)`,
 )
 @Index('IDX_INCONNECT_MSG_MESSAGE_ID_WORKSPACE_UNIQUE', ['id', 'workspaceId'], {
   unique: true,
@@ -172,6 +180,18 @@ export class InconnectMessagingMessageEntity {
 
   @Column({ nullable: true, type: 'jsonb' })
   providerMetadata: InconnectMessagingJson | null;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  serverReceivedAt: Date | null;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  providerOccurredAt: Date | null;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  effectiveInboundAt: Date | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  timestampSource: InconnectMessagingInboundTimestampSource | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

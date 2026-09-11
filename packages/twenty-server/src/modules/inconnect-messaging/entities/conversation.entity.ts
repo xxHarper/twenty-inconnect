@@ -32,6 +32,11 @@ import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnec
 @Index('IDX_INCONNECT_MSG_CONVERSATION_WORKSPACE', ['workspaceId'])
 @Index('IDX_INCONNECT_MSG_CONVERSATION_CONNECTION', ['providerConnectionId'])
 @Index(
+  'IDX_INCONNECT_MSG_CONVERSATION_CONNECTION_ADDRESS_UNIQUE',
+  ['providerConnectionId', 'externalAddressNormalized'],
+  { unique: true },
+)
+@Index(
   'IDX_INCONNECT_MSG_CONVERSATION_LINKED_RECORD',
   ['workspaceId', 'linkedRecordObjectMetadataId', 'linkedRecordId'],
   { where: '"linkedRecordId" IS NOT NULL' },
@@ -79,6 +84,9 @@ export class InconnectMessagingConversationEntity {
 
   @Column({ nullable: true, type: 'uuid' })
   linkedRecordId: string | null;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  lastInboundAt: Date | null;
 
   @ManyToOne(() => InconnectMessagingConfigurationEntity, {
     nullable: true,

@@ -27,7 +27,10 @@ import {
   'messageId',
   'serverReceivedAt',
 ])
-@Index('IDX_INCONNECT_MSG_STATUS_RECEIPT', ['webhookReceiptId'])
+@Index('IDX_INCONNECT_MSG_STATUS_RECEIPT_UNIQUE', ['webhookReceiptId'], {
+  unique: true,
+  where: '"webhookReceiptId" IS NOT NULL',
+})
 export class InconnectMessagingProviderStatusEventEntity {
   @PrimaryGeneratedColumn('uuid', {
     primaryKeyConstraintName: 'PK_INCONNECT_MSG_STATUS',

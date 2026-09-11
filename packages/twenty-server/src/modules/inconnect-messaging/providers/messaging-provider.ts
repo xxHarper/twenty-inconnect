@@ -1,3 +1,79 @@
+import {
+  type InconnectMessagingInboundTimestampSource,
+  type InconnectMessagingJson,
+  type InconnectMessagingMessageType,
+  type InconnectMessagingOutboundState,
+} from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
+
+export type InconnectMessagingWebhookKind =
+  | 'INBOUND_MESSAGE'
+  | 'STATUS_CALLBACK';
+
+export type InconnectMessagingWebhookRequest = {
+  kind: InconnectMessagingWebhookKind;
+  routingKey: string;
+  effectiveUrl: string;
+  signature: string;
+  contentType: string | undefined;
+  rawBody: string;
+  parameters: Record<string, string | string[]>;
+  serverReceivedAt: Date;
+};
+
+export type InconnectMessagingNormalizedInbound = {
+  kind: 'INBOUND_MESSAGE';
+  idempotencyKey: string;
+  providerMessageId: string;
+  externalAddressNormalized: string;
+  waId: string | null;
+  body: string;
+  messageType: InconnectMessagingMessageType;
+  serverReceivedAt: string;
+  providerOccurredAt: string | null;
+  effectiveInboundAt: string;
+  timestampSource: InconnectMessagingInboundTimestampSource;
+  providerMetadata: InconnectMessagingJson;
+};
+
+export type InconnectMessagingNormalizedStatus = {
+  kind: 'STATUS_CALLBACK';
+  idempotencyKey: string;
+  providerMessageId: string;
+  originalStatus: string;
+  normalizedStatus: InconnectMessagingOutboundState;
+  serverReceivedAt: string;
+  providerOccurredAt: string | null;
+  error: InconnectMessagingJson | null;
+  providerMetadata: InconnectMessagingJson;
+};
+
+export type InconnectMessagingNormalizedUnsupportedWebhook = {
+  kind: 'UNSUPPORTED';
+  idempotencyKey: string;
+  requestedKind: InconnectMessagingWebhookKind;
+  reason: string;
+  serverReceivedAt: string;
+};
+
+export type InconnectMessagingNormalizedWebhook =
+  | InconnectMessagingNormalizedInbound
+  | InconnectMessagingNormalizedStatus
+  | InconnectMessagingNormalizedUnsupportedWebhook;
+
+export type InconnectMessagingWebhookValidationRequest = {
+  credentials: InconnectMessagingJson;
+  request: InconnectMessagingWebhookRequest;
+};
+
+export type InconnectMessagingWebhookNormalizationRequest = {
+  request: InconnectMessagingWebhookRequest;
+  payloadHash: string;
+};
+
+export type InconnectMessagingWebhookRoutingHints = {
+  inboundRoutingKey: string;
+};
+
 export const INCONNECT_MESSAGING_PROVIDER_CAPABILITIES = [
   'DISPATCH_FREEFORM',
   'DISPATCH_TEMPLATE',
@@ -51,4 +127,13 @@ export interface InconnectMessagingProvider {
   dispatch(
     request: InconnectMessagingDispatchRequest,
   ): Promise<InconnectMessagingDispatchResult>;
+  getWebhookRoutingHints(
+    request: InconnectMessagingWebhookRequest,
+  ): InconnectMessagingWebhookRoutingHints;
+  validateWebhookSignature(
+    request: InconnectMessagingWebhookValidationRequest,
+  ): boolean;
+  normalizeWebhook(
+    request: InconnectMessagingWebhookNormalizationRequest,
+  ): InconnectMessagingNormalizedWebhook;
 }
