@@ -235,7 +235,7 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. It was updated on 2026-09-10 against feature-branch HEAD `7583c51d323633e1cd1e1790f203f0ea9ec1b584` to include the implemented Messaging foundation; that feature HEAD is a verified development checkpoint, not a stable product release. Always use live Git state as authority and retain the dated evidence stated by older sections.
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-14 checkpoint on `feature/inconnect-messaging` includes INCONNECT Messaging through the read-only inbox UI. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical.
 
 ## Purpose and Licensing Boundary
 
@@ -528,9 +528,9 @@ Administrative visibility is controlled by `PermissionFlagType.SECURITY` in both
 
 ## INCONNECT Messaging
 
-Current location: `packages/twenty-server/src/modules/inconnect-messaging/`.
+Backend: `packages/twenty-server/src/modules/inconnect-messaging/`. Read-only frontend: `packages/twenty-front/src/modules/inconnect-messaging/` and `packages/twenty-front/src/pages/inconnect-messaging/`.
 
-INCONNECT Messaging is an implemented provider-neutral foundation and security boundary inside the Twenty fork. It is a native vertical module, not a Twenty App, and it must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio WhatsApp inbound and status callbacks are implemented behind the provider port; provider-specific concepts must not become domain authority.
+INCONNECT Messaging is a provider-neutral native Twenty feature with a secure backend and read-only inbox UI. It is not a Twenty App and must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio WhatsApp inbound and status callbacks are implemented behind the provider port; provider-specific concepts must not become domain authority.
 
 ### Implemented Persistence Foundation
 
@@ -545,7 +545,7 @@ The following TypeORM entities and dedicated `core` tables are implemented:
 - `InconnectMessagingProviderStatusEventEntity` / `core.inconnectMessagingProviderStatusEvent`
 - `InconnectMessagingOutboxEventEntity` / `core.inconnectMessagingOutboxEvent`
 
-These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies the durable-inbox and transactional-outbox records, idempotency keys, leases, attempts, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery are implemented; outbox publishing and outbound dispatch workers are not. BullMQ is only at-least-once transport and must never become authority.
+These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies durable-inbox and transactional-outbox records, idempotency keys, leases, attempts, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery, realtime outbox publishing, and its BullMQ worker are implemented. Outbound WhatsApp dispatch to Twilio is **NOT IMPLEMENTED**. BullMQ is at-least-once transport and must never become authority.
 
 `MessagingConfiguration` selects the anchor through a real workspace-local `ObjectMetadata` reference. A `Conversation` references the CRM record with:
 
@@ -586,7 +586,7 @@ Public Twilio WhatsApp endpoints route only by the opaque `ProviderConnection.in
 
 Validated events are normalized provider-neutrally and persisted idempotently in `WebhookReceipt`. The HTTP path commits PostgreSQL before requesting BullMQ processing. A recurring recovery scan re-enqueues `RECEIVED` receipts and expired `PROCESSING` leases, covering a successful DB commit followed by enqueue failure. Processing claims receipts with a lease and performs each domain effect, receipt completion, and `OutboxEvent` in one transaction.
 
-Inbound senders are canonicalized within their Provider Connection. Processing creates or reuses one unassigned Conversation and creates one inbound Message per connection-scoped provider message ID. It records server/provider/effective timestamps, advances `lastInboundAt` monotonically, and preserves Twilio media locators or structured location metadata without downloading content.
+Inbound senders are canonicalized within their Provider Connection. Processing creates or reuses one unassigned Conversation and creates one inbound Message per connection-scoped provider message ID. It normalizes `TEXT`, `IMAGE`, `AUDIO`, `VIDEO`, `DOCUMENT`, and `LOCATION`, records server/provider/effective timestamps, advances `lastInboundAt` monotonically, and preserves Twilio media locators or structured location metadata without downloading content.
 
 Status callbacks resolve only an exact local outbound Message by workspace, Provider Connection, and provider message ID. Every accepted callback can produce a `ProviderStatusEvent`; projection changes use the existing outbound state machine, so duplicates and late lower-progress states do not degrade the Message. Missing local Messages remain durable and retryable until controlled operational failure. Webhook processing has no CRM-record, Lead, linking, ownership, or human-authorization capability.
 
@@ -606,7 +606,7 @@ Core consumers receive only the public scopes `not-managed`, `system-bypass`, `d
 
 #### Messaging Authorization
 
-`InconnectMessagingAuthorizationService` is the centralized authority for human Messaging operations. It exposes authorized lookup/read/send/triage/manage capabilities and composes:
+`InconnectMessagingAuthorizationService` is the centralized authority for human Messaging operations. It exposes authorization checks for lookup/read and future send/triage/manage operations; the checks do not imply those product actions are implemented. It composes:
 
     authenticated Workspace
     AND valid authenticated Workspace Member
@@ -634,37 +634,44 @@ All defaults are `false`:
 
 A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `linkedRecordId` are null. Human access requires `INCONNECT_MESSAGING AND TRIAGE_INCONNECT_MESSAGING`. There is no Messaging owner, parallel Team, auto-link, or automatic Lead creation. The read-only inbox labels authorized unassigned Conversations; triage actions are not implemented.
 
-### Read API, Realtime, UI, and Remaining Work
+### Implemented Read API
 
-Personal/shared state is approved but absent:
+The metadata GraphQL schema exposes `inconnectMessagingConversation(id)`, `inconnectMessagingConversations(search, paging)`, and `inconnectMessagingMessages(conversationId, paging)`. The authorized list provides edges, total count, search, and cursor pagination; Message history has deterministic newest-first cursor pagination. Responses use safe DTOs, never TypeORM entities or provider metadata.
 
-- Favorite — personal per Workspace Member.
-- Unread — personal per Workspace Member.
-- Pending — shared per Conversation.
+`InconnectMessagingAuthorizationService` remains the authority. Linked Conversations require Twenty standard permission on the configured CRM anchor **and** INCONNECT Record Access. Unassigned Conversations require `INCONNECT_MESSAGING` **and** `TRIAGE_INCONNECT_MESSAGING`. Direct unauthorized Conversation lookup returns null/not found without existence disclosure, and Message access first authorizes its Conversation. Backend SQL applies authorization scope before search, count, ordering, and pagination; the frontend does not reconstruct record access.
 
-The Messaging Read API and member-scoped GraphQL subscription are implemented. Realtime events are hints only; the read-only frontend refetches authorized Conversations and Messages on relevant events and reconnect. PostgreSQL/API remains authority. Messaging is not published through generic object SSE.
+### Implemented Realtime Outbox and Subscription
+
+Realtime publishing follows:
+
+    domain transaction -> OutboxEvent PENDING -> COMMIT -> immediate enqueue
+    -> BullMQ publishing job -> authorized member-scoped fanout -> Redis PubSub
+
+The outbox publisher, BullMQ job, immediate enqueue after successful commit, member-scoped fanout, and at-least-once retry are implemented. Enqueue, processing, or publishing failure leaves durable PostgreSQL authority for retry by the one-minute recovery cron. That cron is a recovery fallback, not the normal publication path. An event with zero authorized recipients can complete without inventing recipients.
+
+The dedicated metadata GraphQL subscription is `onInconnectMessagingEvent` on `INCONNECT_MESSAGING:{workspaceId}:{workspaceMemberId}`. It emits `MESSAGE_CREATED` and `MESSAGE_STATUS_CHANGED` hints with `eventId`, `eventType`, `conversationId`, optional `messageId`, and `occurredAt`. Hints contain no body, address, location, media, CRM data, provider metadata, credentials, or raw webhook payload. The server enumerates candidate members and reauthorizes each recipient against current Conversation access before publishing; clients cannot choose workspace/member IDs and there is no system bypass. Revocation before publication prevents delivery.
+
+PostgreSQL and the authorized Read API remain authority. Redis realtime is not a data store; duplicate hints are harmless, and reconnect triggers authorized API refetch rather than client-side historical replay. Never use generic object SSE or a workspace-wide stream as a Messaging authorization shortcut.
+
+### Implemented Read-Only Frontend
+
+Twenty has a native Messaging navigation entry and route. Navigation visibility uses `INCONNECT_MESSAGING`, while backend authorization still decides which Conversations and Messages are returned. The read-only inbox has a Conversation list, backend-authorized search, cursor loading, selection, and Message history with older-message loading. It renders text and location, safe placeholders for `IMAGE`, `AUDIO`, `VIDEO`, and `DOCUMENT`, and persisted outbound states. It handles desktop and narrow screens, loading/empty/error states, and lost access by clearing previously visible Conversation content. Realtime hints and reconnect cause localized authorized refetches.
+
+Messaging operations participate in metadata GraphQL codegen, and the frontend consumes generated metadata operation types rather than a parallel handwritten GraphQL contract. The read-only UI checkpoint passed official metadata codegen, four focused Jest suites (25 tests), frontend TypeScript, focused typed lint, format, and `git diff --check`.
+
+### Planned Boundaries
+
+Personal/shared state is approved but **NOT IMPLEMENTED**: Favorite and Unread are personal per Workspace Member; Pending is shared Conversation state. `ConversationMemberState` does not exist yet.
 
 Attachments are **PLANNED / NOT IMPLEMENTED**. Reuse `FileEntity`/`FileStorage`; do not create parallel storage. Every download must reauthorize `Conversation -> anchor record -> Record Access`. `workspaceId + fileId` is never sufficient authorization.
 
-The following operational product functionality does not exist yet:
+Still **NOT IMPLEMENTED**: outbound WhatsApp dispatch to Twilio, a SEND mutation, functional composer, templates/template picker, server-authoritative WhatsApp 24-hour window enforcement, template-versus-session routing, attachment upload/download, Messaging FileStorage integration, media download, voice recording, favorite, unread, operational pending, `ConversationMemberState`, Lead matching, auto-link, automatic Lead creation, CRM owner changes from Messaging, and a Lead context panel or other extra CRM UI. The persisted outbound state machine and realtime outbox publisher do not provide outbound send capability.
 
-- outbound WhatsApp dispatch;
-- outbound GraphQL mutation or composer;
-- attachments/FileStorage integration, media download, or templates;
-- `ConversationMemberState`, favorite, unread, or operational pending state;
-- Lead matching, auto-link, or automatic Lead creation.
+The next planned boundary is Phase 7: Outbound Messaging, Composer, WhatsApp 24-hour Window, and Templates. No Phase 7 product or authorization design is established here.
 
-The implemented Twilio inbound/status boundary is:
+### Local Development Runtime
 
-    Twilio
-      -> ProviderConnection routing
-      -> signature validation
-      -> durable WebhookReceipt
-      -> async/idempotent processing
-      -> Conversation/Message or ProviderStatusEvent
-      -> OutboxEvent
-
-This pipeline does not authorize or imply outbound WhatsApp, media download, or CRM matching/linking. The frontend now has a read-only native Messaging inbox and Conversation view with authorized search, cursor pagination, text/location/media placeholders, outbound status display, and realtime refetch. Sending remains **NOT IMPLEMENTED**.
+This checkout expects WSL/Linux for local Codex work. Node Linux v24.16.0 and repository Yarn 4.13.0 were validated. Do not mix Windows-installed `node_modules` native bindings with WSL Node, Nx, or Jest. A WSL `yarn install --immutable` restored Linux bindings without changing `yarn.lock`.
 
 ## Local Apple Baseline
 
@@ -701,14 +708,14 @@ Expected WSL path:
 
 `/home/alberto/projects/twenty-inconnect`
 
-Verified from local Git on 2026-09-10 before this documentation edit:
+Historical local Git evidence from 2026-09-10, not the current Messaging checkpoint:
 
 - Stable product branch: `inconnect-main`.
-- Current checkout: feature branch `feature/inconnect-messaging`; it is not a stable release.
-- HEAD: `7583c51d323633e1cd1e1790f203f0ea9ec1b584` - `feat: add INCONNECT Messaging security foundation`.
+- Checkout at that time: feature branch `feature/inconnect-messaging`; it was not a stable release.
+- HEAD at that time: `7583c51d323633e1cd1e1790f203f0ea9ec1b584` - `feat: add INCONNECT Messaging security foundation`.
 - `origin`: `https://github.com/xxHarper/twenty-inconnect.git`.
 - `upstream`: `https://github.com/twentyhq/twenty.git`.
-- The worktree was clean at preflight.
+- The worktree was clean at that preflight.
 - No fetch was performed; remote-tracking freshness and divergence were not inferred.
 
 The earlier 2026-08-24 checkpoint at `6be7733df3` remains historical context in Git history, not current repository state. Always re-run Git inspection before acting; this snapshot is dated and is not authority for future operations.
@@ -791,5 +798,5 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Keep the domain provider-neutral and do not couple it to Twilio.
 - PostgreSQL is operational authority. BullMQ may provide at-least-once transport but is never authority.
 - Do not reuse email `modules/messaging` as the WhatsApp domain.
-- Do not publish realtime events until member-scoped authorization and invalidation behavior are explicitly designed and tested.
+- Keep Messaging realtime member-scoped; reauthorize each recipient against current Conversation access before publishing a hint. Never use a workspace-wide or generic object stream as an authorization shortcut, and never substitute hints for authorized API reads/refetches.
 - Do not authorize files from only `workspaceId` and `fileId`; always reauthorize the owning Conversation and anchor record.
