@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
 import { z } from 'zod';
-import { type DataSource, type EntityManager } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';

@@ -13,6 +13,7 @@ import { SettingsRoutes } from '@/app/components/SettingsRoutes';
 import { WorkspaceAppProviders } from '@/app/components/WorkspaceAppProviders';
 import { VerifyEmail } from '@/auth/components/VerifyEmail';
 import { MinimalMetadataGate } from '@/metadata-store/components/MinimalMetadataGate';
+import { INCONNECT_MESSAGING_PATH } from '@/inconnect-messaging/constants/InconnectMessagingPath';
 import indexAppPath from '@/navigation/utils/indexAppPath';
 import { OnboardingActivationOutlet } from '@/onboarding/components/OnboardingActivationOutlet';
 import { OnboardingPageLoader } from '@/onboarding/components/OnboardingPageLoader';
@@ -117,6 +118,14 @@ const AiChatPage = lazy(() =>
   })),
 );
 
+const InconnectMessagingPage = lazy(() =>
+  import('~/pages/inconnect-messaging/InconnectMessagingPage').then(
+    (module) => ({
+      default: module.InconnectMessagingPage,
+    }),
+  ),
+);
+
 const NotFound = lazy(() =>
   import('~/pages/not-found/NotFound').then((module) => ({
     default: module.NotFound,
@@ -181,6 +190,14 @@ const createWorkspaceAppRouter = (
                 element={
                   <LazyRoute>
                     <AiChatPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path={INCONNECT_MESSAGING_PATH}
+                element={
+                  <LazyRoute>
+                    <InconnectMessagingPage />
                   </LazyRoute>
                 }
               />

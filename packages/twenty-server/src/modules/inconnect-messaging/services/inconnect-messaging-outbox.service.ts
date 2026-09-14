@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { randomUUID } from 'crypto';
 
-import { LessThanOrEqual, type DataSource, type Repository } from 'typeorm';
+import { DataSource, LessThanOrEqual, type Repository } from 'typeorm';
 
 import { InjectMessageQueue } from 'src/engine/core-modules/message-queue/decorators/message-queue.decorator';
 import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queue.constants';
@@ -39,6 +39,7 @@ export class InconnectMessagingOutboxService {
 
   constructor(
     private readonly dataSource: DataSource,
+    // eslint-disable-next-line twenty/prefer-workspace-scoped-repository -- Recovery claims durable outbox events across workspaces; publication checks each recipient's authorization.
     @InjectRepository(InconnectMessagingOutboxEventEntity)
     private readonly outboxEventRepository: Repository<InconnectMessagingOutboxEventEntity>,
     @InjectMessageQueue(MessageQueue.webhookQueue)

@@ -33,6 +33,7 @@ import { SkillModule } from 'src/engine/metadata-modules/skill/skill.module';
 import { ViewModule } from 'src/engine/metadata-modules/view/view.module';
 import { WebhookModule } from 'src/engine/metadata-modules/webhook/webhook.module';
 import { WorkspaceMetadataVersionModule } from 'src/engine/metadata-modules/workspace-metadata-version/workspace-metadata-version.module';
+import { InconnectMessagingModule } from 'src/modules/inconnect-messaging/inconnect-messaging.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { WorkspaceMetadataVersionModule } from 'src/engine/metadata-modules/work
     MessageChannelMetadataModule,
     CalendarChannelMetadataModule,
     MessageFolderMetadataModule,
+    InconnectMessagingModule,
   ],
   providers: [
     {

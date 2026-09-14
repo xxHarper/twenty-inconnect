@@ -31,6 +31,7 @@ module.exports = {
     './src/modules/file/graphql/**/*.{ts,tsx}',
     './src/modules/onboarding/graphql/**/*.{ts,tsx}',
     './src/modules/front-components/graphql/**/*.{ts,tsx}',
+    './src/modules/inconnect-messaging/graphql/**/*.{ts,tsx}',
 
     './src/modules/page-layout/widgets/**/graphql/**/*.{ts,tsx}',
     './src/modules/activities/emails/graphql/mutations/**/*.{ts,tsx}',

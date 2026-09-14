@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { createHash } from 'crypto';
 
-import { LessThanOrEqual, type Repository, type DataSource } from 'typeorm';
+import { DataSource, LessThanOrEqual, type Repository } from 'typeorm';
 
 import { InjectMessageQueue } from 'src/engine/core-modules/message-queue/decorators/message-queue.decorator';
 import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queue.constants';

@@ -632,9 +632,9 @@ All defaults are `false`:
 
 #### Unassigned Conversations
 
-A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `linkedRecordId` are null. Human access requires `INCONNECT_MESSAGING AND TRIAGE_INCONNECT_MESSAGING`. There is no Messaging owner, parallel Team, auto-link, or automatic Lead creation. The unassigned inbox/UI is **NOT IMPLEMENTED**.
+A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `linkedRecordId` are null. Human access requires `INCONNECT_MESSAGING AND TRIAGE_INCONNECT_MESSAGING`. There is no Messaging owner, parallel Team, auto-link, or automatic Lead creation. The read-only inbox labels authorized unassigned Conversations; triage actions are not implemented.
 
-### Planned / Not Implemented
+### Read API, Realtime, UI, and Remaining Work
 
 Personal/shared state is approved but absent:
 
@@ -642,16 +642,14 @@ Personal/shared state is approved but absent:
 - Unread — personal per Workspace Member.
 - Pending — shared per Conversation.
 
-Realtime is **PLANNED / NOT IMPLEMENTED**. Do not publish Messaging through generic object SSE. The future design must be member-scoped and reauthorize through Messaging and Record Access.
+The Messaging Read API and member-scoped GraphQL subscription are implemented. Realtime events are hints only; the read-only frontend refetches authorized Conversations and Messages on relevant events and reconnect. PostgreSQL/API remains authority. Messaging is not published through generic object SSE.
 
 Attachments are **PLANNED / NOT IMPLEMENTED**. Reuse `FileEntity`/`FileStorage`; do not create parallel storage. Every download must reauthorize `Conversation -> anchor record -> Record Access`. `workspaceId + fileId` is never sufficient authorization.
 
 The following operational product functionality does not exist yet:
 
 - outbound WhatsApp dispatch;
-- operational Messaging GraphQL/resolvers;
-- SSE/realtime;
-- frontend chat or inbox;
+- outbound GraphQL mutation or composer;
 - attachments/FileStorage integration, media download, or templates;
 - `ConversationMemberState`, favorite, unread, or operational pending state;
 - Lead matching, auto-link, or automatic Lead creation.
@@ -666,7 +664,7 @@ The implemented Twilio inbound/status boundary is:
       -> Conversation/Message or ProviderStatusEvent
       -> OutboxEvent
 
-This pipeline does not authorize or imply outbound WhatsApp, operational GraphQL, frontend chat, realtime, media download, or CRM matching/linking.
+This pipeline does not authorize or imply outbound WhatsApp, media download, or CRM matching/linking. The frontend now has a read-only native Messaging inbox and Conversation view with authorized search, cursor pagination, text/location/media placeholders, outbound status display, and realtime refetch. Sending remains **NOT IMPLEMENTED**.
 
 ## Local Apple Baseline
 
