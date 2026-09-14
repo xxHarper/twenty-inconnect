@@ -1,17 +1,30 @@
 import { Injectable } from '@nestjs/common';
 
 import { isNonEmptyString } from '@sniptt/guards';
-import { type SelectQueryBuilder } from 'typeorm';
+import { Brackets, type SelectQueryBuilder } from 'typeorm';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
 import { WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
+import {
+  decodeInconnectMessagingCursor,
+  encodeInconnectMessagingCursor,
+} from 'src/modules/inconnect-messaging/utils/inconnect-messaging-cursor.util';
 
 export type InconnectMessagingConversationPage = {
   items: InconnectMessagingConversationEntity[];
   total: number;
+};
+
+export type InconnectMessagingConversationCursorPage = {
+  edges: Array<{
+    cursor: string;
+    node: InconnectMessagingConversationEntity;
+  }>;
+  hasNextPage: boolean;
+  totalCount: number;
 };
 
 @Injectable()
@@ -63,6 +76,65 @@ export class InconnectMessagingConversationQueryService {
     const queryBuilder = await this.buildScopedQuery({ authContext, search });
 
     return queryBuilder.getCount();
+  }
+
+  async getAuthorizedConversationPage({
+    authContext,
+    search,
+    first,
+    after,
+  }: {
+    authContext: WorkspaceAuthContext;
+    search?: string;
+    first: number;
+    after?: string;
+  }): Promise<InconnectMessagingConversationCursorPage> {
+    const queryBuilder = await this.buildScopedQuery({ authContext, search });
+    const totalCount = await queryBuilder.clone().getCount();
+
+    if (after !== undefined) {
+      const cursor = decodeInconnectMessagingCursor({
+        cursor: after,
+        expectedKind: 'conversation',
+      });
+
+      queryBuilder.andWhere(
+        new Brackets((cursorQueryBuilder) => {
+          cursorQueryBuilder
+            .where('conversation.updatedAt < :conversationCursorSortAt', {
+              conversationCursorSortAt: cursor.sortAt,
+            })
+            .orWhere(
+              'conversation.updatedAt = :conversationCursorSortAt AND conversation.id < :conversationCursorId',
+              {
+                conversationCursorSortAt: cursor.sortAt,
+                conversationCursorId: cursor.id,
+              },
+            );
+        }),
+      );
+    }
+
+    const rows = await queryBuilder
+      .orderBy('conversation.updatedAt', 'DESC')
+      .addOrderBy('conversation.id', 'DESC')
+      .take(first + 1)
+      .getMany();
+    const hasNextPage = rows.length > first;
+    const items = hasNextPage ? rows.slice(0, first) : rows;
+
+    return {
+      edges: items.map((node) => ({
+        node,
+        cursor: encodeInconnectMessagingCursor({
+          id: node.id,
+          kind: 'conversation',
+          sortAt: node.updatedAt,
+        }),
+      })),
+      hasNextPage,
+      totalCount,
+    };
   }
 
   private async executeScopedPage({

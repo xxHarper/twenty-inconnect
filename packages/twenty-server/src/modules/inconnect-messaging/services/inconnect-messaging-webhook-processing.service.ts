@@ -12,6 +12,10 @@ import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnec
 import { InconnectMessagingProviderStatusEventEntity } from 'src/modules/inconnect-messaging/entities/provider-status-event.entity';
 import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-messaging/entities/webhook-receipt.entity';
 import { InconnectMessagingWebhookException } from 'src/modules/inconnect-messaging/exceptions/inconnect-messaging-webhook.exception';
+import {
+  type InconnectMessagingOutboxPublicationRequest,
+  InconnectMessagingOutboxService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service';
 import { resolveInconnectMessagingOutboundStateTransition } from 'src/modules/inconnect-messaging/state-machine/outbound-message-state-machine';
 import {
   INCONNECT_MESSAGING_MESSAGE_TYPES,
@@ -71,7 +75,10 @@ export class InconnectMessagingWebhookProcessingService {
     InconnectMessagingWebhookProcessingService.name,
   );
 
-  public constructor(private readonly dataSource: DataSource) {}
+  public constructor(
+    private readonly dataSource: DataSource,
+    private readonly outboxService: InconnectMessagingOutboxService,
+  ) {}
 
   public async processReceipt(receiptId: string): Promise<void> {
     const claim = await this.claimReceipt(receiptId);
@@ -80,85 +87,96 @@ export class InconnectMessagingWebhookProcessingService {
       return;
     }
 
+    let publicationRequest: InconnectMessagingOutboxPublicationRequest | null;
+
     try {
-      await this.dataSource.transaction(async (manager) => {
-        const receipt = await manager
-          .getRepository(InconnectMessagingWebhookReceiptEntity)
-          .findOne({
-            where: {
-              id: claim.receipt.id,
-              workspaceId: claim.receipt.workspaceId,
-              processingState: 'PROCESSING',
-              leaseToken: claim.leaseToken,
-            },
-            lock: { mode: 'pessimistic_write' },
-          });
+      publicationRequest = await this.dataSource.transaction(
+        async (manager) => {
+          const receipt = await manager
+            .getRepository(InconnectMessagingWebhookReceiptEntity)
+            .findOne({
+              where: {
+                id: claim.receipt.id,
+                workspaceId: claim.receipt.workspaceId,
+                processingState: 'PROCESSING',
+                leaseToken: claim.leaseToken,
+              },
+              lock: { mode: 'pessimistic_write' },
+            });
 
-        if (receipt === null) {
-          throw new InconnectMessagingWebhookException(
-            'RECEIPT_NOT_PROCESSABLE',
-            true,
+          if (receipt === null) {
+            throw new InconnectMessagingWebhookException(
+              'RECEIPT_NOT_PROCESSABLE',
+              true,
+            );
+          }
+
+          const connection = await manager
+            .getRepository(InconnectMessagingProviderConnectionEntity)
+            .findOne({
+              where: {
+                id: receipt.providerConnectionId,
+                workspaceId: receipt.workspaceId,
+                provider: 'TWILIO',
+                channel: 'WHATSAPP',
+                lifecycleStatus: 'ENABLED',
+              },
+            });
+
+          if (connection === null) {
+            throw new InconnectMessagingWebhookException(
+              'CONNECTION_DISABLED',
+              false,
+            );
+          }
+
+          const normalizedWebhook = normalizedWebhookSchema.safeParse(
+            receipt.normalizedMetadata,
           );
-        }
 
-        const connection = await manager
-          .getRepository(InconnectMessagingProviderConnectionEntity)
-          .findOne({
-            where: {
-              id: receipt.providerConnectionId,
-              workspaceId: receipt.workspaceId,
-              provider: 'TWILIO',
-              channel: 'WHATSAPP',
-              lifecycleStatus: 'ENABLED',
-            },
-          });
+          if (!normalizedWebhook.success) {
+            throw new InconnectMessagingWebhookException(
+              'MALFORMED_PAYLOAD',
+              false,
+            );
+          }
 
-        if (connection === null) {
-          throw new InconnectMessagingWebhookException(
-            'CONNECTION_DISABLED',
-            false,
-          );
-        }
+          if (normalizedWebhook.data.kind === 'UNSUPPORTED') {
+            throw new InconnectMessagingWebhookException(
+              'UNSUPPORTED_EVENT',
+              false,
+            );
+          }
 
-        const normalizedWebhook = normalizedWebhookSchema.safeParse(
-          receipt.normalizedMetadata,
-        );
+          const outboxEvent =
+            normalizedWebhook.data.kind === 'INBOUND_MESSAGE'
+              ? await this.processInbound(
+                  manager,
+                  receipt,
+                  normalizedWebhook.data,
+                )
+              : await this.processStatus(
+                  manager,
+                  receipt,
+                  normalizedWebhook.data,
+                );
 
-        if (!normalizedWebhook.success) {
-          throw new InconnectMessagingWebhookException(
-            'MALFORMED_PAYLOAD',
-            false,
-          );
-        }
+          await manager
+            .getRepository(InconnectMessagingWebhookReceiptEntity)
+            .update(
+              { id: receipt.id, leaseToken: claim.leaseToken },
+              {
+                processingState: 'PROCESSED',
+                leaseToken: null,
+                leaseExpiresAt: null,
+                error: null,
+                processedAt: new Date(),
+              },
+            );
 
-        if (normalizedWebhook.data.kind === 'UNSUPPORTED') {
-          throw new InconnectMessagingWebhookException(
-            'UNSUPPORTED_EVENT',
-            false,
-          );
-        }
-
-        if (normalizedWebhook.data.kind === 'INBOUND_MESSAGE') {
-          await this.processInbound(manager, receipt, normalizedWebhook.data);
-        } else {
-          await this.processStatus(manager, receipt, normalizedWebhook.data);
-        }
-
-        await manager
-          .getRepository(InconnectMessagingWebhookReceiptEntity)
-          .update(
-            { id: receipt.id, leaseToken: claim.leaseToken },
-            {
-              processingState: 'PROCESSED',
-              leaseToken: null,
-              leaseExpiresAt: null,
-              error: null,
-              processedAt: new Date(),
-            },
-          );
-      });
-
-      this.logResult(claim.receipt, 'PROCESSED');
+          return outboxEvent;
+        },
+      );
     } catch (error) {
       const processingError =
         error instanceof InconnectMessagingWebhookException
@@ -181,7 +199,15 @@ export class InconnectMessagingWebhookProcessingService {
       if (shouldRetry) {
         throw processingError;
       }
+
+      return;
     }
+
+    if (publicationRequest !== null) {
+      await this.outboxService.requestPublication(publicationRequest);
+    }
+
+    this.logResult(claim.receipt, 'PROCESSED');
   }
 
   private async claimReceipt(
@@ -226,7 +252,7 @@ export class InconnectMessagingWebhookProcessingService {
     manager: EntityManager,
     receipt: InconnectMessagingWebhookReceiptEntity,
     webhook: z.infer<typeof inboundSchema>,
-  ): Promise<void> {
+  ): Promise<InconnectMessagingOutboxPublicationRequest | null> {
     const conversationIdCandidate = randomUUID();
     const conversationRepository = manager.getRepository(
       InconnectMessagingConversationEntity,
@@ -321,7 +347,7 @@ export class InconnectMessagingWebhookProcessingService {
     }
 
     if (message.id !== messageIdCandidate) {
-      return;
+      return null;
     }
 
     const effectiveInboundAt = new Date(webhook.effectiveInboundAt);
@@ -344,7 +370,7 @@ export class InconnectMessagingWebhookProcessingService {
       .setParameter('effectiveInboundAt', effectiveInboundAt)
       .execute();
 
-    await this.createOutboxEvent(manager, {
+    return this.createOutboxEvent(manager, {
       workspaceId: receipt.workspaceId,
       aggregateType: 'MESSAGE',
       aggregateId: message.id,
@@ -364,7 +390,7 @@ export class InconnectMessagingWebhookProcessingService {
     manager: EntityManager,
     receipt: InconnectMessagingWebhookReceiptEntity,
     webhook: z.infer<typeof statusSchema>,
-  ): Promise<void> {
+  ): Promise<InconnectMessagingOutboxPublicationRequest | null> {
     const messageRepository = manager.getRepository(
       InconnectMessagingMessageEntity,
     );
@@ -414,7 +440,7 @@ export class InconnectMessagingWebhookProcessingService {
       .execute();
 
     if (transition.kind !== 'APPLIED') {
-      return;
+      return null;
     }
 
     const previousState = message.outboundState;
@@ -437,7 +463,7 @@ export class InconnectMessagingWebhookProcessingService {
     }
 
     await messageRepository.save(message);
-    await this.createOutboxEvent(manager, {
+    return this.createOutboxEvent(manager, {
       workspaceId: receipt.workspaceId,
       aggregateType: 'MESSAGE',
       aggregateId: message.id,
@@ -464,7 +490,9 @@ export class InconnectMessagingWebhookProcessingService {
       | 'deduplicationKey'
       | 'immutablePayload'
     >,
-  ): Promise<void> {
+  ): Promise<InconnectMessagingOutboxPublicationRequest> {
+    const outboxEventId = randomUUID();
+
     await manager
       .getRepository(InconnectMessagingOutboxEventEntity)
       .createQueryBuilder()
@@ -476,7 +504,7 @@ export class InconnectMessagingWebhookProcessingService {
         eventType: event.eventType,
         deduplicationKey: event.deduplicationKey,
         immutablePayload: () => ':immutablePayload',
-        id: randomUUID(),
+        id: outboxEventId,
         availableAt: new Date(),
         processingState: 'PENDING',
         leaseToken: null,
@@ -488,6 +516,12 @@ export class InconnectMessagingWebhookProcessingService {
       .setParameter('immutablePayload', event.immutablePayload)
       .orIgnore()
       .execute();
+
+    return {
+      id: outboxEventId,
+      workspaceId: event.workspaceId,
+      eventType: event.eventType,
+    };
   }
 
   private async releaseOrFailReceipt(

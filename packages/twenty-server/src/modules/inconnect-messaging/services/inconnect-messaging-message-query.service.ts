@@ -1,0 +1,123 @@
+import { Injectable } from '@nestjs/common';
+
+import { Brackets } from 'typeorm';
+
+import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
+import { WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
+import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
+import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
+import {
+  decodeInconnectMessagingCursor,
+  encodeInconnectMessagingCursor,
+} from 'src/modules/inconnect-messaging/utils/inconnect-messaging-cursor.util';
+
+export type InconnectMessagingMessageCursorPage = {
+  edges: Array<{
+    cursor: string;
+    node: InconnectMessagingMessageEntity;
+    sortAt: Date;
+  }>;
+  hasNextPage: boolean;
+  totalCount: number;
+};
+
+const MESSAGE_DISPLAY_AT_SQL =
+  'COALESCE(message.effectiveInboundAt, message.createdAt)';
+
+@Injectable()
+export class InconnectMessagingMessageQueryService {
+  constructor(
+    @InjectWorkspaceScopedRepository(InconnectMessagingMessageEntity)
+    private readonly messageRepository: WorkspaceScopedRepository<InconnectMessagingMessageEntity>,
+    private readonly authorizationService: InconnectMessagingAuthorizationService,
+  ) {}
+
+  async getAuthorizedMessagePage({
+    authContext,
+    conversationId,
+    first,
+    after,
+  }: {
+    authContext: WorkspaceAuthContext;
+    conversationId: string;
+    first: number;
+    after?: string;
+  }): Promise<InconnectMessagingMessageCursorPage | null> {
+    const conversation =
+      await this.authorizationService.findAuthorizedConversation({
+        authContext,
+        conversationId,
+      });
+
+    if (conversation === null) {
+      return null;
+    }
+
+    const queryBuilder = this.messageRepository
+      .createQueryBuilder('message')
+      .where('message.workspaceId = :messageWorkspaceId', {
+        messageWorkspaceId: authContext.workspace.id,
+      })
+      .andWhere('message.conversationId = :messageConversationId', {
+        messageConversationId: conversation.id,
+      });
+    const totalCount = await queryBuilder.clone().getCount();
+
+    if (after !== undefined) {
+      const cursor = decodeInconnectMessagingCursor({
+        cursor: after,
+        expectedKind: 'message',
+      });
+
+      queryBuilder.andWhere(
+        new Brackets((cursorQueryBuilder) => {
+          cursorQueryBuilder
+            .where(`${MESSAGE_DISPLAY_AT_SQL} < :messageCursorSortAt`, {
+              messageCursorSortAt: cursor.sortAt,
+            })
+            .orWhere(
+              `${MESSAGE_DISPLAY_AT_SQL} = :messageCursorSortAt AND message.id < :messageCursorId`,
+              {
+                messageCursorSortAt: cursor.sortAt,
+                messageCursorId: cursor.id,
+              },
+            );
+        }),
+      );
+    }
+
+    const rows = await queryBuilder
+      .addSelect(MESSAGE_DISPLAY_AT_SQL, 'messageDisplayAt')
+      .orderBy(MESSAGE_DISPLAY_AT_SQL, 'DESC')
+      .addOrderBy('message.id', 'DESC')
+      .take(first + 1)
+      .getRawAndEntities();
+    const hasNextPage = rows.entities.length > first;
+    const entities = hasNextPage
+      ? rows.entities.slice(0, first)
+      : rows.entities;
+    const rawRows = hasNextPage ? rows.raw.slice(0, first) : rows.raw;
+
+    return {
+      edges: entities.map((node, index) => {
+        const rawSortAt = rawRows[index]?.messageDisplayAt;
+        const sortAt = new Date(
+          rawSortAt instanceof Date ? rawSortAt : String(rawSortAt),
+        );
+
+        return {
+          node,
+          sortAt,
+          cursor: encodeInconnectMessagingCursor({
+            id: node.id,
+            kind: 'message',
+            sortAt,
+          }),
+        };
+      }),
+      hasNextPage,
+      totalCount,
+    };
+  }
+}

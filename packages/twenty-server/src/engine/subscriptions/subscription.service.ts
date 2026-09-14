@@ -129,4 +129,45 @@ export class SubscriptionService {
       payload,
     );
   }
+
+  private getInconnectMessagingChannel({
+    workspaceId,
+    workspaceMemberId,
+  }: {
+    workspaceId: string;
+    workspaceMemberId: string;
+  }) {
+    return `${SubscriptionChannel.INCONNECT_MESSAGING_CHANNEL}:${workspaceId}:${workspaceMemberId}`;
+  }
+
+  async subscribeToInconnectMessaging({
+    workspaceId,
+    workspaceMemberId,
+  }: {
+    workspaceId: string;
+    workspaceMemberId: string;
+  }) {
+    const client = this.redisClient.getPubSubClient();
+
+    return client.asyncIterator(
+      this.getInconnectMessagingChannel({ workspaceId, workspaceMemberId }),
+    );
+  }
+
+  async publishToInconnectMessaging<T>({
+    workspaceId,
+    workspaceMemberId,
+    payload,
+  }: {
+    workspaceId: string;
+    workspaceMemberId: string;
+    payload: T;
+  }): Promise<void> {
+    const client = this.redisClient.getPubSubClient();
+
+    await client.publish(
+      this.getInconnectMessagingChannel({ workspaceId, workspaceMemberId }),
+      payload,
+    );
+  }
 }

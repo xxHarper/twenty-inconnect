@@ -8,6 +8,9 @@ import { FakeInconnectMessagingProvider } from 'src/modules/inconnect-messaging/
 import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-messaging-provider';
 import { InconnectMessagingWebhookController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-webhook.controller';
 import { InconnectMessagingWebhookRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-webhook-recovery.cron.command';
+import { InconnectMessagingOutboxRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-outbox-recovery.cron.command';
+import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-read.resolver';
+import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { ModulesModule } from 'src/modules/modules.module';
@@ -38,6 +41,9 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(TwilioWhatsappMessagingProvider);
     expect(moduleExports).toContain(
       InconnectMessagingWebhookRecoveryCronCommand,
+    );
+    expect(moduleExports).toContain(
+      InconnectMessagingOutboxRecoveryCronCommand,
     );
   });
 
@@ -70,6 +76,8 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(
       InconnectMessagingConversationQueryService,
     );
+    expect(moduleProviders).toContain(InconnectMessagingReadResolver);
+    expect(moduleProviders).toContain(InconnectMessagingSubscriptionResolver);
     expect(moduleExports).toContain(InconnectMessagingAuthorizationService);
     expect(moduleExports).toContain(InconnectMessagingConversationQueryService);
   });

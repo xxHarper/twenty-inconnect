@@ -1,6 +1,11 @@
 import { type InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 
+jest.mock(
+  'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service',
+  () => ({ InconnectMessagingAuthorizationService: class {} }),
+);
+
 const authContext = {
   type: 'user',
   workspace: { id: 'workspace-id', databaseSchema: 'workspace_test' },

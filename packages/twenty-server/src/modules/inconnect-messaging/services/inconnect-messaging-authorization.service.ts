@@ -67,6 +67,19 @@ export class InconnectMessagingAuthorizationService {
     return Boolean(await this.findAuthorizedConversation(args));
   }
 
+  async canAccessMessaging(
+    authContext: WorkspaceAuthContext,
+  ): Promise<boolean> {
+    const authorization = await this.resolveHumanAuthorization(authContext);
+
+    return (
+      authorization !== null &&
+      (await this.hasPermissionFlags(authorization, [
+        PermissionFlagType.INCONNECT_MESSAGING,
+      ]))
+    );
+  }
+
   async canSendConversation({
     authContext,
     conversationId,

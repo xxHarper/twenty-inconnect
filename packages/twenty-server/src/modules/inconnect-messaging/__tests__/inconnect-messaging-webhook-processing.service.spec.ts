@@ -6,11 +6,20 @@ import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messa
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { InconnectMessagingProviderStatusEventEntity } from 'src/modules/inconnect-messaging/entities/provider-status-event.entity';
 import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-messaging/entities/webhook-receipt.entity';
+import {
+  type InconnectMessagingOutboxPublicationRequest,
+  InconnectMessagingOutboxService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service';
 import { InconnectMessagingWebhookProcessingService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-processing.service';
 import {
   type InconnectMessagingNormalizedInbound,
   type InconnectMessagingNormalizedStatus,
 } from 'src/modules/inconnect-messaging/providers/messaging-provider';
+
+jest.mock(
+  'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service',
+  () => ({ InconnectMessagingOutboxService: class {} }),
+);
 
 const buildChain = () => {
   const chain = {
@@ -92,23 +101,33 @@ const buildStatus = (
 });
 
 type ProcessingInternals = {
+  claimReceipt: (receiptId: string) => Promise<{
+    receipt: InconnectMessagingWebhookReceiptEntity;
+    leaseToken: string;
+  } | null>;
   processInbound: (
     manager: EntityManager,
     receipt: InconnectMessagingWebhookReceiptEntity,
     webhook: InconnectMessagingNormalizedInbound,
-  ) => Promise<void>;
+  ) => Promise<InconnectMessagingOutboxPublicationRequest | null>;
   processStatus: (
     manager: EntityManager,
     receipt: InconnectMessagingWebhookReceiptEntity,
     webhook: InconnectMessagingNormalizedStatus,
-  ) => Promise<void>;
+  ) => Promise<InconnectMessagingOutboxPublicationRequest | null>;
 };
 
 describe('InconnectMessagingWebhookProcessingService', () => {
+  const requestPublication = jest.fn().mockResolvedValue(true);
   const service = new InconnectMessagingWebhookProcessingService(
     {} as DataSource,
+    { requestPublication } as unknown as InconnectMessagingOutboxService,
   );
   const internals = service as unknown as ProcessingInternals;
+
+  beforeEach(() => {
+    requestPublication.mockClear();
+  });
 
   it.each([
     ['new', 'candidate-conversation'],
@@ -162,7 +181,11 @@ describe('InconnectMessagingWebhookProcessingService', () => {
         }),
       } as unknown as EntityManager;
 
-      await internals.processInbound(manager, receipt, inbound);
+      const publicationRequest = await internals.processInbound(
+        manager,
+        receipt,
+        inbound,
+      );
 
       expect(conversationInsert.values).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -209,6 +232,11 @@ describe('InconnectMessagingWebhookProcessingService', () => {
           workspaceId: receipt.workspaceId,
         }),
       );
+      expect(publicationRequest).toEqual({
+        id: expect.any(String),
+        workspaceId: receipt.workspaceId,
+        eventType: 'INBOUND_MESSAGE_RECEIVED',
+      });
       expect(manager.getRepository).toHaveBeenCalledTimes(3);
     },
   );
@@ -301,7 +329,7 @@ describe('InconnectMessagingWebhookProcessingService', () => {
         }),
       } as unknown as EntityManager;
 
-      await internals.processStatus(
+      const publicationRequest = await internals.processStatus(
         manager,
         receipt,
         buildStatus({ originalStatus, normalizedStatus }),
@@ -322,8 +350,95 @@ describe('InconnectMessagingWebhookProcessingService', () => {
       expect(message.outboundState).toBe(
         shouldApply ? normalizedStatus : currentState,
       );
+      expect(publicationRequest).toEqual(
+        shouldApply
+          ? {
+              id: expect.any(String),
+              workspaceId: receipt.workspaceId,
+              eventType: 'OUTBOUND_MESSAGE_STATUS_CHANGED',
+            }
+          : null,
+      );
     },
   );
+
+  it.each([
+    ['inbound Message', 'INBOUND_MESSAGE_RECEIVED'],
+    ['outbound status change', 'OUTBOUND_MESSAGE_STATUS_CHANGED'],
+  ] as const)(
+    'requests immediate publication for an %s only after the domain transaction commits',
+    async (_eventName, eventType) => {
+      const receipt = buildReceipt();
+      const publicationRequest = {
+        id: '55555555-5555-4555-8555-555555555555',
+        workspaceId: receipt.workspaceId,
+        eventType,
+      };
+      const callOrder: string[] = [];
+      const transaction = jest.fn().mockImplementation(async () => {
+        callOrder.push('COMMIT');
+
+        return publicationRequest;
+      });
+      const immediatePublication = jest.fn().mockImplementation(async () => {
+        callOrder.push('ENQUEUE');
+
+        return true;
+      });
+      const processingService = new InconnectMessagingWebhookProcessingService(
+        { transaction } as unknown as DataSource,
+        {
+          requestPublication: immediatePublication,
+        } as unknown as InconnectMessagingOutboxService,
+      );
+      const processingInternals =
+        processingService as unknown as ProcessingInternals;
+
+      jest.spyOn(processingInternals, 'claimReceipt').mockResolvedValue({
+        receipt,
+        leaseToken: receipt.leaseToken as string,
+      });
+
+      await processingService.processReceipt(receipt.id);
+
+      expect(callOrder).toEqual(['COMMIT', 'ENQUEUE']);
+      expect(immediatePublication).toHaveBeenCalledWith(publicationRequest);
+    },
+  );
+
+  it('keeps committed processing successful when immediate publication cannot enqueue', async () => {
+    const receipt = buildReceipt();
+    const publicationRequest = {
+      id: '55555555-5555-4555-8555-555555555555',
+      workspaceId: receipt.workspaceId,
+      eventType: 'INBOUND_MESSAGE_RECEIVED',
+    };
+    const transaction = jest.fn().mockResolvedValue(publicationRequest);
+    const immediatePublication = jest.fn().mockResolvedValue(false);
+    const getRepository = jest.fn();
+    const processingService = new InconnectMessagingWebhookProcessingService(
+      {
+        transaction,
+        getRepository,
+      } as unknown as DataSource,
+      {
+        requestPublication: immediatePublication,
+      } as unknown as InconnectMessagingOutboxService,
+    );
+    const processingInternals =
+      processingService as unknown as ProcessingInternals;
+
+    jest.spyOn(processingInternals, 'claimReceipt').mockResolvedValue({
+      receipt,
+      leaseToken: receipt.leaseToken as string,
+    });
+
+    await expect(
+      processingService.processReceipt(receipt.id),
+    ).resolves.toBeUndefined();
+    expect(immediatePublication).toHaveBeenCalledWith(publicationRequest);
+    expect(getRepository).not.toHaveBeenCalled();
+  });
 
   it('keeps an unknown local Message callback retryable without inventing a Message', async () => {
     const receipt = buildReceipt();
@@ -470,9 +585,11 @@ describe('InconnectMessagingWebhookProcessingService', () => {
       } as unknown as DataSource;
 
       await expect(
-        new InconnectMessagingWebhookProcessingService(
-          dataSource,
-        ).processReceipt(receipt.id),
+        new InconnectMessagingWebhookProcessingService(dataSource, {
+          requestPublication: jest.fn(),
+        } as unknown as InconnectMessagingOutboxService).processReceipt(
+          receipt.id,
+        ),
       ).resolves.toBeUndefined();
       expect(releaseUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ id: receipt.id }),
@@ -544,6 +661,9 @@ describe('InconnectMessagingWebhookProcessingService', () => {
       } as unknown as DataSource;
       const promise = new InconnectMessagingWebhookProcessingService(
         dataSource,
+        {
+          requestPublication: jest.fn(),
+        } as unknown as InconnectMessagingOutboxService,
       ).processReceipt(receipt.id);
 
       if (shouldReject) {
