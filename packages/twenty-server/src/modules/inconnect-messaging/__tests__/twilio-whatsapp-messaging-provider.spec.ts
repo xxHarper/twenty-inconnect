@@ -2,6 +2,8 @@ import Twilio from 'twilio';
 
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
 import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-messaging-provider';
+import { TwilioWhatsappClientFactory } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-client.factory';
+import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { type InconnectMessagingWebhookRequest } from 'src/modules/inconnect-messaging/providers/messaging-provider';
 
 const AUTH_TOKEN = 'test-auth-token';
@@ -48,27 +50,138 @@ const inboundParameters = {
 
 describe('TwilioWhatsappMessagingProvider', () => {
   const registry = new InconnectMessagingProviderRegistry();
-  const provider = new TwilioWhatsappMessagingProvider(registry);
+  const createMessage = jest.fn();
+  const clientFactory = {
+    create: jest.fn().mockReturnValue({ messages: { create: createMessage } }),
+  } as unknown as TwilioWhatsappClientFactory;
+  const configService = {
+    get: jest.fn().mockReturnValue('https://crm.example.com'),
+  } as unknown as TwentyConfigService;
+  const provider = new TwilioWhatsappMessagingProvider(
+    registry,
+    clientFactory,
+    configService,
+  );
 
   beforeAll(() => provider.onModuleInit());
 
-  it('registers the real adapter and keeps outbound unsupported', async () => {
+  it('registers the outbound WhatsApp capability', () => {
     expect(registry.resolve({ provider: 'TWILIO', channel: 'WHATSAPP' })).toBe(
       provider,
     );
-    expect(provider.capabilities).toEqual(['NORMALIZE_WEBHOOK']);
+    expect(provider.capabilities).toEqual([
+      'NORMALIZE_WEBHOOK',
+      'DISPATCH_FREEFORM',
+    ]);
+  });
+
+  it('uses the persisted sender and canonical destination with mocked Twilio SDK', async () => {
+    createMessage.mockResolvedValueOnce({
+      sid: 'SM-outbound',
+      status: 'queued',
+    });
     await expect(
       provider.dispatch({
         workspaceId: 'workspace-id',
         providerConnectionId: 'connection-id',
         messageId: 'message-id',
         externalAddressNormalized: '+525512345678',
-        body: 'not sent',
+        senderAddressNormalized: '+14155238886',
+        callbackRoutingKey: 'route-1',
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+        content: { kind: 'FREEFORM_TEXT', body: 'hola' },
       }),
     ).resolves.toMatchObject({
-      kind: 'REJECTED_DEFINITIVE',
-      error: { code: 'TWILIO_OUTBOUND_NOT_IMPLEMENTED', retryable: false },
+      kind: 'ACCEPTED',
+      providerMessageId: 'SM-outbound',
     });
+    expect(createMessage).toHaveBeenCalledWith({
+      from: 'whatsapp:+14155238886',
+      to: 'whatsapp:+525512345678',
+      body: 'hola',
+      statusCallback:
+        'https://crm.example.com/webhooks/inconnect-messaging/twilio/whatsapp/route-1/status/message-id',
+    });
+    expect(clientFactory.create).toHaveBeenCalledWith('AC123', AUTH_TOKEN);
+  });
+
+  it('normalizes an uncertain SDK failure without exposing details', async () => {
+    createMessage.mockRejectedValueOnce(new Error('secret provider failure'));
+
+    await expect(
+      provider.dispatch({
+        workspaceId: 'workspace-id',
+        providerConnectionId: 'connection-id',
+        messageId: 'message-id',
+        externalAddressNormalized: '+525512345678',
+        senderAddressNormalized: '+14155238886',
+        callbackRoutingKey: 'route-1',
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+        content: { kind: 'FREEFORM_TEXT', body: 'hola' },
+      }),
+    ).resolves.toEqual({
+      kind: 'UNKNOWN',
+      error: {
+        code: 'PROVIDER_OUTCOME_UNKNOWN',
+        message: 'Provider outcome is ambiguous',
+        retryable: false,
+      },
+    });
+  });
+
+  it('treats an explicit Twilio 4xx response as a definitive rejection', async () => {
+    createMessage.mockRejectedValueOnce(
+      new Twilio.RestException({
+        statusCode: 400,
+        body: { message: 'sensitive provider detail' },
+      }),
+    );
+
+    await expect(
+      provider.dispatch({
+        workspaceId: 'workspace-id',
+        providerConnectionId: 'connection-id',
+        messageId: 'message-id',
+        externalAddressNormalized: '+525512345678',
+        senderAddressNormalized: '+14155238886',
+        callbackRoutingKey: 'route-1',
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+        content: { kind: 'FREEFORM_TEXT', body: 'hola' },
+      }),
+    ).resolves.toEqual({
+      kind: 'REJECTED_DEFINITIVE',
+      error: {
+        code: 'PROVIDER_REJECTED',
+        message: 'Provider rejected the message',
+        retryable: false,
+      },
+    });
+  });
+
+  it('fails before submission when the callback URL is unavailable', async () => {
+    const unsafeConfig = {
+      get: jest.fn().mockReturnValue('http://localhost:3000'),
+    } as unknown as TwentyConfigService;
+    const unsafeProvider = new TwilioWhatsappMessagingProvider(
+      registry,
+      clientFactory,
+      unsafeConfig,
+    );
+    const callsBefore = createMessage.mock.calls.length;
+
+    await expect(
+      unsafeProvider.dispatch({
+        workspaceId: 'workspace-id',
+        providerConnectionId: 'connection-id',
+        messageId: 'message-id',
+        externalAddressNormalized: '+525512345678',
+        senderAddressNormalized: '+14155238886',
+        callbackRoutingKey: 'route-1',
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+        content: { kind: 'FREEFORM_TEXT', body: 'hola' },
+      }),
+    ).resolves.toMatchObject({ kind: 'FAILED_BEFORE_SUBMIT' });
+    expect(createMessage).toHaveBeenCalledTimes(callsBefore);
   });
 
   it('derives routing only from the route hint', () => {
@@ -213,6 +326,31 @@ describe('TwilioWhatsappMessagingProvider', () => {
       });
     },
   );
+
+  it('preserves the signed local message hint for callback reconciliation', () => {
+    const localMessageIdHint = '66666666-6666-4666-8666-666666666666';
+    const request = {
+      ...buildRequest({
+        parameters: { MessageSid: 'SM-outbound', MessageStatus: 'delivered' },
+        kind: 'STATUS_CALLBACK',
+        effectiveUrl: `https://crm.example.com/webhooks/inconnect-messaging/twilio/whatsapp/route-1/status/${localMessageIdHint}`,
+      }),
+      localMessageIdHint,
+    };
+
+    expect(
+      provider.validateWebhookSignature({
+        credentials: { authToken: AUTH_TOKEN },
+        request,
+      }),
+    ).toBe(true);
+    expect(
+      provider.normalizeWebhook({ request, payloadHash: 'hash' }),
+    ).toMatchObject({
+      kind: 'STATUS_CALLBACK',
+      localMessageIdHint,
+    });
+  });
 
   it('preserves structured location metadata', () => {
     const parameters = {

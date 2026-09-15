@@ -213,7 +213,10 @@ export class InconnectMessagingOutboxService {
   private toRealtimeEventType(
     event: InconnectMessagingOutboxEventEntity,
   ): InconnectMessagingRealtimeEventType | null {
-    if (event.eventType === 'INBOUND_MESSAGE_RECEIVED') {
+    if (
+      event.eventType === 'INBOUND_MESSAGE_RECEIVED' ||
+      event.eventType === 'OUTBOUND_MESSAGE_CREATED'
+    ) {
       return 'MESSAGE_CREATED';
     }
 

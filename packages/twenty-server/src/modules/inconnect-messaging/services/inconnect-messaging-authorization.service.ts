@@ -88,12 +88,25 @@ export class InconnectMessagingAuthorizationService {
     conversationId: string;
   }): Promise<boolean> {
     return Boolean(
-      await this.findConversationAuthorizedForOperation({
+      await this.findAuthorizedConversationForSend({
         authContext,
         conversationId,
-        operation: 'send',
       }),
     );
+  }
+
+  async findAuthorizedConversationForSend({
+    authContext,
+    conversationId,
+  }: {
+    authContext: WorkspaceAuthContext;
+    conversationId: string;
+  }): Promise<InconnectMessagingConversationEntity | null> {
+    return this.findConversationAuthorizedForOperation({
+      authContext,
+      conversationId,
+      operation: 'send',
+    });
   }
 
   async canTriageConversation({

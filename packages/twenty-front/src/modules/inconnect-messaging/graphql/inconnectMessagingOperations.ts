@@ -74,6 +74,17 @@ export const INCONNECT_MESSAGING_MESSAGES = gql`
   }
 `;
 
+export const SEND_INCONNECT_MESSAGING_MESSAGE = gql`
+  mutation SendInconnectMessagingMessage(
+    $input: SendInconnectMessagingMessageInput!
+  ) {
+    sendInconnectMessagingMessage(input: $input) {
+      messageId
+      outboundState
+    }
+  }
+`;
+
 export const ON_INCONNECT_MESSAGING_EVENT = gql`
   subscription OnInconnectMessagingEvent {
     onInconnectMessagingEvent {

@@ -91,6 +91,7 @@ const buildStatus = (
   kind: 'STATUS_CALLBACK',
   idempotencyKey: 'SM-outbound:delivered:none',
   providerMessageId: 'SM-outbound',
+  localMessageIdHint: null,
   originalStatus: 'delivered',
   normalizedStatus: 'DELIVERED',
   serverReceivedAt: '2026-09-10T12:00:00.000Z',
@@ -294,6 +295,7 @@ describe('InconnectMessagingWebhookProcessingService', () => {
         providerConnectionId: receipt.providerConnectionId,
         direction: 'OUTBOUND' as const,
         outboundState: currentState,
+        providerMessageId: 'SM-outbound',
         providerStatus: null,
         sentAt: null,
         deliveredAt: null,
@@ -461,6 +463,52 @@ describe('InconnectMessagingWebhookProcessingService', () => {
     expect(manager.getRepository).toHaveBeenCalledTimes(1);
   });
 
+  it('links a signed per-message callback before the SDK response commits', async () => {
+    const receipt = buildReceipt();
+    const message = Object.assign(new InconnectMessagingMessageEntity(), {
+      id: '66666666-6666-4666-8666-666666666666',
+      workspaceId: receipt.workspaceId,
+      providerConnectionId: receipt.providerConnectionId,
+      direction: 'OUTBOUND' as const,
+      outboundState: 'SENDING' as const,
+      providerMessageId: null,
+      sentAt: null,
+      deliveredAt: null,
+      readAt: null,
+      failedAt: null,
+      error: null,
+    });
+    const messageRepository = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(message),
+      save: jest.fn().mockResolvedValue(message),
+    };
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === InconnectMessagingMessageEntity)
+          return messageRepository;
+        if (entity === InconnectMessagingProviderStatusEventEntity)
+          return { createQueryBuilder: () => buildChain() };
+        if (entity === InconnectMessagingOutboxEventEntity)
+          return { createQueryBuilder: () => buildChain() };
+        throw new Error('Unexpected repository');
+      }),
+    } as unknown as EntityManager;
+
+    await internals.processStatus(
+      manager,
+      receipt,
+      buildStatus({ localMessageIdHint: message.id }),
+    );
+    expect(messageRepository.findOne).toHaveBeenCalledTimes(2);
+    expect(message.providerMessageId).toBe('SM-outbound');
+    expect(message.outboundState).toBe('DELIVERED');
+    expect(message.sentAt).toBeInstanceOf(Date);
+    expect(message.deliveredAt).toBeInstanceOf(Date);
+  });
+
   it('preserves failed provider error metadata on the Message projection', async () => {
     const receipt = buildReceipt();
     const statusInsert = buildChain();
@@ -603,7 +651,12 @@ describe('InconnectMessagingWebhookProcessingService', () => {
 
   it.each([
     ['requeues while attempts remain', 1, 'RECEIVED', true],
-    ['fails after the attempt limit', 10, 'FAILED', false],
+    [
+      'keeps a callback durable after the ordinary attempt limit',
+      10,
+      'RECEIVED',
+      true,
+    ],
   ] as const)(
     '%s when the status Message is not local',
     async (_name, attemptCount, expectedState, shouldReject) => {

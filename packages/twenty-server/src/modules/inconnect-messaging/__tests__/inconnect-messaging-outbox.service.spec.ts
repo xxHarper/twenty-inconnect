@@ -268,6 +268,23 @@ describe('InconnectMessagingOutboxService', () => {
     );
   });
 
+  it('maps outbound creation to the existing message-created hint', async () => {
+    const { service, realtimePublisherService } = buildService({
+      initialEvent: {
+        ...event,
+        eventType: 'OUTBOUND_MESSAGE_CREATED',
+      },
+    });
+
+    await service.publishEvent(event.id);
+
+    expect(realtimePublisherService.publishToMember).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hint: expect.objectContaining({ eventType: 'MESSAGE_CREATED' }),
+      }),
+    );
+  });
+
   it('recovery enqueues persisted pending or expired events', async () => {
     const { service, messageQueueService } = buildService();
 

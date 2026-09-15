@@ -9,6 +9,9 @@ import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging
 import { InconnectMessagingWebhookController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-webhook.controller';
 import { InconnectMessagingWebhookRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-webhook-recovery.cron.command';
 import { InconnectMessagingOutboxRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-outbox-recovery.cron.command';
+import { InconnectMessagingDispatchRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-dispatch-recovery.cron.command';
+import { InconnectMessagingSendResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-send.resolver';
+import { InconnectMessagingDispatchJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-dispatch.job';
 import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-read.resolver';
 import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
@@ -45,6 +48,11 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleExports).toContain(
       InconnectMessagingOutboxRecoveryCronCommand,
     );
+    expect(moduleExports).toContain(
+      InconnectMessagingDispatchRecoveryCronCommand,
+    );
+    expect(moduleProviders).toContain(InconnectMessagingDispatchJob);
+    expect(moduleProviders).toContain(InconnectMessagingSendResolver);
   });
 
   it('registers only the localized public webhook controller', () => {

@@ -6,7 +6,10 @@ const request = {
   providerConnectionId: 'ceac2bf1-b6da-45d5-a2a6-2bea92ee9749',
   messageId: '669f3828-871e-4686-a8f2-02cb082c5c20',
   externalAddressNormalized: '+15550001111',
-  body: 'Hello',
+  senderAddressNormalized: '+15550002222',
+  callbackRoutingKey: 'route-1',
+  credentials: { token: 'fake' },
+  content: { kind: 'FREEFORM_TEXT' as const, body: 'Hello' },
 };
 
 describe('FakeInconnectMessagingProvider', () => {

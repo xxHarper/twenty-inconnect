@@ -2,6 +2,7 @@ import { Injectable, type OnModuleInit } from '@nestjs/common';
 
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import Twilio from 'twilio';
+import { ApiPath } from 'twenty-shared/types';
 import { z } from 'zod';
 
 import {
@@ -17,6 +18,8 @@ import {
   type InconnectMessagingWebhookValidationRequest,
 } from 'src/modules/inconnect-messaging/providers/messaging-provider';
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
+import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import { TwilioWhatsappClientFactory } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-client.factory';
 import {
   type InconnectMessagingJson,
   type InconnectMessagingMessageType,
@@ -181,10 +184,15 @@ export class TwilioWhatsappMessagingProvider
   implements InconnectMessagingProvider, OnModuleInit
 {
   public readonly key = TWILIO_WHATSAPP_PROVIDER_KEY;
-  public readonly capabilities = ['NORMALIZE_WEBHOOK'] as const;
+  public readonly capabilities = [
+    'NORMALIZE_WEBHOOK',
+    'DISPATCH_FREEFORM',
+  ] as const;
 
   public constructor(
     private readonly providerRegistry: InconnectMessagingProviderRegistry,
+    private readonly clientFactory: TwilioWhatsappClientFactory,
+    private readonly twentyConfigService: TwentyConfigService,
   ) {}
 
   public onModuleInit(): void {
@@ -192,16 +200,132 @@ export class TwilioWhatsappMessagingProvider
   }
 
   public async dispatch(
-    _request: InconnectMessagingDispatchRequest,
+    request: InconnectMessagingDispatchRequest,
   ): Promise<InconnectMessagingDispatchResult> {
-    return {
-      kind: 'REJECTED_DEFINITIVE',
-      error: {
-        code: 'TWILIO_OUTBOUND_NOT_IMPLEMENTED',
-        message: 'Twilio outbound dispatch is not implemented',
-        retryable: false,
-      },
-    };
+    if (request.content.kind !== 'FREEFORM_TEXT') {
+      return {
+        kind: 'REJECTED_DEFINITIVE',
+        error: {
+          code: 'TEMPLATE_NOT_AVAILABLE',
+          message: 'Template dispatch is not available',
+          retryable: false,
+        },
+      };
+    }
+
+    const credentials = twilioCredentialsSchema.safeParse(request.credentials);
+    const sender = normalizeWhatsappAddress(request.senderAddressNormalized);
+    const destination = normalizeWhatsappAddress(
+      request.externalAddressNormalized,
+    );
+
+    if (
+      !credentials.success ||
+      credentials.data.accountSid === undefined ||
+      sender === null ||
+      destination === null ||
+      request.content.body.trim().length === 0
+    ) {
+      return {
+        kind: 'FAILED_BEFORE_SUBMIT',
+        error: {
+          code: 'INVALID_CONNECTION',
+          message: 'Provider connection is unavailable',
+          retryable: false,
+        },
+      };
+    }
+
+    let statusCallback: string;
+
+    try {
+      const serverUrl = new URL(this.twentyConfigService.get('SERVER_URL'));
+
+      if (
+        serverUrl.protocol !== 'https:' ||
+        request.callbackRoutingKey.length === 0
+      ) {
+        throw new Error('Invalid callback configuration');
+      }
+
+      statusCallback = new URL(
+        `/${ApiPath.Webhooks}/inconnect-messaging/twilio/whatsapp/${encodeURIComponent(request.callbackRoutingKey)}/status/${encodeURIComponent(request.messageId)}`,
+        serverUrl,
+      ).toString();
+    } catch {
+      return {
+        kind: 'FAILED_BEFORE_SUBMIT',
+        error: {
+          code: 'CALLBACK_UNAVAILABLE',
+          message: 'Provider callback is unavailable',
+          retryable: false,
+        },
+      };
+    }
+
+    try {
+      const client = this.clientFactory.create(
+        credentials.data.accountSid,
+        credentials.data.authToken,
+      );
+      const message = await client.messages.create({
+        from: `whatsapp:${sender}`,
+        to: `whatsapp:${destination}`,
+        body: request.content.body,
+        statusCallback,
+      });
+
+      if (typeof message.sid !== 'string' || message.sid.length === 0) {
+        return {
+          kind: 'UNKNOWN',
+          error: {
+            code: 'MISSING_PROVIDER_ID',
+            message: 'Provider outcome is ambiguous',
+            retryable: false,
+          },
+        };
+      }
+
+      return {
+        kind: 'ACCEPTED',
+        providerMessageId: message.sid,
+        providerStatus: message.status,
+      };
+    } catch (error) {
+      // Only an explicit 4xx rejection proves that Twilio did not accept the request.
+      if (
+        error instanceof Twilio.RestException &&
+        error.status >= 400 &&
+        error.status < 500
+      ) {
+        return error.status === 429
+          ? {
+              kind: 'FAILED_BEFORE_SUBMIT',
+              error: {
+                code: 'PROVIDER_RATE_LIMITED',
+                message: 'Provider temporarily unavailable',
+                retryable: true,
+              },
+            }
+          : {
+              kind: 'REJECTED_DEFINITIVE',
+              error: {
+                code: 'PROVIDER_REJECTED',
+                message: 'Provider rejected the message',
+                retryable: false,
+              },
+            };
+      }
+
+      return {
+        kind: 'UNKNOWN',
+        error: {
+          code: 'PROVIDER_OUTCOME_UNKNOWN',
+          message: 'Provider outcome is ambiguous',
+          retryable: false,
+        },
+      };
+    }
   }
 
   public getWebhookRoutingHints(
@@ -319,6 +443,11 @@ export class TwilioWhatsappMessagingProvider
         errorCode ?? 'none',
       ].join(':'),
       providerMessageId,
+      localMessageIdHint:
+        request.localMessageIdHint !== undefined &&
+        z.uuid().safeParse(request.localMessageIdHint).success
+          ? request.localMessageIdHint
+          : null,
       originalStatus,
       normalizedStatus: normalizeStatus(originalStatus),
       serverReceivedAt: request.serverReceivedAt.toISOString(),

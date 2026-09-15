@@ -44,6 +44,7 @@ const statusSchema = z.object({
   kind: z.literal('STATUS_CALLBACK'),
   idempotencyKey: z.string().min(1),
   providerMessageId: z.string().min(1),
+  localMessageIdHint: z.uuid().nullable().optional(),
   originalStatus: z.string().min(1),
   normalizedStatus: z.enum(INCONNECT_MESSAGING_OUTBOUND_STATES),
   serverReceivedAt: z.iso.datetime(),
@@ -394,7 +395,7 @@ export class InconnectMessagingWebhookProcessingService {
     const messageRepository = manager.getRepository(
       InconnectMessagingMessageEntity,
     );
-    const message = await messageRepository.findOne({
+    let message = await messageRepository.findOne({
       where: {
         workspaceId: receipt.workspaceId,
         providerConnectionId: receipt.providerConnectionId,
@@ -404,8 +405,60 @@ export class InconnectMessagingWebhookProcessingService {
       lock: { mode: 'pessimistic_write' },
     });
 
-    if (message === null || message.outboundState === null) {
+    if (
+      message === null &&
+      webhook.localMessageIdHint !== null &&
+      webhook.localMessageIdHint !== undefined
+    ) {
+      message = await messageRepository.findOne({
+        where: {
+          id: webhook.localMessageIdHint,
+          workspaceId: receipt.workspaceId,
+          providerConnectionId: receipt.providerConnectionId,
+          direction: 'OUTBOUND',
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+    }
+
+    if (
+      message === null ||
+      message.outboundState === null ||
+      (message.providerMessageId !== null &&
+        message.providerMessageId !== undefined &&
+        message.providerMessageId !== webhook.providerMessageId)
+    ) {
       throw new InconnectMessagingWebhookException('MESSAGE_NOT_FOUND', true);
+    }
+
+    // A signed per-message callback can establish the provider ID before the SDK response commits.
+    let providerMessageIdWasEstablished = false;
+
+    if (
+      message.providerMessageId === null ||
+      message.providerMessageId === undefined
+    ) {
+      message.providerMessageId = webhook.providerMessageId;
+      providerMessageIdWasEstablished = true;
+    }
+
+    if (
+      message.outboundState === 'SENDING' &&
+      (webhook.normalizedStatus === 'DELIVERED' ||
+        webhook.normalizedStatus === 'READ')
+    ) {
+      const accepted = resolveInconnectMessagingOutboundStateTransition({
+        currentState: message.outboundState,
+        targetState: 'SENT',
+        trigger: 'PROVIDER_CALLBACK',
+      });
+
+      if (accepted.kind === 'APPLIED') {
+        message.outboundState = accepted.state;
+        message.sentAt ??= new Date(
+          webhook.providerOccurredAt ?? webhook.serverReceivedAt,
+        );
+      }
     }
 
     const transition = resolveInconnectMessagingOutboundStateTransition({
@@ -440,6 +493,10 @@ export class InconnectMessagingWebhookProcessingService {
       .execute();
 
     if (transition.kind !== 'APPLIED') {
+      if (providerMessageIdWasEstablished) {
+        await messageRepository.save(message);
+      }
+
       return null;
     }
 
@@ -529,7 +586,8 @@ export class InconnectMessagingWebhookProcessingService {
     error: InconnectMessagingWebhookException,
   ): Promise<boolean> {
     const shouldRetry =
-      error.retryable && claim.receipt.attemptCount < MAX_PROCESSING_ATTEMPTS;
+      error.category === 'MESSAGE_NOT_FOUND' ||
+      (error.retryable && claim.receipt.attemptCount < MAX_PROCESSING_ATTEMPTS);
 
     await this.dataSource
       .getRepository(InconnectMessagingWebhookReceiptEntity)

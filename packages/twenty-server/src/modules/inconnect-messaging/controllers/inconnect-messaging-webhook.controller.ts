@@ -20,7 +20,7 @@ import {
   isInconnectMessagingWebhookException,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-ingress.service';
 
-type TwilioWebhookRequest = Request<{ routingKey: string }>;
+type TwilioWebhookRequest = Request<{ routingKey: string; messageId?: string }>;
 
 const normalizeParameters = (
   body: unknown,
@@ -79,6 +79,17 @@ export class InconnectMessagingWebhookController {
     await this.handle(request, 'STATUS_CALLBACK');
   }
 
+  @Post(
+    `${ApiPath.Webhooks}/inconnect-messaging/twilio/whatsapp/:routingKey/status/:messageId`,
+  )
+  @UseGuards(PublicEndpointGuard, NoPermissionGuard)
+  @HttpCode(200)
+  public async handleMessageStatus(
+    @Req() request: RawBodyRequest<TwilioWebhookRequest>,
+  ): Promise<void> {
+    await this.handle(request, 'STATUS_CALLBACK');
+  }
+
   private async handle(
     request: RawBodyRequest<TwilioWebhookRequest>,
     kind: InconnectMessagingWebhookKind,
@@ -97,6 +108,7 @@ export class InconnectMessagingWebhookController {
         rawBody: request.rawBody.toString('utf8'),
         parameters: normalizeParameters(request.body as unknown),
         serverReceivedAt: new Date(),
+        localMessageIdHint: request.params.messageId,
       });
     } catch (error) {
       if (

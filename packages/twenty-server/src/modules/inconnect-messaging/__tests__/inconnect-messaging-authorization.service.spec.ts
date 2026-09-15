@@ -193,12 +193,19 @@ describe('InconnectMessagingAuthorizationService', () => {
   );
 
   it('denies a Conversation returned from another workspace', async () => {
-    const { service } = buildService({
+    const { service, allowedFlagSet } = buildService({
       conversation: { ...linkedConversation, workspaceId: OTHER_WORKSPACE_ID },
     });
+    allowedFlagSet.add(PermissionFlagType.SEND_INCONNECT_MESSAGING);
 
     await expect(
       service.canReadConversation({
+        authContext,
+        conversationId: CONVERSATION_ID,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      service.canSendConversation({
         authContext,
         conversationId: CONVERSATION_ID,
       }),
@@ -258,6 +265,86 @@ describe('InconnectMessagingAuthorizationService', () => {
         PermissionFlagType.SEND_INCONNECT_MESSAGING,
       ],
       recordReadable: true,
+    });
+
+    await expect(
+      service.canSendConversation({
+        authContext,
+        conversationId: CONVERSATION_ID,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it.each([
+    ['missing Messaging', [PermissionFlagType.SEND_INCONNECT_MESSAGING]],
+    ['missing Send', [PermissionFlagType.INCONNECT_MESSAGING]],
+    [
+      'Manage is present without Send',
+      [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.MANAGE_INCONNECT_MESSAGING,
+      ],
+    ],
+    [
+      'Triage is present without Send',
+      [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.TRIAGE_INCONNECT_MESSAGING,
+      ],
+    ],
+  ] as const)('denies send when %s', async (_name, allowedFlags) => {
+    const { service } = buildService({ allowedFlags: [...allowedFlags] });
+
+    await expect(
+      service.canSendConversation({
+        authContext,
+        conversationId: CONVERSATION_ID,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('denies send when linked Record Access denies the Conversation', async () => {
+    const { service } = buildService({
+      allowedFlags: [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.SEND_INCONNECT_MESSAGING,
+      ],
+      recordReadable: false,
+    });
+
+    await expect(
+      service.canSendConversation({
+        authContext,
+        conversationId: CONVERSATION_ID,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('requires Triage in addition to Messaging and Send for an unassigned Conversation', async () => {
+    const { service } = buildService({
+      conversation: unassignedConversation,
+      allowedFlags: [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.SEND_INCONNECT_MESSAGING,
+      ],
+    });
+
+    await expect(
+      service.canSendConversation({
+        authContext,
+        conversationId: CONVERSATION_ID,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('allows unassigned send when Messaging, Send, and Triage are all present', async () => {
+    const { service } = buildService({
+      conversation: unassignedConversation,
+      allowedFlags: [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.SEND_INCONNECT_MESSAGING,
+        PermissionFlagType.TRIAGE_INCONNECT_MESSAGING,
+      ],
     });
 
     await expect(

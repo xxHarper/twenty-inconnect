@@ -25,6 +25,7 @@ import { CalendarEventsImportCronCommand } from 'src/modules/calendar/calendar-e
 import { CalendarOngoingStaleCronCommand } from 'src/modules/calendar/calendar-event-import-manager/crons/commands/calendar-ongoing-stale.cron.command';
 import { CalendarRelaunchFailedCalendarChannelsCronCommand } from 'src/modules/calendar/calendar-event-import-manager/crons/commands/calendar-relaunch-failed-calendar-channels.cron.command';
 import { InconnectMessagingWebhookRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-webhook-recovery.cron.command';
+import { InconnectMessagingDispatchRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-dispatch-recovery.cron.command';
 import { InconnectMessagingOutboxRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-outbox-recovery.cron.command';
 import { MessagingMessageListFetchCronCommand } from 'src/modules/messaging/message-import-manager/crons/commands/messaging-message-list-fetch.cron.command';
 import { MessagingMessagesImportCronCommand } from 'src/modules/messaging/message-import-manager/crons/commands/messaging-messages-import.cron.command';
@@ -56,6 +57,7 @@ export class CronRegisterAllCommand extends CommandRunner {
 
     private readonly webhookSubscriptionRenewalCronCommand: WebhookSubscriptionRenewalCronCommand,
     private readonly inconnectMessagingWebhookRecoveryCronCommand: InconnectMessagingWebhookRecoveryCronCommand,
+    private readonly inconnectMessagingDispatchRecoveryCronCommand: InconnectMessagingDispatchRecoveryCronCommand,
     private readonly inconnectMessagingOutboxRecoveryCronCommand: InconnectMessagingOutboxRecoveryCronCommand,
 
     private readonly workflowCronTriggerCronCommand: WorkflowCronTriggerCronCommand,
@@ -137,6 +139,10 @@ export class CronRegisterAllCommand extends CommandRunner {
       {
         name: 'InconnectMessagingWebhookRecovery',
         command: this.inconnectMessagingWebhookRecoveryCronCommand,
+      },
+      {
+        name: 'InconnectMessagingDispatchRecovery',
+        command: this.inconnectMessagingDispatchRecoveryCronCommand,
       },
       {
         name: 'InconnectMessagingOutboxRecovery',

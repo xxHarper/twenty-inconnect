@@ -18,6 +18,7 @@ export type InconnectMessagingWebhookRequest = {
   rawBody: string;
   parameters: Record<string, string | string[]>;
   serverReceivedAt: Date;
+  localMessageIdHint?: string;
 };
 
 export type InconnectMessagingNormalizedInbound = {
@@ -39,6 +40,7 @@ export type InconnectMessagingNormalizedStatus = {
   kind: 'STATUS_CALLBACK';
   idempotencyKey: string;
   providerMessageId: string;
+  localMessageIdHint: string | null;
   originalStatus: string;
   normalizedStatus: InconnectMessagingOutboundState;
   serverReceivedAt: string;
@@ -96,7 +98,16 @@ export type InconnectMessagingDispatchRequest = {
   providerConnectionId: string;
   messageId: string;
   externalAddressNormalized: string;
-  body: string;
+  senderAddressNormalized: string;
+  callbackRoutingKey: string;
+  credentials: InconnectMessagingJson;
+  content:
+    | { kind: 'FREEFORM_TEXT'; body: string }
+    | {
+        kind: 'TEMPLATE';
+        templateIdentifier: string;
+        variables: Record<string, string>;
+      };
 };
 
 export type InconnectMessagingProviderError = {
