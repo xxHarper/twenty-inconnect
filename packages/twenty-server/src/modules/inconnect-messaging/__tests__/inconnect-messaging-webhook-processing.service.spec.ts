@@ -1,6 +1,7 @@
 import { type DataSource, type EntityManager } from 'typeorm';
 
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
@@ -82,6 +83,7 @@ const inbound: InconnectMessagingNormalizedInbound = {
   providerOccurredAt: null,
   effectiveInboundAt: '2026-09-10T12:00:00.000Z',
   timestampSource: 'SERVER',
+  attachments: [],
   providerMetadata: { provider: 'TWILIO' },
 };
 
@@ -124,6 +126,108 @@ describe('InconnectMessagingWebhookProcessingService', () => {
     {} as DataSource,
     { requestPublication } as unknown as InconnectMessagingOutboxService,
   );
+
+  it('persists every media intent while failing unsupported or malformed items closed', async () => {
+    const receipt = buildReceipt();
+    const conversationInsert = buildChain();
+    const conversationUpdate = buildChain();
+    const messageInsert = buildChain();
+    const attachmentInsert = buildChain();
+    const outboxInsert = buildChain();
+    let messageIdCandidate = '';
+
+    messageInsert.values.mockImplementation((value: { id: string }) => {
+      messageIdCandidate = value.id;
+      return messageInsert;
+    });
+
+    const manager = {
+      getRepository: jest.fn((entity) => {
+        if (entity === InconnectMessagingConversationEntity) {
+          return {
+            createQueryBuilder: jest
+              .fn()
+              .mockReturnValueOnce(conversationInsert)
+              .mockReturnValueOnce(conversationUpdate),
+            findOne: jest.fn().mockResolvedValue({ id: 'conversation-id' }),
+          };
+        }
+        if (entity === InconnectMessagingMessageEntity) {
+          return {
+            createQueryBuilder: jest.fn().mockReturnValue(messageInsert),
+            findOne: jest.fn().mockImplementation(async () => ({
+              id: messageIdCandidate,
+            })),
+          };
+        }
+        if (entity === InconnectMessagingAttachmentEntity) {
+          return {
+            createQueryBuilder: jest.fn().mockReturnValue(attachmentInsert),
+          };
+        }
+        if (entity === InconnectMessagingOutboxEventEntity) {
+          return {
+            createQueryBuilder: jest.fn().mockReturnValue(outboxInsert),
+          };
+        }
+
+        throw new Error('Unexpected repository access');
+      }),
+    } as unknown as EntityManager;
+
+    await internals.processInbound(manager, receipt, {
+      ...inbound,
+      messageType: 'IMAGE',
+      attachments: [
+        {
+          ordinal: 0,
+          type: 'IMAGE',
+          providerMediaLocator: 'opaque-media-0',
+          declaredMimeType: 'image/jpeg',
+          safeFilename: 'photo.jpg',
+        },
+        {
+          ordinal: 1,
+          type: 'DOCUMENT',
+          providerMediaLocator: 'opaque-media-1',
+          declaredMimeType: 'text/html',
+          safeFilename: 'unsafe.html',
+        },
+        {
+          ordinal: 2,
+          type: 'AUDIO',
+          providerMediaLocator: null,
+          declaredMimeType: 'audio/ogg',
+          safeFilename: 'voice.ogg',
+        },
+      ],
+    });
+
+    expect(attachmentInsert.values).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        ordinal: 0,
+        ingestionState: 'PENDING',
+        lastErrorCode: null,
+      }),
+    );
+    expect(attachmentInsert.values).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        ordinal: 1,
+        ingestionState: 'FAILED',
+        lastErrorCode: 'UNSUPPORTED_MIME',
+      }),
+    );
+    expect(attachmentInsert.values).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        ordinal: 2,
+        ingestionState: 'FAILED',
+        lastErrorCode: 'MALFORMED_PROVIDER_MEDIA_METADATA',
+      }),
+    );
+  });
   const internals = service as unknown as ProcessingInternals;
 
   beforeEach(() => {
@@ -380,7 +484,11 @@ describe('InconnectMessagingWebhookProcessingService', () => {
       const transaction = jest.fn().mockImplementation(async () => {
         callOrder.push('COMMIT');
 
-        return publicationRequest;
+        return {
+          publicationRequest,
+          inboundProviderMessageId:
+            eventType === 'INBOUND_MESSAGE_RECEIVED' ? 'SM123' : null,
+        };
       });
       const immediatePublication = jest.fn().mockImplementation(async () => {
         callOrder.push('ENQUEUE');
@@ -415,7 +523,10 @@ describe('InconnectMessagingWebhookProcessingService', () => {
       workspaceId: receipt.workspaceId,
       eventType: 'INBOUND_MESSAGE_RECEIVED',
     };
-    const transaction = jest.fn().mockResolvedValue(publicationRequest);
+    const transaction = jest.fn().mockResolvedValue({
+      publicationRequest,
+      inboundProviderMessageId: 'SM123',
+    });
     const immediatePublication = jest.fn().mockResolvedValue(false);
     const getRepository = jest.fn();
     const processingService = new InconnectMessagingWebhookProcessingService(

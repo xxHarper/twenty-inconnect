@@ -224,6 +224,10 @@ export class InconnectMessagingOutboxService {
       return 'MESSAGE_STATUS_CHANGED';
     }
 
+    if (event.eventType === 'MEDIA_ATTACHMENT_UPDATED') {
+      return 'MESSAGE_UPDATED';
+    }
+
     return null;
   }
 

@@ -3,6 +3,7 @@ import { useLingui } from '@lingui/react/macro';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
 
 import type { InconnectMessagingMessage } from '@/inconnect-messaging/types/InconnectMessagingRead';
+import { REACT_APP_SERVER_BASE_URL } from '~/config';
 
 const StyledRow = styled.div<{ isOutbound: boolean }>`
   display: flex;
@@ -40,6 +41,41 @@ const StyledTemplateLabel = styled.div`
   margin-bottom: ${themeCssVariables.spacing[2]};
 `;
 
+const StyledAttachmentList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[2]};
+`;
+
+const StyledMedia = styled.img`
+  border-radius: ${themeCssVariables.border.radius.md};
+  display: block;
+  max-height: 360px;
+  max-width: 100%;
+  object-fit: contain;
+`;
+
+const StyledSticker = styled(StyledMedia)`
+  background: transparent;
+  max-height: 220px;
+  width: 220px;
+`;
+
+const StyledAudio = styled.audio`
+  max-width: 100%;
+`;
+
+const StyledVideo = styled.video`
+  border-radius: ${themeCssVariables.border.radius.md};
+  max-height: 360px;
+  max-width: 100%;
+`;
+
+const StyledAttachmentLink = styled.a`
+  color: ${themeCssVariables.font.color.primary};
+  text-decoration: underline;
+`;
+
 type InconnectMessagingMessageBubbleProps = {
   message: InconnectMessagingMessage;
 };
@@ -51,20 +87,17 @@ export const InconnectMessagingMessageBubble = ({
   const isOutbound = message.direction === 'OUTBOUND';
   const location = message.location;
 
-  const mediaLabel = (() => {
-    switch (message.type) {
-      case 'IMAGE':
-        return isOutbound ? t`Image sent` : t`Image received`;
-      case 'AUDIO':
-        return isOutbound ? t`Audio sent` : t`Audio received`;
-      case 'VIDEO':
-        return isOutbound ? t`Video sent` : t`Video received`;
-      case 'DOCUMENT':
-        return isOutbound ? t`Document sent` : t`Document received`;
-      default:
-        return null;
-    }
-  })();
+  const formatSize = (size: number | null | undefined) =>
+    size === null || size === undefined
+      ? null
+      : new Intl.NumberFormat(i18n.locale, {
+          style: 'unit',
+          unit: 'kilobyte',
+          maximumFractionDigits: 1,
+        }).format(size / 1024);
+
+  const absoluteAttachmentUrl = (accessUrl: string) =>
+    new URL(accessUrl, REACT_APP_SERVER_BASE_URL).toString();
 
   const statusLabel = (() => {
     if (!isOutbound) return null;
@@ -120,14 +153,91 @@ export const InconnectMessagingMessageBubble = ({
             )}
           </div>
         )}
-        {mediaLabel && (
-          <div>
-            {mediaLabel}
-            {message.media.map(
-              (item, index) =>
-                item.contentType && <div key={index}>{item.contentType}</div>,
-            )}
-          </div>
+        {message.media.length > 0 && (
+          <StyledAttachmentList>
+            {message.media.map((attachment, index) => {
+              const key = attachment.id ?? `legacy-${index}`;
+
+              if (
+                attachment.availabilityState === 'PENDING' ||
+                attachment.availabilityState === 'PROCESSING'
+              ) {
+                return <div key={key}>{t`Processing attachment…`}</div>;
+              }
+
+              if (
+                attachment.availabilityState !== 'AVAILABLE' ||
+                !attachment.accessUrl
+              ) {
+                return <div key={key}>{t`File unavailable`}</div>;
+              }
+
+              const source = absoluteAttachmentUrl(attachment.accessUrl);
+
+              switch (attachment.type) {
+                case 'IMAGE':
+                  return (
+                    <StyledMedia
+                      key={key}
+                      src={source}
+                      alt={attachment.filename || t`Received image`}
+                      loading="lazy"
+                    />
+                  );
+                case 'STICKER':
+                  return (
+                    <StyledSticker
+                      key={key}
+                      src={source}
+                      alt={t`Sticker`}
+                      loading="lazy"
+                    />
+                  );
+                case 'AUDIO':
+                  return (
+                    <StyledAudio
+                      key={key}
+                      controls
+                      preload="metadata"
+                      src={source}
+                    >
+                      {t`Audio playback is not supported by this browser.`}
+                    </StyledAudio>
+                  );
+                case 'VIDEO':
+                  return (
+                    <StyledVideo
+                      key={key}
+                      controls
+                      preload="metadata"
+                      src={source}
+                    >
+                      {t`Video playback is not supported by this browser.`}
+                    </StyledVideo>
+                  );
+                case 'CONTACT':
+                  return (
+                    <div key={key}>
+                      <div>{t`Shared contact`}</div>
+                      <StyledAttachmentLink href={source}>
+                        {attachment.filename || t`Download vCard`}
+                      </StyledAttachmentLink>
+                    </div>
+                  );
+                default:
+                  return (
+                    <div key={key}>
+                      <StyledAttachmentLink href={source}>
+                        {attachment.filename || t`Download document`}
+                      </StyledAttachmentLink>
+                      {formatSize(attachment.size) && (
+                        <div>{formatSize(attachment.size)}</div>
+                      )}
+                    </div>
+                  );
+              }
+            })}
+          </StyledAttachmentList>
         )}
         <StyledMeta>
           <time dateTime={message.displayAt}>

@@ -1,6 +1,7 @@
 export type InconnectMessagingRealtimeEventType =
   | 'MESSAGE_CREATED'
-  | 'MESSAGE_STATUS_CHANGED';
+  | 'MESSAGE_STATUS_CHANGED'
+  | 'MESSAGE_UPDATED';
 
 export type InconnectMessagingRealtimeHint = {
   eventId: string;

@@ -6,14 +6,39 @@ export type InconnectMessagingDirection =
 export const INCONNECT_MESSAGING_MESSAGE_TYPES = [
   'TEXT',
   'IMAGE',
+  'STICKER',
   'AUDIO',
   'VIDEO',
   'DOCUMENT',
+  'CONTACT',
   'LOCATION',
 ] as const;
 
 export type InconnectMessagingMessageType =
   (typeof INCONNECT_MESSAGING_MESSAGE_TYPES)[number];
+
+export const INCONNECT_MESSAGING_ATTACHMENT_TYPES = [
+  'IMAGE',
+  'STICKER',
+  'AUDIO',
+  'VIDEO',
+  'DOCUMENT',
+  'CONTACT',
+] as const;
+
+export type InconnectMessagingAttachmentType =
+  (typeof INCONNECT_MESSAGING_ATTACHMENT_TYPES)[number];
+
+export const INCONNECT_MESSAGING_ATTACHMENT_INGESTION_STATES = [
+  'PENDING',
+  'PROCESSING',
+  'AVAILABLE',
+  'FAILED',
+  'EXPIRED',
+] as const;
+
+export type InconnectMessagingAttachmentIngestionState =
+  (typeof INCONNECT_MESSAGING_ATTACHMENT_INGESTION_STATES)[number];
 
 export const INCONNECT_MESSAGING_SEND_MODES = ['FREEFORM', 'TEMPLATE'] as const;
 

@@ -4,6 +4,7 @@ import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messag
 import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-messaging-provider';
 import { TwilioWhatsappClientFactory } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-client.factory';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import { SecureHttpClientService } from 'src/engine/core-modules/secure-http-client/secure-http-client.service';
 import { type InconnectMessagingWebhookRequest } from 'src/modules/inconnect-messaging/providers/messaging-provider';
 
 const AUTH_TOKEN = 'test-auth-token';
@@ -11,6 +12,10 @@ const EFFECTIVE_URL =
   'https://crm.example.com/webhooks/inconnect-messaging/twilio/whatsapp/route-1/inbound';
 const SERVER_RECEIVED_AT = new Date('2026-09-10T12:00:00.000Z');
 const CONTENT_SID = 'HXaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const ACCOUNT_SID = 'ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const MESSAGE_SID = 'SMbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const MEDIA_SID = 'MEcccccccccccccccccccccccccccccccc';
+const MEDIA_URL = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages/${MESSAGE_SID}/Media/${MEDIA_SID}`;
 
 const buildRequest = ({
   parameters,
@@ -64,10 +69,15 @@ describe('TwilioWhatsappMessagingProvider', () => {
   const configService = {
     get: jest.fn().mockReturnValue('https://crm.example.com'),
   } as unknown as TwentyConfigService;
+  const getMedia = jest.fn();
+  const secureHttpClientService = {
+    getHttpClient: jest.fn().mockReturnValue({ get: getMedia }),
+  } as unknown as SecureHttpClientService;
   const provider = new TwilioWhatsappMessagingProvider(
     registry,
     clientFactory,
     configService,
+    secureHttpClientService,
   );
 
   beforeAll(() => provider.onModuleInit());
@@ -80,6 +90,7 @@ describe('TwilioWhatsappMessagingProvider', () => {
       'NORMALIZE_WEBHOOK',
       'DISPATCH_FREEFORM',
       'DISPATCH_TEMPLATE',
+      'RETRIEVE_MEDIA',
     ]);
   });
 
@@ -265,6 +276,7 @@ describe('TwilioWhatsappMessagingProvider', () => {
       registry,
       clientFactory,
       unsafeConfig,
+      secureHttpClientService,
     );
     const callsBefore = createMessage.mock.calls.length;
 
@@ -391,11 +403,24 @@ describe('TwilioWhatsappMessagingProvider', () => {
     });
   });
 
+  it('preserves inbound Unicode, emoji, combining marks, and ZWJ sequences', () => {
+    const body = '¡Hola, Jose\u0301! 👩🏽‍💻\nمرحبا';
+    const request = buildRequest({
+      parameters: { ...inboundParameters, Body: body },
+    });
+
+    expect(
+      provider.normalizeWebhook({ request, payloadHash: 'hash' }),
+    ).toMatchObject({ kind: 'INBOUND_MESSAGE', body });
+  });
+
   it.each([
     ['image/jpeg', 'IMAGE'],
+    ['image/webp', 'STICKER'],
     ['audio/ogg', 'AUDIO'],
     ['video/mp4', 'VIDEO'],
     ['application/pdf', 'DOCUMENT'],
+    ['text/vcard', 'CONTACT'],
   ] as const)(
     'recognizes %s media as %s without downloading it',
     (contentType, type) => {
@@ -414,17 +439,159 @@ describe('TwilioWhatsappMessagingProvider', () => {
       expect(normalized).toMatchObject({
         kind: 'INBOUND_MESSAGE',
         messageType: type,
+        attachments: [
+          {
+            ordinal: 0,
+            type,
+            declaredMimeType: contentType,
+            providerMediaLocator: 'https://api.twilio.com/provider-media/ME123',
+          },
+        ],
         providerMetadata: {
-          media: [
-            {
-              contentType,
-              providerLocator: 'https://api.twilio.com/provider-media/ME123',
-            },
-          ],
+          media: [{ contentType }],
         },
       });
     },
   );
+
+  it('normalizes every declared attachment with a stable ordinal', () => {
+    const request = buildRequest({
+      parameters: {
+        ...inboundParameters,
+        NumMedia: '2',
+        MediaContentType0: 'image/jpeg',
+        MediaUrl0: 'https://api.twilio.com/media-0',
+        MediaContentType1: 'application/pdf',
+        MediaUrl1: 'https://api.twilio.com/media-1',
+      },
+    });
+
+    expect(
+      provider.normalizeWebhook({ request, payloadHash: 'hash' }),
+    ).toMatchObject({
+      kind: 'INBOUND_MESSAGE',
+      attachments: [
+        { ordinal: 0, type: 'IMAGE' },
+        { ordinal: 1, type: 'DOCUMENT' },
+      ],
+    });
+  });
+
+  it.each([
+    'http://127.0.0.1/internal',
+    'https://localhost/internal',
+    `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages/SMdddddddddddddddddddddddddddddddd/Media/${MEDIA_SID}`,
+    `https://api.twilio.com@evil.example/2010-04-01/Accounts/${ACCOUNT_SID}/Messages/${MESSAGE_SID}/Media/${MEDIA_SID}`,
+  ])(
+    'rejects an untrusted media locator before network access: %s',
+    async (providerMediaLocator) => {
+      getMedia.mockClear();
+
+      await expect(
+        provider.retrieveMedia({
+          credentials: { accountSid: ACCOUNT_SID, authToken: AUTH_TOKEN },
+          providerMessageId: MESSAGE_SID,
+          providerMediaLocator,
+          declaredMimeType: 'image/jpeg',
+          maximumBytes: 1024,
+        }),
+      ).resolves.toEqual({
+        kind: 'DEFINITIVE_FAILURE',
+        code: 'SECURITY_VALIDATION_FAILED',
+      });
+      expect(getMedia).not.toHaveBeenCalled();
+    },
+  );
+
+  it('uses authenticated Twilio retrieval and drops credentials on the CDN redirect', async () => {
+    getMedia.mockReset();
+    getMedia
+      .mockResolvedValueOnce({
+        status: 302,
+        headers: { location: 'https://mms.twiliocdn.com/signed/media?token=x' },
+        data: new ArrayBuffer(0),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '3' },
+        data: Uint8Array.from([1, 2, 3]).buffer,
+      });
+
+    await expect(
+      provider.retrieveMedia({
+        credentials: {
+          accountSid: ACCOUNT_SID,
+          authToken: AUTH_TOKEN,
+          apiKeySid: 'SKdddddddddddddddddddddddddddddddd',
+          apiKeySecret: 'key-secret',
+        },
+        providerMessageId: MESSAGE_SID,
+        providerMediaLocator: MEDIA_URL,
+        declaredMimeType: 'image/jpeg',
+        maximumBytes: 1024,
+      }),
+    ).resolves.toMatchObject({
+      kind: 'SUCCESS',
+      mimeType: 'image/jpeg',
+      content: Buffer.from([1, 2, 3]),
+    });
+    expect(getMedia).toHaveBeenNthCalledWith(
+      1,
+      MEDIA_URL,
+      expect.objectContaining({
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            'SKdddddddddddddddddddddddddddddddd:key-secret',
+          ).toString('base64')}`,
+        },
+      }),
+    );
+    expect(getMedia).toHaveBeenNthCalledWith(
+      2,
+      'https://mms.twiliocdn.com/signed/media?token=x',
+      expect.objectContaining({ headers: undefined }),
+    );
+  });
+
+  it('rejects an oversized or MIME-mismatched provider response', async () => {
+    getMedia.mockReset();
+    getMedia.mockResolvedValueOnce({
+      status: 200,
+      headers: { 'content-type': 'image/jpeg', 'content-length': '2048' },
+      data: new ArrayBuffer(0),
+    });
+
+    await expect(
+      provider.retrieveMedia({
+        credentials: { accountSid: ACCOUNT_SID, authToken: AUTH_TOKEN },
+        providerMessageId: MESSAGE_SID,
+        providerMediaLocator: MEDIA_URL,
+        declaredMimeType: 'image/jpeg',
+        maximumBytes: 1024,
+      }),
+    ).resolves.toEqual({
+      kind: 'DEFINITIVE_FAILURE',
+      code: 'SIZE_LIMIT_EXCEEDED',
+    });
+
+    getMedia.mockResolvedValueOnce({
+      status: 200,
+      headers: { 'content-type': 'text/html', 'content-length': '3' },
+      data: Uint8Array.from([1, 2, 3]).buffer,
+    });
+    await expect(
+      provider.retrieveMedia({
+        credentials: { accountSid: ACCOUNT_SID, authToken: AUTH_TOKEN },
+        providerMessageId: MESSAGE_SID,
+        providerMediaLocator: MEDIA_URL,
+        declaredMimeType: 'image/jpeg',
+        maximumBytes: 1024,
+      }),
+    ).resolves.toEqual({
+      kind: 'DEFINITIVE_FAILURE',
+      code: 'MIME_MISMATCH',
+    });
+  });
 
   it('preserves the signed local message hint for callback reconciliation', () => {
     const localMessageIdHint = '66666666-6666-4666-8666-666666666666';

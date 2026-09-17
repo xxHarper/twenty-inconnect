@@ -7,6 +7,7 @@ import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messag
 import { FakeInconnectMessagingProvider } from 'src/modules/inconnect-messaging/providers/testing/fake-messaging-provider';
 import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-messaging-provider';
 import { InconnectMessagingWebhookController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-webhook.controller';
+import { InconnectMessagingAttachmentController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-attachment.controller';
 import { InconnectMessagingWebhookRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-webhook-recovery.cron.command';
 import { InconnectMessagingOutboxRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-outbox-recovery.cron.command';
 import { InconnectMessagingDispatchRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-dispatch-recovery.cron.command';
@@ -55,13 +56,14 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(InconnectMessagingSendResolver);
   });
 
-  it('registers only the localized public webhook controller', () => {
+  it('registers the public webhook and authenticated attachment controllers', () => {
     const controllers = Reflect.getMetadata(
       MODULE_METADATA.CONTROLLERS,
       InconnectMessagingModule,
     ) as unknown[];
 
     expect(controllers).toContain(InconnectMessagingWebhookController);
+    expect(controllers).toContain(InconnectMessagingAttachmentController);
   });
 
   it('wires the centralized authorization boundary and its scoped query service', () => {

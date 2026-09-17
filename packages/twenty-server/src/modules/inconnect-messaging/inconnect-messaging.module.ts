@@ -2,15 +2,21 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
+import { AuthModule } from 'src/engine/core-modules/auth/auth.module';
 import { SecretEncryptionModule } from 'src/engine/core-modules/secret-encryption/secret-encryption.module';
+import { SecureHttpClientModule } from 'src/engine/core-modules/secure-http-client/secure-http-client.module';
+import { FileModule } from 'src/engine/core-modules/file/file.module';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
+import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/workspace-cache-storage.module';
 import { provideWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/provide-workspace-scoped-repository';
 import { InconnectMessagingWebhookRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-webhook-recovery.cron.command';
 import { InconnectMessagingDispatchRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-dispatch-recovery.cron.command';
 import { InconnectMessagingOutboxRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-outbox-recovery.cron.command';
 import { InconnectMessagingWebhookController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-webhook.controller';
+import { InconnectMessagingAttachmentController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-attachment.controller';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
@@ -47,6 +53,11 @@ import { InconnectMessagingWebhookProcessingService } from 'src/modules/inconnec
 import { InconnectMessagingWebhookReceiptService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-receipt.service';
 import { InconnectMessagingSendCapabilitiesService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-send-capabilities.service';
 import { InconnectMessagingTemplateCatalogService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-template-catalog.service';
+import { InconnectMessagingMediaIngestionService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-media-ingestion.service';
+import { InconnectMessagingAttachmentAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-attachment-access.service';
+import { InconnectMessagingMediaIngestionJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-media-ingestion.job';
+import { InconnectMessagingMediaRecoveryCronJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-media-recovery.cron.job';
+import { InconnectMessagingMediaRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-media-recovery.cron.command';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -57,6 +68,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingWebhookReceiptEntity,
   InconnectMessagingProviderStatusEventEntity,
   InconnectMessagingOutboxEventEntity,
+  InconnectMessagingAttachmentEntity,
 ];
 
 @Module({
@@ -65,10 +77,14 @@ const INCONNECT_MESSAGING_ENTITIES = [
       ...INCONNECT_MESSAGING_ENTITIES,
       UserWorkspaceEntity,
     ]),
+    AuthModule,
     InconnectRecordAccessModule,
     SecretEncryptionModule,
+    SecureHttpClientModule,
+    FileModule,
     PermissionsModule,
     WorkspaceCacheModule,
+    WorkspaceCacheStorageModule,
   ],
   providers: [
     InconnectMessagingProviderRegistry,
@@ -82,6 +98,11 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingSendService,
     InconnectMessagingSendResolver,
     InconnectMessagingTemplateCatalogService,
+    InconnectMessagingMediaIngestionService,
+    InconnectMessagingAttachmentAccessService,
+    InconnectMessagingMediaIngestionJob,
+    InconnectMessagingMediaRecoveryCronJob,
+    InconnectMessagingMediaRecoveryCronCommand,
     InconnectMessagingSendCapabilitiesService,
     InconnectMessagingTemplateResolver,
     InconnectMessagingDispatchService,
@@ -106,7 +127,10 @@ const INCONNECT_MESSAGING_ENTITIES = [
     provideWorkspaceScopedRepository(InconnectMessagingConfigurationEntity),
     provideWorkspaceScopedRepository(InconnectMessagingMessageEntity),
   ],
-  controllers: [InconnectMessagingWebhookController],
+  controllers: [
+    InconnectMessagingWebhookController,
+    InconnectMessagingAttachmentController,
+  ],
   exports: [
     InconnectMessagingProviderRegistry,
     InconnectMessagingAuthorizationService,
@@ -114,6 +138,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingWebhookRecoveryCronCommand,
     InconnectMessagingDispatchRecoveryCronCommand,
     InconnectMessagingOutboxRecoveryCronCommand,
+    InconnectMessagingMediaRecoveryCronCommand,
   ],
 })
 export class InconnectMessagingModule {}

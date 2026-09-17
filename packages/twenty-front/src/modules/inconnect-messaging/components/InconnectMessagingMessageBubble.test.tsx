@@ -37,6 +37,13 @@ describe('InconnectMessagingMessageBubble', () => {
     expect(screen.getByLabelText('Incoming message')).toBeInTheDocument();
   });
 
+  it('renders emoji and Unicode text without normalization loss', () => {
+    const body = '¡Hola, Jose\u0301! 👩🏽‍💻 مرحبا';
+
+    renderMessage({ ...baseMessage, body });
+    expect(screen.getByText(body)).toBeInTheDocument();
+  });
+
   it.each([
     'QUEUED',
     'SENDING',
@@ -54,19 +61,158 @@ describe('InconnectMessagingMessageBubble', () => {
     );
   });
 
-  it.each([
-    ['IMAGE', 'Image received'],
-    ['AUDIO', 'Audio received'],
-    ['VIDEO', 'Video received'],
-    ['DOCUMENT', 'Document received'],
-  ])('shows a safe placeholder for %s', (type, label) => {
+  it('renders an available image through the authorized attachment route', () => {
     renderMessage({
       ...baseMessage,
-      type,
-      media: [{ contentType: 'image/jpeg' }],
+      type: 'IMAGE',
+      media: [
+        {
+          id: 'attachment-id',
+          type: 'IMAGE',
+          filename: 'photo.jpg',
+          contentType: 'image/jpeg',
+          size: 3,
+          availabilityState: 'AVAILABLE',
+          accessUrl: '/inconnect-messaging/attachments/attachment-id',
+        },
+      ],
     });
+
+    expect(screen.getByRole('img', { name: 'photo.jpg' })).toHaveAttribute(
+      'src',
+      expect.stringContaining('/inconnect-messaging/attachments/attachment-id'),
+    );
+  });
+
+  it('renders an available document without exposing a storage URL', () => {
+    renderMessage({
+      ...baseMessage,
+      type: 'DOCUMENT',
+      media: [
+        {
+          id: 'attachment-id',
+          type: 'DOCUMENT',
+          filename: 'report.pdf',
+          contentType: 'application/pdf',
+          size: 2048,
+          availabilityState: 'AVAILABLE',
+          accessUrl: '/inconnect-messaging/attachments/attachment-id',
+        },
+      ],
+    });
+
+    const link = screen.getByRole('link', { name: 'report.pdf' });
+
+    expect(link).toHaveAttribute(
+      'href',
+      expect.stringContaining('/inconnect-messaging/attachments/attachment-id'),
+    );
+    expect(link.getAttribute('href')).not.toContain('twilio.com');
+    expect(link.getAttribute('href')).not.toContain('amazonaws.com');
+    expect(screen.getByText('2 kB')).toBeInTheDocument();
+  });
+
+  it('renders an available sticker with its compact visual treatment', () => {
+    renderMessage({
+      ...baseMessage,
+      type: 'STICKER',
+      media: [
+        {
+          id: 'sticker-id',
+          type: 'STICKER',
+          filename: 'sticker.webp',
+          contentType: 'image/webp',
+          size: 512,
+          availabilityState: 'AVAILABLE',
+          accessUrl: '/inconnect-messaging/attachments/sticker-id',
+        },
+      ],
+    });
+
+    expect(screen.getByRole('img', { name: 'Sticker' })).toHaveAttribute(
+      'src',
+      expect.stringContaining('/attachments/sticker-id'),
+    );
+  });
+
+  it.each([
+    ['AUDIO', 'audio', 'voice.ogg', 'audio/ogg'],
+    ['VIDEO', 'video', 'clip.mp4', 'video/mp4'],
+  ])(
+    'renders the authorized %s player',
+    (type, elementName, filename, contentType) => {
+      const { container } = renderMessage({
+        ...baseMessage,
+        type,
+        media: [
+          {
+            id: 'media-id',
+            type,
+            filename,
+            contentType,
+            size: 1024,
+            availabilityState: 'AVAILABLE',
+            accessUrl: '/inconnect-messaging/attachments/media-id',
+          },
+        ],
+      });
+      const mediaElement = container.querySelector(elementName);
+
+      expect(mediaElement).toHaveAttribute('controls');
+      expect(mediaElement).toHaveAttribute(
+        'src',
+        expect.stringContaining('/attachments/media-id'),
+      );
+    },
+  );
+
+  it('renders a contact card with an authorized vCard download', () => {
+    renderMessage({
+      ...baseMessage,
+      type: 'CONTACT',
+      media: [
+        {
+          id: 'contact-id',
+          type: 'CONTACT',
+          filename: 'contact.vcf',
+          contentType: 'text/vcard',
+          size: 256,
+          availabilityState: 'AVAILABLE',
+          accessUrl: '/inconnect-messaging/attachments/contact-id',
+        },
+      ],
+    });
+
+    expect(screen.getByText('Shared contact')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'contact.vcf' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('/attachments/contact-id'),
+    );
+  });
+
+  it.each([
+    ['PENDING', 'Processing attachment…'],
+    ['PROCESSING', 'Processing attachment…'],
+    ['FAILED', 'File unavailable'],
+    ['EXPIRED', 'File unavailable'],
+  ])('renders attachment state %s safely', (availabilityState, label) => {
+    renderMessage({
+      ...baseMessage,
+      type: 'AUDIO',
+      media: [
+        {
+          id: 'attachment-id',
+          type: 'AUDIO',
+          filename: 'voice.ogg',
+          contentType: 'audio/ogg',
+          size: null,
+          availabilityState,
+          accessUrl: null,
+        },
+      ],
+    });
+
     expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.getByText('image/jpeg')).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 

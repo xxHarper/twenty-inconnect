@@ -1,4 +1,5 @@
 import {
+  type InconnectMessagingAttachmentType,
   type InconnectMessagingInboundTimestampSource,
   type InconnectMessagingJson,
   type InconnectMessagingMessageType,
@@ -33,7 +34,16 @@ export type InconnectMessagingNormalizedInbound = {
   providerOccurredAt: string | null;
   effectiveInboundAt: string;
   timestampSource: InconnectMessagingInboundTimestampSource;
+  attachments: InconnectMessagingNormalizedInboundAttachment[];
   providerMetadata: InconnectMessagingJson;
+};
+
+export type InconnectMessagingNormalizedInboundAttachment = {
+  ordinal: number;
+  type: InconnectMessagingAttachmentType;
+  providerMediaLocator: string | null;
+  declaredMimeType: string | null;
+  safeFilename: string;
 };
 
 export type InconnectMessagingNormalizedStatus = {
@@ -130,6 +140,27 @@ export type InconnectMessagingTemplateCatalogRequest = {
   credentials: InconnectMessagingJson;
 };
 
+export type InconnectMessagingMediaRetrievalRequest = {
+  credentials: InconnectMessagingJson;
+  providerMessageId: string;
+  providerMediaLocator: string;
+  declaredMimeType: string;
+  maximumBytes: number;
+};
+
+export type InconnectMessagingMediaRetrievalResult =
+  | { kind: 'SUCCESS'; content: Buffer; mimeType: string }
+  | {
+      kind: 'RETRYABLE_FAILURE' | 'DEFINITIVE_FAILURE';
+      code:
+        | 'PROVIDER_UNAVAILABLE'
+        | 'PROVIDER_MEDIA_UNAVAILABLE'
+        | 'STORAGE_UNAVAILABLE'
+        | 'SECURITY_VALIDATION_FAILED'
+        | 'SIZE_LIMIT_EXCEEDED'
+        | 'MIME_MISMATCH';
+    };
+
 export type InconnectMessagingProviderError = {
   code: string;
   message: string;
@@ -161,6 +192,9 @@ export interface InconnectMessagingProvider {
   listTemplates?(
     request: InconnectMessagingTemplateCatalogRequest,
   ): Promise<InconnectMessagingProviderTemplate[]>;
+  retrieveMedia?(
+    request: InconnectMessagingMediaRetrievalRequest,
+  ): Promise<InconnectMessagingMediaRetrievalResult>;
   getWebhookRoutingHints(
     request: InconnectMessagingWebhookRequest,
   ): InconnectMessagingWebhookRoutingHints;

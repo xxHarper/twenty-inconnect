@@ -45,6 +45,7 @@ const message = {
       address: 'Ciudad de México',
     },
   },
+  attachments: [],
 };
 
 const buildService = ({ authorized = true } = {}) => {
@@ -131,7 +132,17 @@ describe('InconnectMessagingReadService', () => {
       outboundState: null,
       displayAt: message.createdAt,
       createdAt: message.createdAt,
-      media: [{ contentType: 'image/jpeg' }],
+      media: [
+        {
+          id: null,
+          type: 'IMAGE',
+          filename: 'caption',
+          contentType: 'image/jpeg',
+          size: null,
+          availabilityState: 'UNKNOWN',
+          accessUrl: null,
+        },
+      ],
       location: {
         latitude: '19.4326',
         longitude: '-99.1332',
@@ -143,6 +154,56 @@ describe('InconnectMessagingReadService', () => {
     });
     expect(JSON.stringify(result)).not.toContain('providerLocator');
     expect(JSON.stringify(result)).not.toContain('TWILIO');
+  });
+
+  it('exposes only an authorized application route for available attachments', async () => {
+    const { service, messageQueryService } = buildService();
+
+    messageQueryService.getAuthorizedMessagePage.mockResolvedValue({
+      edges: [
+        {
+          cursor: 'message-cursor',
+          node: {
+            ...message,
+            attachments: [
+              {
+                id: '30303030-5555-4555-8555-555555555555',
+                ordinal: 0,
+                type: 'IMAGE',
+                safeFilename: 'photo.jpg',
+                declaredMimeType: 'image/jpeg',
+                mimeType: 'image/jpeg',
+                size: 1024,
+                ingestionState: 'AVAILABLE',
+                providerMediaLocator: 'https://api.twilio.com/private-media',
+              },
+            ],
+          },
+          sortAt: message.createdAt,
+        },
+      ],
+      hasNextPage: false,
+      totalCount: 1,
+    });
+
+    const result = await service.getMessages({
+      authContext,
+      conversationId: conversation.id,
+    });
+
+    expect(result?.edges[0].node.media).toEqual([
+      {
+        id: '30303030-5555-4555-8555-555555555555',
+        type: 'IMAGE',
+        filename: 'photo.jpg',
+        contentType: 'image/jpeg',
+        size: 1024,
+        availabilityState: 'AVAILABLE',
+        accessUrl:
+          '/inconnect-messaging/attachments/30303030-5555-4555-8555-555555555555',
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('private-media');
   });
 
   it('renders historical template audit without consulting the current catalog', async () => {

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
 import { randomUUID } from 'crypto';
 
@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { DataSource, type EntityManager } from 'typeorm';
 
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
@@ -17,7 +18,10 @@ import {
   InconnectMessagingOutboxService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service';
 import { resolveInconnectMessagingOutboundStateTransition } from 'src/modules/inconnect-messaging/state-machine/outbound-message-state-machine';
+import { isInconnectMessagingMimeAllowedForType } from 'src/modules/inconnect-messaging/constants/inconnect-messaging-media-policy.constant';
+import { InconnectMessagingMediaIngestionService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-media-ingestion.service';
 import {
+  INCONNECT_MESSAGING_ATTACHMENT_TYPES,
   INCONNECT_MESSAGING_MESSAGE_TYPES,
   INCONNECT_MESSAGING_OUTBOUND_STATES,
 } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
@@ -38,6 +42,17 @@ const inboundSchema = z.object({
   providerOccurredAt: z.iso.datetime().nullable(),
   effectiveInboundAt: z.iso.datetime(),
   timestampSource: z.enum(['PROVIDER', 'SERVER']),
+  attachments: z
+    .array(
+      z.object({
+        ordinal: z.number().int().min(0).max(9),
+        type: z.enum(INCONNECT_MESSAGING_ATTACHMENT_TYPES),
+        providerMediaLocator: z.string().min(1).nullable(),
+        declaredMimeType: z.string().min(1).nullable(),
+        safeFilename: z.string().min(1).max(180),
+      }),
+    )
+    .max(10),
   providerMetadata: jsonSchema,
 });
 const statusSchema = z.object({
@@ -79,6 +94,8 @@ export class InconnectMessagingWebhookProcessingService {
   public constructor(
     private readonly dataSource: DataSource,
     private readonly outboxService: InconnectMessagingOutboxService,
+    @Optional()
+    private readonly mediaIngestionService?: InconnectMessagingMediaIngestionService,
   ) {}
 
   public async processReceipt(receiptId: string): Promise<void> {
@@ -88,96 +105,103 @@ export class InconnectMessagingWebhookProcessingService {
       return;
     }
 
-    let publicationRequest: InconnectMessagingOutboxPublicationRequest | null;
+    let processingResult: {
+      publicationRequest: InconnectMessagingOutboxPublicationRequest | null;
+      inboundProviderMessageId: string | null;
+    };
 
     try {
-      publicationRequest = await this.dataSource.transaction(
-        async (manager) => {
-          const receipt = await manager
-            .getRepository(InconnectMessagingWebhookReceiptEntity)
-            .findOne({
-              where: {
-                id: claim.receipt.id,
-                workspaceId: claim.receipt.workspaceId,
-                processingState: 'PROCESSING',
-                leaseToken: claim.leaseToken,
-              },
-              lock: { mode: 'pessimistic_write' },
-            });
+      processingResult = await this.dataSource.transaction(async (manager) => {
+        const receipt = await manager
+          .getRepository(InconnectMessagingWebhookReceiptEntity)
+          .findOne({
+            where: {
+              id: claim.receipt.id,
+              workspaceId: claim.receipt.workspaceId,
+              processingState: 'PROCESSING',
+              leaseToken: claim.leaseToken,
+            },
+            lock: { mode: 'pessimistic_write' },
+          });
 
-          if (receipt === null) {
-            throw new InconnectMessagingWebhookException(
-              'RECEIPT_NOT_PROCESSABLE',
-              true,
-            );
-          }
+        if (receipt === null) {
+          throw new InconnectMessagingWebhookException(
+            'RECEIPT_NOT_PROCESSABLE',
+            true,
+          );
+        }
 
-          const connection = await manager
-            .getRepository(InconnectMessagingProviderConnectionEntity)
-            .findOne({
-              where: {
-                id: receipt.providerConnectionId,
-                workspaceId: receipt.workspaceId,
-                provider: 'TWILIO',
-                channel: 'WHATSAPP',
-                lifecycleStatus: 'ENABLED',
-              },
-            });
+        const connection = await manager
+          .getRepository(InconnectMessagingProviderConnectionEntity)
+          .findOne({
+            where: {
+              id: receipt.providerConnectionId,
+              workspaceId: receipt.workspaceId,
+              provider: 'TWILIO',
+              channel: 'WHATSAPP',
+              lifecycleStatus: 'ENABLED',
+            },
+          });
 
-          if (connection === null) {
-            throw new InconnectMessagingWebhookException(
-              'CONNECTION_DISABLED',
-              false,
-            );
-          }
+        if (connection === null) {
+          throw new InconnectMessagingWebhookException(
+            'CONNECTION_DISABLED',
+            false,
+          );
+        }
 
-          const normalizedWebhook = normalizedWebhookSchema.safeParse(
-            receipt.normalizedMetadata,
+        const normalizedWebhook = normalizedWebhookSchema.safeParse(
+          receipt.normalizedMetadata,
+        );
+
+        if (!normalizedWebhook.success) {
+          throw new InconnectMessagingWebhookException(
+            'MALFORMED_PAYLOAD',
+            false,
+          );
+        }
+
+        if (normalizedWebhook.data.kind === 'UNSUPPORTED') {
+          throw new InconnectMessagingWebhookException(
+            'UNSUPPORTED_EVENT',
+            false,
+          );
+        }
+
+        const outboxEvent =
+          normalizedWebhook.data.kind === 'INBOUND_MESSAGE'
+            ? await this.processInbound(
+                manager,
+                receipt,
+                normalizedWebhook.data,
+              )
+            : await this.processStatus(
+                manager,
+                receipt,
+                normalizedWebhook.data,
+              );
+
+        await manager
+          .getRepository(InconnectMessagingWebhookReceiptEntity)
+          .update(
+            { id: receipt.id, leaseToken: claim.leaseToken },
+            {
+              processingState: 'PROCESSED',
+              leaseToken: null,
+              leaseExpiresAt: null,
+              error: null,
+              processedAt: new Date(),
+            },
           );
 
-          if (!normalizedWebhook.success) {
-            throw new InconnectMessagingWebhookException(
-              'MALFORMED_PAYLOAD',
-              false,
-            );
-          }
-
-          if (normalizedWebhook.data.kind === 'UNSUPPORTED') {
-            throw new InconnectMessagingWebhookException(
-              'UNSUPPORTED_EVENT',
-              false,
-            );
-          }
-
-          const outboxEvent =
+        return {
+          publicationRequest: outboxEvent,
+          inboundProviderMessageId:
             normalizedWebhook.data.kind === 'INBOUND_MESSAGE'
-              ? await this.processInbound(
-                  manager,
-                  receipt,
-                  normalizedWebhook.data,
-                )
-              : await this.processStatus(
-                  manager,
-                  receipt,
-                  normalizedWebhook.data,
-                );
-
-          await manager
-            .getRepository(InconnectMessagingWebhookReceiptEntity)
-            .update(
-              { id: receipt.id, leaseToken: claim.leaseToken },
-              {
-                processingState: 'PROCESSED',
-                leaseToken: null,
-                leaseExpiresAt: null,
-                error: null,
-                processedAt: new Date(),
-              },
-            );
-
-          return outboxEvent;
-        },
-      );
+              ? normalizedWebhook.data.providerMessageId
+              : null,
+        };
+      });
     } catch (error) {
       const processingError =
         error instanceof InconnectMessagingWebhookException
@@ -204,8 +228,23 @@ export class InconnectMessagingWebhookProcessingService {
       return;
     }
 
-    if (publicationRequest !== null) {
-      await this.outboxService.requestPublication(publicationRequest);
+    if (processingResult.publicationRequest !== null) {
+      await this.outboxService.requestPublication(
+        processingResult.publicationRequest,
+      );
+    }
+
+    if (
+      processingResult.inboundProviderMessageId !== null &&
+      this.mediaIngestionService !== undefined
+    ) {
+      await this.mediaIngestionService.requestPendingAttachmentsForProviderMessage(
+        {
+          workspaceId: claim.receipt.workspaceId,
+          providerConnectionId: claim.receipt.providerConnectionId,
+          providerMessageId: processingResult.inboundProviderMessageId,
+        },
+      );
     }
 
     this.logResult(claim.receipt, 'PROCESSED');
@@ -349,6 +388,54 @@ export class InconnectMessagingWebhookProcessingService {
 
     if (message.id !== messageIdCandidate) {
       return null;
+    }
+
+    if (webhook.attachments.length > 0) {
+      const attachmentRepository = manager.getRepository(
+        InconnectMessagingAttachmentEntity,
+      );
+
+      for (const attachment of webhook.attachments) {
+        const hasRequiredMetadata =
+          attachment.providerMediaLocator !== null &&
+          attachment.declaredMimeType !== null;
+        const isSupported =
+          hasRequiredMetadata &&
+          attachment.declaredMimeType !== null &&
+          isInconnectMessagingMimeAllowedForType({
+            mimeType: attachment.declaredMimeType,
+            type: attachment.type,
+          });
+
+        await attachmentRepository
+          .createQueryBuilder()
+          .insert()
+          .values({
+            workspaceId: receipt.workspaceId,
+            messageId: message.id,
+            providerConnectionId: receipt.providerConnectionId,
+            ordinal: attachment.ordinal,
+            type: attachment.type,
+            ingestionState: isSupported ? 'PENDING' : 'FAILED',
+            providerMediaLocator: attachment.providerMediaLocator,
+            declaredMimeType: attachment.declaredMimeType,
+            safeFilename: attachment.safeFilename,
+            fileId: null,
+            mimeType: null,
+            size: null,
+            leaseToken: null,
+            leaseExpiresAt: null,
+            attemptCount: 0,
+            lastErrorCode: hasRequiredMetadata
+              ? isSupported
+                ? null
+                : 'UNSUPPORTED_MIME'
+              : 'MALFORMED_PROVIDER_MEDIA_METADATA',
+            availableAt: null,
+          })
+          .orIgnore()
+          .execute();
+      }
     }
 
     const effectiveInboundAt = new Date(webhook.effectiveInboundAt);

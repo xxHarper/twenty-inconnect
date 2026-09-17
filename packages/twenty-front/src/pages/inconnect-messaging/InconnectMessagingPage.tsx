@@ -92,7 +92,8 @@ export const InconnectMessagingPage = () => {
           if (hint.eventType === 'MESSAGE_CREATED') {
             scheduleRefresh(true, hint.conversationId === selectedId);
           } else if (
-            hint.eventType === 'MESSAGE_STATUS_CHANGED' &&
+            (hint.eventType === 'MESSAGE_STATUS_CHANGED' ||
+              hint.eventType === 'MESSAGE_UPDATED') &&
             hint.conversationId === selectedId
           ) {
             scheduleRefresh(false, true);

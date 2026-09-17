@@ -72,8 +72,26 @@ export class InconnectMessagingLocationDTO {
 
 @ObjectType('InconnectMessagingMedia')
 export class InconnectMessagingMediaDTO {
+  @Field(() => UUIDScalarType, { nullable: true })
+  id: string | null;
+
+  @Field(() => String)
+  type: string;
+
+  @Field(() => String)
+  filename: string;
+
   @Field(() => String, { nullable: true })
   contentType: string | null;
+
+  @Field(() => Int, { nullable: true })
+  size: number | null;
+
+  @Field(() => String)
+  availabilityState: string;
+
+  @Field(() => String, { nullable: true })
+  accessUrl: string | null;
 }
 
 @ObjectType('InconnectMessagingMessage')

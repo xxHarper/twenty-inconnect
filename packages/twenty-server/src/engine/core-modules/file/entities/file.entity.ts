@@ -39,6 +39,9 @@ import { type WorkspaceEntity } from 'src/engine/core-modules/workspace/workspac
   `"workspaceId" IS NULL OR "applicationRegistrationId" IS NULL`,
 )
 @Index('IDX_FILE_WORKSPACE_ID', ['workspaceId'])
+@Index('IDX_FILE_ID_WORKSPACE_ID_UNIQUE', ['id', 'workspaceId'], {
+  unique: true,
+})
 @Index('IDX_FILE_STATUS', ['status'])
 @Index('IDX_FILE_APPLICATION_REGISTRATION_ID', ['applicationRegistrationId'])
 @Unique('IDX_APPLICATION_PATH_WORKSPACE_ID_APPLICATION_ID_UNIQUE', [

@@ -80,4 +80,8 @@ export const fileFolderConfigs: Record<FileFolder, FileFolderConfig> = {
     ignoreExpirationToken: false,
     cacheControl: IMMUTABLE_FILE_CACHE_CONTROL,
   },
+  [FileFolder.InconnectMessaging]: {
+    ignoreExpirationToken: false,
+    cacheControl: PRESIGNED_URL_NO_STORE_CACHE_CONTROL,
+  },
 };

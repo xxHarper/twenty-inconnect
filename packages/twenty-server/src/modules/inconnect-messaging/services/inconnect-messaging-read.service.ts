@@ -168,7 +168,7 @@ export class InconnectMessagingReadService {
       displayAt,
       createdAt: message.createdAt,
       location: this.toSafeLocation(message.providerMetadata),
-      media: this.toSafeMedia(message.providerMetadata),
+      media: this.toSafeMedia(message),
       template:
         message.sendMode === 'TEMPLATE' &&
         message.templateId !== null &&
@@ -221,9 +221,27 @@ export class InconnectMessagingReadService {
   }
 
   private toSafeMedia(
-    providerMetadata: Record<string, unknown> | null,
+    message: InconnectMessagingMessageEntity,
   ): InconnectMessagingMediaDTO[] {
-    const media = providerMetadata?.media;
+    if (message.attachments?.length > 0) {
+      return [...message.attachments]
+        .sort((left, right) => left.ordinal - right.ordinal)
+        .map((attachment) => ({
+          id: attachment.id,
+          type: attachment.type,
+          filename: attachment.safeFilename,
+          contentType:
+            attachment.mimeType ?? attachment.declaredMimeType ?? null,
+          size: attachment.size === null ? null : Number(attachment.size),
+          availabilityState: attachment.ingestionState,
+          accessUrl:
+            attachment.ingestionState === 'AVAILABLE'
+              ? `/inconnect-messaging/attachments/${attachment.id}`
+              : null,
+        }));
+    }
+
+    const media = message.providerMetadata?.media;
 
     if (!Array.isArray(media)) {
       return [];
@@ -231,13 +249,27 @@ export class InconnectMessagingReadService {
 
     return media.slice(0, 10).map((item) => {
       if (typeof item !== 'object' || item === null || Array.isArray(item)) {
-        return { contentType: null };
+        return {
+          id: null,
+          type: message.type,
+          filename: 'Attachment',
+          contentType: null,
+          size: null,
+          availabilityState: 'UNKNOWN',
+          accessUrl: null,
+        };
       }
 
       const contentType = (item as Record<string, unknown>).contentType;
 
       return {
+        id: null,
+        type: message.type,
+        filename: message.body.trim() || 'Attachment',
         contentType: typeof contentType === 'string' ? contentType : null,
+        size: null,
+        availabilityState: 'UNKNOWN',
+        accessUrl: null,
       };
     });
   }

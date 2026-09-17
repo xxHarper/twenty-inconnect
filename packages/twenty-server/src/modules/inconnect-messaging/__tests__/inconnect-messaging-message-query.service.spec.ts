@@ -20,6 +20,10 @@ const message = {
 class MessageQueryBuilder {
   operations: string[] = [];
 
+  leftJoinAndSelect() {
+    return this;
+  }
+
   where(sql: string) {
     this.operations.push(sql);
 
@@ -59,7 +63,7 @@ class MessageQueryBuilder {
   getRawAndEntities() {
     return Promise.resolve({
       entities: [message],
-      raw: [{ messageDisplayAt: displayAt }],
+      raw: [{ messageCursorId: message.id, messageDisplayAt: displayAt }],
     });
   }
 }

@@ -16,6 +16,7 @@ const NORMALIZED_INBOUND = {
   providerOccurredAt: null,
   effectiveInboundAt: '2026-09-10T12:00:00.000Z',
   timestampSource: 'SERVER' as const,
+  attachments: [],
   providerMetadata: {},
 };
 

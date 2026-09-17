@@ -2,7 +2,10 @@ import { DataSource, getMetadataArgsStorage, type EntityTarget } from 'typeorm';
 
 import { CreateInconnectMessagingTransportSpineFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1788982508902-create-inconnect-messaging-transport-spine';
 import { AddInconnectMessagingWebhookProjectionFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789040000000-add-inconnect-messaging-webhook-projection';
+import { AddInconnectMessagingTemplateIntentFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789473600000-add-inconnect-messaging-template-intent';
 import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
+import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
@@ -21,6 +24,7 @@ const MESSAGING_ENTITIES: EntityTarget<object>[] = [
   InconnectMessagingWebhookReceiptEntity,
   InconnectMessagingProviderStatusEventEntity,
   InconnectMessagingOutboxEventEntity,
+  InconnectMessagingAttachmentEntity,
 ];
 
 const buildMetadataDataSource = async (): Promise<DataSource> => {
@@ -52,6 +56,12 @@ describe('INCONNECT Messaging persistence model', () => {
     await new AddInconnectMessagingWebhookProjectionFastInstanceCommand().up({
       query,
     } as never);
+    await new AddInconnectMessagingTemplateIntentFastInstanceCommand().up({
+      query,
+    } as never);
+    await new AddInconnectMessagingInboundAttachmentsFastInstanceCommand().up({
+      query,
+    } as never);
 
     const sql = query.mock.calls.map(([statement]) => statement).join('\n');
 
@@ -71,9 +81,10 @@ describe('INCONNECT Messaging persistence model', () => {
       }
 
       for (const foreignKey of metadata.foreignKeys) {
-        expect(sql).toContain(
-          `ADD CONSTRAINT "${foreignKey.name}" FOREIGN KEY`,
-        );
+        expect(
+          sql.includes(`ADD CONSTRAINT "${foreignKey.name}" FOREIGN KEY`) ||
+            sql.includes(`CONSTRAINT "${foreignKey.name}" FOREIGN KEY`),
+        ).toBe(true);
       }
     }
   });
@@ -119,6 +130,8 @@ describe('INCONNECT Messaging persistence model', () => {
       'FK_INCONNECT_MSG_WEBHOOK_CONNECTION',
       'FK_INCONNECT_MSG_STATUS_MESSAGE',
       'FK_INCONNECT_MSG_STATUS_RECEIPT',
+      'FK_INCONNECT_MSG_ATTACHMENT_MESSAGE',
+      'FK_INCONNECT_MSG_ATTACHMENT_FILE',
     ];
     const foreignKeys = MESSAGING_ENTITIES.flatMap(
       (entity) => dataSource.getMetadata(entity).foreignKeys,
@@ -169,6 +182,11 @@ describe('INCONNECT Messaging persistence model', () => {
       InconnectMessagingProviderStatusEventEntity,
       'IDX_INCONNECT_MSG_STATUS_RECEIPT_UNIQUE',
       ['webhookReceiptId'],
+    ],
+    [
+      InconnectMessagingAttachmentEntity,
+      'IDX_INCONNECT_MSG_ATTACHMENT_MESSAGE_ORDINAL_UNIQUE',
+      ['messageId', 'ordinal'],
     ],
   ] as [EntityTarget<object>, string, string[]][])(
     'defines required unique index %s',
@@ -232,6 +250,44 @@ describe('INCONNECT Messaging persistence model', () => {
     ).toContain('lastInboundAt');
     expect(timestampCheck?.expression).toContain('"direction" = \'INBOUND\'');
     expect(timestampCheck?.expression).toContain('"direction" = \'OUTBOUND\'');
+  });
+
+  it('keeps attachment availability and leases as database-enforced state tuples', async () => {
+    const dataSource = await buildMetadataDataSource();
+    const metadata = dataSource.getMetadata(InconnectMessagingAttachmentEntity);
+    const checks = new Map(
+      metadata.checks.map(({ name, expression }) => [name, expression]),
+    );
+
+    expect(checks.get('CHK_INCONNECT_MSG_ATTACHMENT_AVAILABLE')).toContain(
+      '"fileId" IS NOT NULL',
+    );
+    expect(checks.get('CHK_INCONNECT_MSG_ATTACHMENT_AVAILABLE')).toContain(
+      '"fileId" IS NULL',
+    );
+    expect(checks.get('CHK_INCONNECT_MSG_ATTACHMENT_LEASE')).toContain(
+      '"leaseToken" IS NOT NULL',
+    );
+    expect(checks.get('CHK_INCONNECT_MSG_ATTACHMENT_LEASE')).toContain(
+      '"leaseToken" IS NULL',
+    );
+  });
+
+  it('adds inbound attachments with a Fast command and no data backfill', async () => {
+    const query = jest.fn().mockResolvedValue(undefined);
+
+    await new AddInconnectMessagingInboundAttachmentsFastInstanceCommand().up({
+      query,
+    } as never);
+
+    expect(
+      query.mock.calls.some(([statement]) => /^\s*UPDATE\s/i.test(statement)),
+    ).toBe(false);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'CREATE TABLE "core"."inconnectMessagingAttachment"',
+      ),
+    );
   });
 
   it('keeps projection backfills out of the fast command and validates after the slow backfill', async () => {

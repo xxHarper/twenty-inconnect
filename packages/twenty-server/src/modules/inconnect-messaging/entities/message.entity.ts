@@ -6,6 +6,7 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   type Relation,
   UpdateDateColumn,
@@ -13,6 +14,7 @@ import {
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import {
   type InconnectMessagingDirection,
   type InconnectMessagingInboundTimestampSource,
@@ -29,7 +31,7 @@ import {
 )
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_TYPE',
-  `"type" IN ('TEXT', 'IMAGE', 'AUDIO', 'VIDEO', 'DOCUMENT', 'LOCATION')`,
+  `"type" IN ('TEXT', 'IMAGE', 'STICKER', 'AUDIO', 'VIDEO', 'DOCUMENT', 'CONTACT', 'LOCATION')`,
 )
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_SEND_MODE',
@@ -214,6 +216,12 @@ export class InconnectMessagingMessageEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   timestampSource: InconnectMessagingInboundTimestampSource | null;
+
+  @OneToMany(
+    () => InconnectMessagingAttachmentEntity,
+    (attachment) => attachment.message,
+  )
+  attachments: Relation<InconnectMessagingAttachmentEntity[]>;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

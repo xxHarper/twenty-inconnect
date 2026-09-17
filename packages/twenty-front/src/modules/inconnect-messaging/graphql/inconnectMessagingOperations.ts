@@ -63,7 +63,13 @@ export const INCONNECT_MESSAGING_MESSAGES = gql`
             address
           }
           media {
+            id
+            type
+            filename
             contentType
+            size
+            availabilityState
+            accessUrl
           }
           template {
             id

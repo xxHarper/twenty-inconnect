@@ -219,45 +219,48 @@ describe('InconnectMessagingPage', () => {
     jest.useRealTimers();
   });
 
-  it('refreshes only the selected conversation for a status hint', () => {
-    jest.useFakeTimers();
-    let next:
-      | ((result: {
+  it.each(['MESSAGE_STATUS_CHANGED', 'MESSAGE_UPDATED'])(
+    'refreshes only the selected conversation for a %s hint',
+    (eventType) => {
+      jest.useFakeTimers();
+      let next:
+        | ((result: {
+            data: {
+              onInconnectMessagingEvent: {
+                eventId: string;
+                eventType: string;
+                conversationId: string;
+              };
+            };
+          }) => void)
+        | undefined;
+      mockSseClient = {
+        subscribe: jest.fn((_query, handlers) => {
+          next = handlers.next;
+          return jest.fn();
+        }),
+      };
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+      act(() => {
+        next?.({
           data: {
             onInconnectMessagingEvent: {
-              eventId: string;
-              eventType: string;
-              conversationId: string;
-            };
-          };
-        }) => void)
-      | undefined;
-    mockSseClient = {
-      subscribe: jest.fn((_query, handlers) => {
-        next = handlers.next;
-        return jest.fn();
-      }),
-    };
-    renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
-    act(() => {
-      next?.({
-        data: {
-          onInconnectMessagingEvent: {
-            eventId: 'two',
-            eventType: 'MESSAGE_STATUS_CHANGED',
-            conversationId: 'conversation-1',
+              eventId: 'two',
+              eventType,
+              conversationId: 'conversation-1',
+            },
           },
-        },
+        });
+        jest.advanceTimersByTime(150);
       });
-      jest.advanceTimersByTime(150);
-    });
-    expect(mockRefetch).not.toHaveBeenCalled();
-    expect(
-      screen.getByText('Selected conversation-1 refresh 1'),
-    ).toBeInTheDocument();
-    jest.useRealTimers();
-  });
+      expect(mockRefetch).not.toHaveBeenCalled();
+      expect(
+        screen.getByText('Selected conversation-1 refresh 1'),
+      ).toBeInTheDocument();
+      jest.useRealTimers();
+    },
+  );
 
   it('refetches on reconnect', () => {
     jest.useFakeTimers();

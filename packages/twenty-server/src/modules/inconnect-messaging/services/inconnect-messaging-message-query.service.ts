@@ -56,6 +56,7 @@ export class InconnectMessagingMessageQueryService {
 
     const queryBuilder = this.messageRepository
       .createQueryBuilder('message')
+      .leftJoinAndSelect('message.attachments', 'attachment')
       .where('message.workspaceId = :messageWorkspaceId', {
         messageWorkspaceId: authContext.workspace.id,
       })
@@ -89,19 +90,26 @@ export class InconnectMessagingMessageQueryService {
 
     const rows = await queryBuilder
       .addSelect(MESSAGE_DISPLAY_AT_SQL, 'messageDisplayAt')
+      .addSelect('message.id', 'messageCursorId')
       .orderBy(MESSAGE_DISPLAY_AT_SQL, 'DESC')
       .addOrderBy('message.id', 'DESC')
+      .addOrderBy('attachment.ordinal', 'ASC')
       .take(first + 1)
       .getRawAndEntities();
     const hasNextPage = rows.entities.length > first;
     const entities = hasNextPage
       ? rows.entities.slice(0, first)
       : rows.entities;
-    const rawRows = hasNextPage ? rows.raw.slice(0, first) : rows.raw;
+    const displayAtByMessageId = new Map(
+      rows.raw.map((row) => [
+        String(row.messageCursorId),
+        row.messageDisplayAt,
+      ]),
+    );
 
     return {
-      edges: entities.map((node, index) => {
-        const rawSortAt = rawRows[index]?.messageDisplayAt;
+      edges: entities.map((node) => {
+        const rawSortAt = displayAtByMessageId.get(node.id);
         const sortAt = new Date(
           rawSortAt instanceof Date ? rawSortAt : String(rawSortAt),
         );
