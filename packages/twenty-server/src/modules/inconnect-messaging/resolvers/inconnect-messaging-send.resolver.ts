@@ -25,11 +25,14 @@ export class InconnectMessagingSendResolver {
     @Args('input', { type: () => SendInconnectMessagingMessageInput })
     input: SendInconnectMessagingMessageInput,
   ): Promise<SendInconnectMessagingMessageResult> {
-    return this.sendService.sendFreeformText({
+    return this.sendService.sendMessage({
       authContext: getWorkspaceAuthContext(),
       conversationId: input.conversationId,
       clientRequestId: input.clientRequestId,
+      mode: input.mode,
       body: input.body,
+      templateId: input.templateId,
+      templateVariables: input.templateVariables,
     });
   }
 }

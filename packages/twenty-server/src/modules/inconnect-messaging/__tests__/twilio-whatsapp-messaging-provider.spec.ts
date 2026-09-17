@@ -10,6 +10,7 @@ const AUTH_TOKEN = 'test-auth-token';
 const EFFECTIVE_URL =
   'https://crm.example.com/webhooks/inconnect-messaging/twilio/whatsapp/route-1/inbound';
 const SERVER_RECEIVED_AT = new Date('2026-09-10T12:00:00.000Z');
+const CONTENT_SID = 'HXaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 const buildRequest = ({
   parameters,
@@ -51,8 +52,14 @@ const inboundParameters = {
 describe('TwilioWhatsappMessagingProvider', () => {
   const registry = new InconnectMessagingProviderRegistry();
   const createMessage = jest.fn();
+  const listContent = jest.fn();
   const clientFactory = {
-    create: jest.fn().mockReturnValue({ messages: { create: createMessage } }),
+    create: jest.fn().mockReturnValue({
+      messages: { create: createMessage },
+      content: {
+        v2: { contentAndApprovals: { list: listContent } },
+      },
+    }),
   } as unknown as TwilioWhatsappClientFactory;
   const configService = {
     get: jest.fn().mockReturnValue('https://crm.example.com'),
@@ -72,7 +79,64 @@ describe('TwilioWhatsappMessagingProvider', () => {
     expect(provider.capabilities).toEqual([
       'NORMALIZE_WEBHOOK',
       'DISPATCH_FREEFORM',
+      'DISPATCH_TEMPLATE',
     ]);
+  });
+
+  it('lists only approved textual WhatsApp templates through the normalized contract', async () => {
+    listContent.mockResolvedValueOnce([
+      {
+        sid: CONTENT_SID,
+        friendlyName: 'appointment_reminder',
+        language: 'es',
+        variables: { '1': 'Customer' },
+        types: { 'twilio/text': { body: 'Hola {{1}}' } },
+        approvalRequests: { whatsapp: { status: 'approved' } },
+      },
+      {
+        sid: 'HXbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        friendlyName: 'draft',
+        language: 'es',
+        variables: {},
+        types: { 'twilio/text': { body: 'Draft' } },
+        approvalRequests: { whatsapp: { status: 'pending' } },
+      },
+      {
+        sid: 'HXcccccccccccccccccccccccccccccccc',
+        friendlyName: 'rich_card',
+        language: 'es',
+        variables: {},
+        types: { 'twilio/card': { body: 'Card' } },
+        approvalRequests: { whatsapp: { status: 'approved' } },
+      },
+    ]);
+
+    await expect(
+      provider.listTemplates({
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+      }),
+    ).resolves.toEqual([
+      {
+        providerReference: CONTENT_SID,
+        displayName: 'appointment_reminder',
+        language: 'es',
+        availability: 'AVAILABLE',
+        content: { kind: 'TEXT', body: 'Hola {{1}}' },
+        variables: [
+          {
+            key: '1',
+            required: true,
+            maxLength: 1600,
+            allowsNewlines: false,
+          },
+        ],
+      },
+    ]);
+    expect(listContent).toHaveBeenCalledWith({
+      channelEligibility: ['whatsapp:approved'],
+      contentType: ['twilio/text'],
+      limit: 1000,
+    });
   });
 
   it('uses the persisted sender and canonical destination with mocked Twilio SDK', async () => {
@@ -126,6 +190,41 @@ describe('TwilioWhatsappMessagingProvider', () => {
         message: 'Provider outcome is ambiguous',
         retryable: false,
       },
+    });
+  });
+
+  it('dispatches a template using only its server-side provider reference', async () => {
+    createMessage.mockResolvedValueOnce({
+      sid: 'SM-template',
+      status: 'queued',
+    });
+
+    await expect(
+      provider.dispatch({
+        workspaceId: 'workspace-id',
+        providerConnectionId: 'connection-id',
+        messageId: 'message-id',
+        externalAddressNormalized: '+525512345678',
+        senderAddressNormalized: '+14155238886',
+        callbackRoutingKey: 'route-1',
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+        content: {
+          kind: 'TEMPLATE',
+          templateProviderReference: CONTENT_SID,
+          variables: { '1': 'Ana' },
+        },
+      }),
+    ).resolves.toMatchObject({
+      kind: 'ACCEPTED',
+      providerMessageId: 'SM-template',
+    });
+    expect(createMessage).toHaveBeenCalledWith({
+      from: 'whatsapp:+14155238886',
+      to: 'whatsapp:+525512345678',
+      contentSid: CONTENT_SID,
+      contentVariables: JSON.stringify({ '1': 'Ana' }),
+      statusCallback:
+        'https://crm.example.com/webhooks/inconnect-messaging/twilio/whatsapp/route-1/status/message-id',
     });
   });
 

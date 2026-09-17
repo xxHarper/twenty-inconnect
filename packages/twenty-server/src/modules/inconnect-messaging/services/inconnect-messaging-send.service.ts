@@ -20,13 +20,28 @@ import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messag
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingDispatchService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-dispatch.service';
 import {
+  type InconnectMessagingCatalogTemplate,
+  InconnectMessagingTemplateCatalogService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-template-catalog.service';
+import {
   type InconnectMessagingOutboxPublicationRequest,
   InconnectMessagingOutboxService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service';
 import { createInconnectMessagingOutboundOutboxEvent } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbound-outbox.util';
 import { isInconnectMessagingFreeformWindowOpen } from 'src/modules/inconnect-messaging/services/inconnect-messaging-session-window.policy';
+import { renderInconnectMessagingTemplateBody } from 'src/modules/inconnect-messaging/utils/inconnect-messaging-template.util';
 
 const MAX_BODY_LENGTH = 4096;
+
+type TemplateVariableInput = { key: string; value: string };
+
+type NormalizedSendIntent =
+  | { mode: 'FREEFORM'; body: string }
+  | {
+      mode: 'TEMPLATE';
+      templateId: string;
+      variables: Record<string, string>;
+    };
 
 @Injectable()
 export class InconnectMessagingSendService {
@@ -36,18 +51,25 @@ export class InconnectMessagingSendService {
     private readonly providerRegistry: InconnectMessagingProviderRegistry,
     private readonly dispatchService: InconnectMessagingDispatchService,
     private readonly outboxService: InconnectMessagingOutboxService,
+    private readonly templateCatalogService: InconnectMessagingTemplateCatalogService,
   ) {}
 
-  async sendFreeformText({
+  async sendMessage({
     authContext,
     conversationId,
     clientRequestId,
+    mode,
     body,
+    templateId,
+    templateVariables,
   }: {
     authContext: WorkspaceAuthContext;
     conversationId: string;
     clientRequestId: string;
-    body: string;
+    mode: string;
+    body?: string;
+    templateId?: string;
+    templateVariables?: TemplateVariableInput[];
   }): Promise<{ messageId: string; outboundState: string }> {
     const authorizedConversation =
       await this.authorizationService.findAuthorizedConversationForSend({
@@ -59,31 +81,70 @@ export class InconnectMessagingSendService {
       throw new NotFoundError('Conversation not found');
     }
 
-    if (body.trim().length === 0 || body.length > MAX_BODY_LENGTH) {
-      throw new UserInputError('Invalid message', {
-        subCode: 'INVALID_MESSAGE',
-      });
-    }
-
     const workspaceId = authContext.workspace.id;
     const actorId = authContext.workspaceMemberId;
+    const intent = this.normalizeIntent({
+      mode,
+      body,
+      templateId,
+      templateVariables,
+    });
     const scopedClientRequestId = uuidv5(
       `${actorId}:${conversationId}:${clientRequestId}`,
       workspaceId,
     );
-    const requestFingerprint = createHash('sha256')
-      .update(
-        JSON.stringify([
+    const requestFingerprint = this.buildRequestFingerprint({
+      workspaceId,
+      actorId,
+      conversationId,
+      clientRequestId,
+      intent,
+    });
+    const alreadyPersisted = await this.dataSource
+      .getRepository(InconnectMessagingMessageEntity)
+      .findOne({
+        where: {
           workspaceId,
-          actorId,
-          conversationId,
-          clientRequestId,
-          'TEXT',
-          'FREEFORM',
-          body,
-        ]),
-      )
-      .digest('hex');
+          clientRequestId: scopedClientRequestId,
+          direction: 'OUTBOUND',
+        },
+      });
+
+    if (alreadyPersisted !== null) {
+      if (alreadyPersisted.requestFingerprint !== requestFingerprint) {
+        throw new ConflictError('IDEMPOTENCY_KEY_CONFLICT');
+      }
+
+      return {
+        messageId: alreadyPersisted.id,
+        outboundState: alreadyPersisted.outboundState ?? 'QUEUED',
+      };
+    }
+
+    let selectedTemplate: InconnectMessagingCatalogTemplate | null = null;
+
+    if (intent.mode === 'TEMPLATE') {
+      const catalog = await this.templateCatalogService.getAuthorizedCatalog({
+        authContext,
+        conversationId,
+      });
+
+      selectedTemplate =
+        catalog?.catalogAvailable === true
+          ? (catalog.templates.find(
+              (template) => template.id === intent.templateId,
+            ) ?? null)
+          : null;
+
+      if (selectedTemplate === null) {
+        throw new UserInputError('Template is unavailable', {
+          subCode: 'TEMPLATE_UNAVAILABLE',
+        });
+      }
+
+      this.validateTemplateVariables(selectedTemplate, intent.variables);
+    }
+
     const created = await this.dataSource.transaction(async (manager) => {
       const messageRepository = manager.getRepository(
         InconnectMessagingMessageEntity,
@@ -139,6 +200,7 @@ export class InconnectMessagingSendService {
 
       // The persisted effective inbound instant, not caller data, controls free-form permission.
       if (
+        intent.mode === 'FREEFORM' &&
         !isInconnectMessagingFreeformWindowOpen({
           lastInboundAt: conversation.lastInboundAt,
           now: new Date(),
@@ -171,7 +233,12 @@ export class InconnectMessagingSendService {
           channel: connection.channel,
         });
 
-        if (!provider.capabilities.includes('DISPATCH_FREEFORM')) {
+        const requiredCapability =
+          intent.mode === 'FREEFORM'
+            ? 'DISPATCH_FREEFORM'
+            : 'DISPATCH_TEMPLATE';
+
+        if (!provider.capabilities.includes(requiredCapability)) {
           throw new Error('Unsupported provider capability');
         }
       } catch {
@@ -181,6 +248,24 @@ export class InconnectMessagingSendService {
       }
 
       const messageId = randomUUID();
+      let templateAudit: InconnectMessagingCatalogTemplate | null = null;
+      let renderedBody: string;
+
+      if (intent.mode === 'FREEFORM') {
+        renderedBody = intent.body;
+      } else {
+        if (selectedTemplate === null) {
+          throw new UserInputError('Template is unavailable', {
+            subCode: 'TEMPLATE_UNAVAILABLE',
+          });
+        }
+
+        templateAudit = selectedTemplate;
+        renderedBody = renderInconnectMessagingTemplateBody({
+          body: templateAudit.content.body,
+          variables: intent.variables,
+        });
+      }
 
       await messageRepository
         .createQueryBuilder()
@@ -192,8 +277,16 @@ export class InconnectMessagingSendService {
           providerConnectionId: connection.id,
           direction: 'OUTBOUND',
           type: 'TEXT',
-          sendMode: 'FREEFORM',
-          body,
+          sendMode: intent.mode,
+          body: renderedBody,
+          templateId: templateAudit?.id ?? null,
+          templateProviderReference: templateAudit?.providerReference ?? null,
+          templateDisplayName: templateAudit?.displayName ?? null,
+          templateLanguage: templateAudit?.language ?? null,
+          templateVariables:
+            intent.mode === 'TEMPLATE' ? intent.variables : null,
+          templateDefinitionFingerprint:
+            templateAudit?.definitionFingerprint ?? null,
           outboundState: 'QUEUED',
           providerMessageId: null,
           providerStatus: null,
@@ -280,5 +373,141 @@ export class InconnectMessagingSendService {
       messageId: created.messageId,
       outboundState: created.outboundState,
     };
+  }
+
+  async sendFreeformText(args: {
+    authContext: WorkspaceAuthContext;
+    conversationId: string;
+    clientRequestId: string;
+    body: string;
+  }): Promise<{ messageId: string; outboundState: string }> {
+    return this.sendMessage({ ...args, mode: 'FREEFORM' });
+  }
+
+  private normalizeIntent({
+    mode,
+    body,
+    templateId,
+    templateVariables,
+  }: {
+    mode: string;
+    body?: string;
+    templateId?: string;
+    templateVariables?: TemplateVariableInput[];
+  }): NormalizedSendIntent {
+    if (mode === 'FREEFORM') {
+      if (
+        body === undefined ||
+        body.trim().length === 0 ||
+        body.length > MAX_BODY_LENGTH ||
+        templateId !== undefined ||
+        templateVariables !== undefined
+      ) {
+        throw new UserInputError('Invalid message', {
+          subCode: 'INVALID_MESSAGE',
+        });
+      }
+
+      return { mode, body };
+    }
+
+    if (
+      mode !== 'TEMPLATE' ||
+      body !== undefined ||
+      templateId === undefined ||
+      templateId.length === 0
+    ) {
+      throw new UserInputError('Invalid message mode', {
+        subCode: 'INVALID_MESSAGE_MODE',
+      });
+    }
+
+    const variables: Record<string, string> = {};
+
+    for (const variable of templateVariables ?? []) {
+      if (
+        variable.key.length === 0 ||
+        Object.prototype.hasOwnProperty.call(variables, variable.key)
+      ) {
+        throw new UserInputError('Invalid template variables', {
+          subCode: 'INVALID_TEMPLATE_VARIABLES',
+        });
+      }
+
+      variables[variable.key] = variable.value;
+    }
+
+    return {
+      mode,
+      templateId,
+      variables: Object.fromEntries(
+        Object.entries(variables).sort(([left], [right]) =>
+          left.localeCompare(right, 'en', { numeric: true }),
+        ),
+      ),
+    };
+  }
+
+  private validateTemplateVariables(
+    template: InconnectMessagingCatalogTemplate,
+    variables: Record<string, string>,
+  ): void {
+    const expectedKeys = template.variables
+      .map(({ key }) => key)
+      .sort((left, right) =>
+        left.localeCompare(right, 'en', { numeric: true }),
+      );
+    const actualKeys = Object.keys(variables).sort((left, right) =>
+      left.localeCompare(right, 'en', { numeric: true }),
+    );
+    const variablesAreValid =
+      JSON.stringify(expectedKeys) === JSON.stringify(actualKeys) &&
+      template.variables.every((definition) => {
+        const value = variables[definition.key];
+
+        return (
+          typeof value === 'string' &&
+          (!definition.required || value.trim().length > 0) &&
+          value.length <= definition.maxLength &&
+          (definition.allowsNewlines || !/[\r\n]/.test(value))
+        );
+      });
+
+    if (!variablesAreValid) {
+      throw new UserInputError('Invalid template variables', {
+        subCode: 'INVALID_TEMPLATE_VARIABLES',
+      });
+    }
+  }
+
+  private buildRequestFingerprint({
+    workspaceId,
+    actorId,
+    conversationId,
+    clientRequestId,
+    intent,
+  }: {
+    workspaceId: string;
+    actorId: string;
+    conversationId: string;
+    clientRequestId: string;
+    intent: NormalizedSendIntent;
+  }): string {
+    const content =
+      intent.mode === 'FREEFORM'
+        ? ['TEXT', 'FREEFORM', intent.body]
+        : ['TEXT', 'TEMPLATE', intent.templateId, intent.variables];
+
+    return createHash('sha256')
+      .update(
+        JSON.stringify([
+          workspaceId,
+          actorId,
+          conversationId,
+          clientRequestId,
+          ...content,
+        ]),
+      )
+      .digest('hex');
   }
 }

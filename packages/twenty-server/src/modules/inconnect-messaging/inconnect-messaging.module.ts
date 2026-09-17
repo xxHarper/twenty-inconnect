@@ -31,6 +31,7 @@ import { InconnectMessagingOutboxRecoveryCronJob } from 'src/modules/inconnect-m
 import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-read.resolver';
 import { InconnectMessagingSendResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-send.resolver';
 import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
+import { InconnectMessagingTemplateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-template.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { InconnectMessagingMessageQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-message-query.service';
@@ -44,6 +45,8 @@ import { InconnectMessagingProviderConnectionRoutingService } from 'src/modules/
 import { InconnectMessagingWebhookIngressService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-ingress.service';
 import { InconnectMessagingWebhookProcessingService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-processing.service';
 import { InconnectMessagingWebhookReceiptService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-receipt.service';
+import { InconnectMessagingSendCapabilitiesService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-send-capabilities.service';
+import { InconnectMessagingTemplateCatalogService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-template-catalog.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -78,6 +81,9 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingReadResolver,
     InconnectMessagingSendService,
     InconnectMessagingSendResolver,
+    InconnectMessagingTemplateCatalogService,
+    InconnectMessagingSendCapabilitiesService,
+    InconnectMessagingTemplateResolver,
     InconnectMessagingDispatchService,
     InconnectMessagingDispatchJob,
     InconnectMessagingDispatchRecoveryCronJob,

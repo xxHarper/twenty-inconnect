@@ -4,6 +4,7 @@ import { useQuery } from '@apollo/client/react';
 import { IconArrowLeft } from 'twenty-ui/icon';
 
 import { InconnectMessagingMessageBubble } from '@/inconnect-messaging/components/InconnectMessagingMessageBubble';
+import { InconnectMessagingComposer } from '@/inconnect-messaging/components/InconnectMessagingComposer';
 import { mergeInconnectMessagingEdges } from '@/inconnect-messaging/utils/mergeInconnectMessagingEdges';
 import {
   InconnectMessagingConversationDocument,
@@ -31,6 +32,7 @@ type InconnectMessagingConversationViewProps = {
   onUnavailable: () => void;
   showBack: boolean;
   realtimeUnavailable: boolean;
+  onMessageAccepted: () => void;
 };
 
 export const InconnectMessagingConversationView = ({
@@ -40,6 +42,7 @@ export const InconnectMessagingConversationView = ({
   onUnavailable,
   showBack,
   realtimeUnavailable,
+  onMessageAccepted,
 }: InconnectMessagingConversationViewProps) => {
   const { t, i18n } = useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -255,7 +258,12 @@ export const InconnectMessagingConversationView = ({
           {realtimeUnavailable && (
             <div role="status">{t`Live updates are temporarily unavailable.`}</div>
           )}
-          {t`Message sending will be available later.`}
+          <InconnectMessagingComposer
+            conversationId={conversationId}
+            refreshNonce={refreshNonce}
+            onAccepted={onMessageAccepted}
+            onUnavailable={onUnavailable}
+          />
         </StyledFooter>
       )}
     </StyledView>

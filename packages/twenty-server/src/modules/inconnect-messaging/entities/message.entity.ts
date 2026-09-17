@@ -33,7 +33,11 @@ import {
 )
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_SEND_MODE',
-  `"sendMode" IS NULL OR "sendMode" = 'FREEFORM'`,
+  `"sendMode" IS NULL OR "sendMode" IN ('FREEFORM', 'TEMPLATE')`,
+)
+@Check(
+  'CHK_INCONNECT_MSG_MESSAGE_TEMPLATE',
+  `("sendMode" = 'TEMPLATE' AND "templateId" IS NOT NULL AND "templateProviderReference" IS NOT NULL AND "templateDisplayName" IS NOT NULL AND "templateLanguage" IS NOT NULL AND "templateVariables" IS NOT NULL AND "templateDefinitionFingerprint" IS NOT NULL) OR ("sendMode" IS DISTINCT FROM 'TEMPLATE' AND "templateId" IS NULL AND "templateProviderReference" IS NULL AND "templateDisplayName" IS NULL AND "templateLanguage" IS NULL AND "templateVariables" IS NULL AND "templateDefinitionFingerprint" IS NULL)`,
 )
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_OUTBOUND_STATE',
@@ -126,6 +130,24 @@ export class InconnectMessagingMessageEntity {
 
   @Column({ nullable: false, type: 'text' })
   body: string;
+
+  @Column({ nullable: true, type: 'uuid' })
+  templateId: string | null;
+
+  @Column({ nullable: true, type: 'text' })
+  templateProviderReference: string | null;
+
+  @Column({ nullable: true, type: 'text' })
+  templateDisplayName: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  templateLanguage: string | null;
+
+  @Column({ nullable: true, type: 'jsonb' })
+  templateVariables: Record<string, string> | null;
+
+  @Column({ nullable: true, type: 'text' })
+  templateDefinitionFingerprint: string | null;
 
   @Column({ nullable: true, type: 'varchar' })
   outboundState: InconnectMessagingOutboundState | null;

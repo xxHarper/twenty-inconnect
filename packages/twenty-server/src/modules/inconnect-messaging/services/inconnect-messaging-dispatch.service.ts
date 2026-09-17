@@ -20,7 +20,10 @@ import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-m
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { INCONNECT_MESSAGING_DISPATCH_JOB_NAME } from 'src/modules/inconnect-messaging/constants/inconnect-messaging-dispatch-job-name.constant';
-import { type InconnectMessagingDispatchResult } from 'src/modules/inconnect-messaging/providers/messaging-provider';
+import {
+  type InconnectMessagingDispatchRequest,
+  type InconnectMessagingDispatchResult,
+} from 'src/modules/inconnect-messaging/providers/messaging-provider';
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
 import {
   type InconnectMessagingOutboxPublicationRequest,
@@ -33,6 +36,7 @@ import {
   type InconnectMessagingJson,
   type InconnectMessagingOutboundState,
 } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
+import { buildInconnectMessagingTemplateDefinitionFingerprint } from 'src/modules/inconnect-messaging/utils/inconnect-messaging-template.util';
 
 const LEASE_MILLISECONDS = 5 * 60 * 1000;
 const RETRY_DELAY_MILLISECONDS = 15 * 1000;
@@ -239,11 +243,15 @@ export class InconnectMessagingDispatchService {
       return this.preSubmitFailure('CONNECTION_UNAVAILABLE');
     }
 
-    if (message.sendMode !== 'FREEFORM' || message.type !== 'TEXT') {
+    if (
+      message.type !== 'TEXT' ||
+      !['FREEFORM', 'TEMPLATE'].includes(message.sendMode ?? '')
+    ) {
       return this.preSubmitFailure('UNSUPPORTED_CONTENT');
     }
 
     if (
+      message.sendMode === 'FREEFORM' &&
       !isInconnectMessagingFreeformWindowOpen({
         lastInboundAt: conversation.lastInboundAt,
         now: new Date(),
@@ -282,14 +290,66 @@ export class InconnectMessagingDispatchService {
         channel: connection.channel,
       });
 
-      if (!provider.capabilities.includes('DISPATCH_FREEFORM')) {
+      const requiredCapability =
+        message.sendMode === 'FREEFORM'
+          ? 'DISPATCH_FREEFORM'
+          : 'DISPATCH_TEMPLATE';
+
+      if (!provider.capabilities.includes(requiredCapability)) {
         return this.preSubmitFailure('PROVIDER_UNAVAILABLE');
       }
     } catch {
       return this.preSubmitFailure('PROVIDER_UNAVAILABLE');
     }
 
-    // Persist this marker before any SDK call. A crash after it is conservatively UNKNOWN.
+    let content: InconnectMessagingDispatchRequest['content'];
+
+    if (message.sendMode === 'FREEFORM') {
+      content = { kind: 'FREEFORM_TEXT', body: message.body };
+    } else {
+      if (
+        message.templateProviderReference === null ||
+        message.templateVariables === null ||
+        message.templateDefinitionFingerprint === null
+      ) {
+        return this.preSubmitFailure('TEMPLATE_UNAVAILABLE');
+      }
+
+      if (provider.listTemplates === undefined) {
+        return this.preSubmitFailure('TEMPLATE_UNAVAILABLE');
+      }
+
+      let currentTemplates;
+
+      try {
+        currentTemplates = await provider.listTemplates({ credentials });
+      } catch {
+        return this.preSubmitFailure('TEMPLATE_CATALOG_UNAVAILABLE', true);
+      }
+
+      const currentTemplate = currentTemplates.find(
+        (template) =>
+          template.availability === 'AVAILABLE' &&
+          template.providerReference === message.templateProviderReference,
+      );
+
+      if (
+        currentTemplate === undefined ||
+        buildInconnectMessagingTemplateDefinitionFingerprint(
+          currentTemplate,
+        ) !== message.templateDefinitionFingerprint
+      ) {
+        return this.preSubmitFailure('TEMPLATE_UNAVAILABLE');
+      }
+
+      content = {
+        kind: 'TEMPLATE',
+        templateProviderReference: message.templateProviderReference,
+        variables: message.templateVariables,
+      };
+    }
+
+    // Persist this marker before any SDK send call. A crash after it is conservatively UNKNOWN.
     const marked = await this.attemptRepository.update(
       { id: claim.attemptId, leaseToken: claim.leaseToken, outcome: IsNull() },
       { providerRequestStartedAt: new Date() },
@@ -315,7 +375,7 @@ export class InconnectMessagingDispatchService {
         senderAddressNormalized: connection.normalizedSenderAddress,
         callbackRoutingKey: connection.inboundRoutingKey,
         credentials,
-        content: { kind: 'FREEFORM_TEXT', body: message.body },
+        content,
       });
     } catch {
       return {
@@ -329,13 +389,16 @@ export class InconnectMessagingDispatchService {
     }
   }
 
-  private preSubmitFailure(code: string): InconnectMessagingDispatchResult {
+  private preSubmitFailure(
+    code: string,
+    retryable = false,
+  ): InconnectMessagingDispatchResult {
     return {
       kind: 'FAILED_BEFORE_SUBMIT',
       error: {
         code,
         message: 'Message could not be submitted',
-        retryable: false,
+        retryable,
       },
     };
   }

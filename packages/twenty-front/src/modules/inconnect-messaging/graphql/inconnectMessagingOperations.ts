@@ -52,6 +52,7 @@ export const INCONNECT_MESSAGING_MESSAGES = gql`
           direction
           type
           body
+          sendMode
           outboundState
           displayAt
           location {
@@ -64,11 +65,50 @@ export const INCONNECT_MESSAGING_MESSAGES = gql`
           media {
             contentType
           }
+          template {
+            id
+            displayName
+            language
+            variables {
+              key
+              value
+            }
+          }
         }
       }
       pageInfo {
         hasNextPage
         endCursor
+      }
+    }
+  }
+`;
+
+export const INCONNECT_MESSAGING_SEND_CAPABILITIES = gql`
+  query InconnectMessagingSendCapabilities($conversationId: UUID!) {
+    inconnectMessagingSendCapabilities(conversationId: $conversationId) {
+      canSend
+      canSendFreeform
+      canSendTemplate
+      sessionWindowState
+      freeformWindowExpiresAt
+      freeformUnavailableReason
+      templateUnavailableReason
+    }
+  }
+`;
+
+export const INCONNECT_MESSAGING_TEMPLATES = gql`
+  query InconnectMessagingTemplates($conversationId: UUID!) {
+    inconnectMessagingTemplates(conversationId: $conversationId) {
+      id
+      displayName
+      language
+      body
+      variables {
+        key
+        required
+        maxLength
       }
     }
   }

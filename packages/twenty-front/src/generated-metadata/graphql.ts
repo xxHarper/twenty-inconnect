@@ -2238,6 +2238,8 @@ export type InconnectMessagingMessage = {
   location?: Maybe<InconnectMessagingLocation>;
   media: Array<InconnectMessagingMedia>;
   outboundState?: Maybe<Scalars['String']['output']>;
+  sendMode?: Maybe<Scalars['String']['output']>;
+  template?: Maybe<InconnectMessagingMessageTemplateAudit>;
   type: Scalars['String']['output'];
 };
 
@@ -2254,6 +2256,14 @@ export type InconnectMessagingMessageEdge = {
   node: InconnectMessagingMessage;
 };
 
+export type InconnectMessagingMessageTemplateAudit = {
+  __typename?: 'InconnectMessagingMessageTemplateAudit';
+  displayName: Scalars['String']['output'];
+  id: Scalars['UUID']['output'];
+  language: Scalars['String']['output'];
+  variables: Array<InconnectMessagingTemplateVariableValue>;
+};
+
 export type InconnectMessagingPaging = {
   after?: InputMaybe<Scalars['ConnectionCursor']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
@@ -2266,6 +2276,44 @@ export type InconnectMessagingRealtimeEvent = {
   eventType: Scalars['String']['output'];
   messageId?: Maybe<Scalars['UUID']['output']>;
   occurredAt: Scalars['DateTime']['output'];
+};
+
+export type InconnectMessagingSendCapabilities = {
+  __typename?: 'InconnectMessagingSendCapabilities';
+  canSend: Scalars['Boolean']['output'];
+  canSendFreeform: Scalars['Boolean']['output'];
+  canSendTemplate: Scalars['Boolean']['output'];
+  freeformUnavailableReason?: Maybe<Scalars['String']['output']>;
+  freeformWindowExpiresAt?: Maybe<Scalars['DateTime']['output']>;
+  sessionWindowState: Scalars['String']['output'];
+  templateUnavailableReason?: Maybe<Scalars['String']['output']>;
+};
+
+export type InconnectMessagingTemplate = {
+  __typename?: 'InconnectMessagingTemplate';
+  body: Scalars['String']['output'];
+  displayName: Scalars['String']['output'];
+  id: Scalars['UUID']['output'];
+  language: Scalars['String']['output'];
+  variables: Array<InconnectMessagingTemplateVariable>;
+};
+
+export type InconnectMessagingTemplateVariable = {
+  __typename?: 'InconnectMessagingTemplateVariable';
+  key: Scalars['String']['output'];
+  maxLength: Scalars['Int']['output'];
+  required: Scalars['Boolean']['output'];
+};
+
+export type InconnectMessagingTemplateVariableInput = {
+  key: Scalars['String']['input'];
+  value: Scalars['String']['input'];
+};
+
+export type InconnectMessagingTemplateVariableValue = {
+  __typename?: 'InconnectMessagingTemplateVariableValue';
+  key: Scalars['String']['output'];
+  value: Scalars['String']['output'];
 };
 
 export enum InconnectRecordAccessCacheStatus {
@@ -4986,6 +5034,8 @@ export type Query = {
   inconnectMessagingConversation?: Maybe<InconnectMessagingConversation>;
   inconnectMessagingConversations: InconnectMessagingConversationConnection;
   inconnectMessagingMessages?: Maybe<InconnectMessagingMessageConnection>;
+  inconnectMessagingSendCapabilities?: Maybe<InconnectMessagingSendCapabilities>;
+  inconnectMessagingTemplates?: Maybe<Array<InconnectMessagingTemplate>>;
   isApplicationStopped: Scalars['Boolean']['output'];
   lineChartData: LineChartData;
   listPlans: Array<BillingPlan>;
@@ -5365,6 +5415,16 @@ export type QueryInconnectMessagingConversationsArgs = {
 export type QueryInconnectMessagingMessagesArgs = {
   conversationId: Scalars['UUID']['input'];
   paging?: InputMaybe<InconnectMessagingPaging>;
+};
+
+
+export type QueryInconnectMessagingSendCapabilitiesArgs = {
+  conversationId: Scalars['UUID']['input'];
+};
+
+
+export type QueryInconnectMessagingTemplatesArgs = {
+  conversationId: Scalars['UUID']['input'];
 };
 
 
@@ -5748,9 +5808,12 @@ export type SendEmailViaDomainOutput = {
 };
 
 export type SendInconnectMessagingMessageInput = {
-  body: Scalars['String']['input'];
+  body?: InputMaybe<Scalars['String']['input']>;
   clientRequestId: Scalars['UUID']['input'];
   conversationId: Scalars['UUID']['input'];
+  mode: Scalars['String']['input'];
+  templateId?: InputMaybe<Scalars['UUID']['input']>;
+  templateVariables?: InputMaybe<Array<InconnectMessagingTemplateVariableInput>>;
 };
 
 export type SendInconnectMessagingMessageResult = {
@@ -8029,7 +8092,21 @@ export type InconnectMessagingMessagesQueryVariables = Exact<{
 }>;
 
 
-export type InconnectMessagingMessagesQuery = { __typename?: 'Query', inconnectMessagingMessages?: { __typename?: 'InconnectMessagingMessageConnection', edges: Array<{ __typename?: 'InconnectMessagingMessageEdge', cursor: string, node: { __typename?: 'InconnectMessagingMessage', id: string, direction: string, type: string, body: string, outboundState?: string | null, displayAt: string, location?: { __typename?: 'InconnectMessagingLocation', latitude: string, longitude: string, label?: string | null, name?: string | null, address?: string | null } | null, media: Array<{ __typename?: 'InconnectMessagingMedia', contentType?: string | null }> } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage?: boolean | null, endCursor?: any | null } } | null };
+export type InconnectMessagingMessagesQuery = { __typename?: 'Query', inconnectMessagingMessages?: { __typename?: 'InconnectMessagingMessageConnection', edges: Array<{ __typename?: 'InconnectMessagingMessageEdge', cursor: string, node: { __typename?: 'InconnectMessagingMessage', id: string, direction: string, type: string, body: string, sendMode?: string | null, outboundState?: string | null, displayAt: string, location?: { __typename?: 'InconnectMessagingLocation', latitude: string, longitude: string, label?: string | null, name?: string | null, address?: string | null } | null, media: Array<{ __typename?: 'InconnectMessagingMedia', contentType?: string | null }>, template?: { __typename?: 'InconnectMessagingMessageTemplateAudit', id: string, displayName: string, language: string, variables: Array<{ __typename?: 'InconnectMessagingTemplateVariableValue', key: string, value: string }> } | null } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage?: boolean | null, endCursor?: any | null } } | null };
+
+export type InconnectMessagingSendCapabilitiesQueryVariables = Exact<{
+  conversationId: Scalars['UUID']['input'];
+}>;
+
+
+export type InconnectMessagingSendCapabilitiesQuery = { __typename?: 'Query', inconnectMessagingSendCapabilities?: { __typename?: 'InconnectMessagingSendCapabilities', canSend: boolean, canSendFreeform: boolean, canSendTemplate: boolean, sessionWindowState: string, freeformWindowExpiresAt?: string | null, freeformUnavailableReason?: string | null, templateUnavailableReason?: string | null } | null };
+
+export type InconnectMessagingTemplatesQueryVariables = Exact<{
+  conversationId: Scalars['UUID']['input'];
+}>;
+
+
+export type InconnectMessagingTemplatesQuery = { __typename?: 'Query', inconnectMessagingTemplates?: Array<{ __typename?: 'InconnectMessagingTemplate', id: string, displayName: string, language: string, body: string, variables: Array<{ __typename?: 'InconnectMessagingTemplateVariable', key: string, required: boolean, maxLength: number }> }> | null };
 
 export type SendInconnectMessagingMessageMutationVariables = Exact<{
   input: SendInconnectMessagingMessageInput;
@@ -10031,7 +10108,9 @@ export const GetAutoCompleteAddressDocument = {"kind":"Document","definitions":[
 export const GetAddressDetailsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetAddressDetails"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"placeId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"token"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getAddressDetails"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"placeId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"placeId"}}},{"kind":"Argument","name":{"kind":"Name","value":"token"},"value":{"kind":"Variable","name":{"kind":"Name","value":"token"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"street"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"postcode"}},{"kind":"Field","name":{"kind":"Name","value":"city"}},{"kind":"Field","name":{"kind":"Name","value":"country"}},{"kind":"Field","name":{"kind":"Name","value":"location"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"lat"}},{"kind":"Field","name":{"kind":"Name","value":"lng"}}]}}]}}]}}]} as unknown as DocumentNode<GetAddressDetailsQuery, GetAddressDetailsQueryVariables>;
 export const InconnectMessagingConversationsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingConversations"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"search"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paging"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingPaging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingConversations"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"search"},"value":{"kind":"Variable","name":{"kind":"Name","value":"search"}}},{"kind":"Argument","name":{"kind":"Name","value":"paging"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"node"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"externalAddress"}},{"kind":"Field","name":{"kind":"Name","value":"isLinked"}},{"kind":"Field","name":{"kind":"Name","value":"lastInboundAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"pageInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"endCursor"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingConversationsQuery, InconnectMessagingConversationsQueryVariables>;
 export const InconnectMessagingConversationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingConversation"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingConversation"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"externalAddress"}},{"kind":"Field","name":{"kind":"Name","value":"isLinked"}},{"kind":"Field","name":{"kind":"Name","value":"lastInboundAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingConversationQuery, InconnectMessagingConversationQueryVariables>;
-export const InconnectMessagingMessagesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingMessages"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paging"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingPaging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingMessages"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"conversationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}}},{"kind":"Argument","name":{"kind":"Name","value":"paging"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"node"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"direction"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"outboundState"}},{"kind":"Field","name":{"kind":"Name","value":"displayAt"}},{"kind":"Field","name":{"kind":"Name","value":"location"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"latitude"}},{"kind":"Field","name":{"kind":"Name","value":"longitude"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"address"}}]}},{"kind":"Field","name":{"kind":"Name","value":"media"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"contentType"}}]}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"pageInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"endCursor"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingMessagesQuery, InconnectMessagingMessagesQueryVariables>;
+export const InconnectMessagingMessagesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingMessages"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paging"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingPaging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingMessages"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"conversationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}}},{"kind":"Argument","name":{"kind":"Name","value":"paging"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"node"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"direction"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"sendMode"}},{"kind":"Field","name":{"kind":"Name","value":"outboundState"}},{"kind":"Field","name":{"kind":"Name","value":"displayAt"}},{"kind":"Field","name":{"kind":"Name","value":"location"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"latitude"}},{"kind":"Field","name":{"kind":"Name","value":"longitude"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"address"}}]}},{"kind":"Field","name":{"kind":"Name","value":"media"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"contentType"}}]}},{"kind":"Field","name":{"kind":"Name","value":"template"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"language"}},{"kind":"Field","name":{"kind":"Name","value":"variables"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"key"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}}]}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"pageInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"endCursor"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingMessagesQuery, InconnectMessagingMessagesQueryVariables>;
+export const InconnectMessagingSendCapabilitiesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingSendCapabilities"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingSendCapabilities"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"conversationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"canSend"}},{"kind":"Field","name":{"kind":"Name","value":"canSendFreeform"}},{"kind":"Field","name":{"kind":"Name","value":"canSendTemplate"}},{"kind":"Field","name":{"kind":"Name","value":"sessionWindowState"}},{"kind":"Field","name":{"kind":"Name","value":"freeformWindowExpiresAt"}},{"kind":"Field","name":{"kind":"Name","value":"freeformUnavailableReason"}},{"kind":"Field","name":{"kind":"Name","value":"templateUnavailableReason"}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingSendCapabilitiesQuery, InconnectMessagingSendCapabilitiesQueryVariables>;
+export const InconnectMessagingTemplatesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingTemplates"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingTemplates"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"conversationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"language"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"variables"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"key"}},{"kind":"Field","name":{"kind":"Name","value":"required"}},{"kind":"Field","name":{"kind":"Name","value":"maxLength"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingTemplatesQuery, InconnectMessagingTemplatesQueryVariables>;
 export const SendInconnectMessagingMessageDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SendInconnectMessagingMessage"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"SendInconnectMessagingMessageInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sendInconnectMessagingMessage"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"messageId"}},{"kind":"Field","name":{"kind":"Name","value":"outboundState"}}]}}]}}]} as unknown as DocumentNode<SendInconnectMessagingMessageMutation, SendInconnectMessagingMessageMutationVariables>;
 export const OnInconnectMessagingEventDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"OnInconnectMessagingEvent"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"onInconnectMessagingEvent"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"eventId"}},{"kind":"Field","name":{"kind":"Name","value":"eventType"}},{"kind":"Field","name":{"kind":"Name","value":"conversationId"}}]}}]}}]} as unknown as DocumentNode<OnInconnectMessagingEventSubscription, OnInconnectMessagingEventSubscriptionVariables>;
 export const CreateOneLogicFunctionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateOneLogicFunction"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateLogicFunctionFromSourceInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createOneLogicFunction"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"LogicFunctionFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"LogicFunctionFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"LogicFunction"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"runtime"}},{"kind":"Field","name":{"kind":"Name","value":"timeoutSeconds"}},{"kind":"Field","name":{"kind":"Name","value":"executionMode"}},{"kind":"Field","name":{"kind":"Name","value":"sourceHandlerPath"}},{"kind":"Field","name":{"kind":"Name","value":"handlerName"}},{"kind":"Field","name":{"kind":"Name","value":"cronTriggerSettings"}},{"kind":"Field","name":{"kind":"Name","value":"databaseEventTriggerSettings"}},{"kind":"Field","name":{"kind":"Name","value":"httpRouteTriggerSettings"}},{"kind":"Field","name":{"kind":"Name","value":"toolTriggerSettings"}},{"kind":"Field","name":{"kind":"Name","value":"workflowActionTriggerSettings"}},{"kind":"Field","name":{"kind":"Name","value":"applicationId"}},{"kind":"Field","name":{"kind":"Name","value":"universalIdentifier"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}}]} as unknown as DocumentNode<CreateOneLogicFunctionMutation, CreateOneLogicFunctionMutationVariables>;

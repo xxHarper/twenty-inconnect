@@ -79,6 +79,10 @@ const buildService = () => {
     }),
   } as unknown as EntityManager;
   const dataSource = {
+    getRepository: jest.fn().mockImplementation((entity: unknown) => {
+      if (entity === InconnectMessagingMessageEntity) return messageRepository;
+      throw new Error('Unexpected repository');
+    }),
     transaction: jest
       .fn()
       .mockImplementation(
@@ -97,7 +101,9 @@ const buildService = () => {
       .mockResolvedValue(conversation),
   };
   const providerRegistry = {
-    resolve: jest.fn().mockReturnValue({ capabilities: ['DISPATCH_FREEFORM'] }),
+    resolve: jest.fn().mockReturnValue({
+      capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_TEMPLATE'],
+    }),
   };
   const dispatchService = {
     requestDispatch: jest.fn().mockImplementation(async () => {
@@ -109,12 +115,46 @@ const buildService = () => {
   const outboxService = {
     requestPublication: jest.fn().mockResolvedValue(true),
   };
+  const templateCatalogService = {
+    getAuthorizedCatalog: jest.fn().mockResolvedValue({
+      conversation,
+      supportsFreeform: true,
+      supportsTemplates: true,
+      catalogAvailable: true,
+      templates: [
+        {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          providerReference: 'opaque-provider-reference',
+          displayName: 'Appointment reminder',
+          language: 'es',
+          availability: 'AVAILABLE',
+          content: { kind: 'TEXT', body: 'Hola {{1}}, cita {{2}}.' },
+          variables: [
+            {
+              key: '1',
+              required: true,
+              maxLength: 1600,
+              allowsNewlines: false,
+            },
+            {
+              key: '2',
+              required: true,
+              maxLength: 1600,
+              allowsNewlines: false,
+            },
+          ],
+          definitionFingerprint: 'definition-fingerprint',
+        },
+      ],
+    }),
+  };
   const service = new InconnectMessagingSendService(
     dataSource as never,
     authorizationService as never,
     providerRegistry as never,
     dispatchService as never,
     outboxService as never,
+    templateCatalogService as never,
   );
 
   return {
@@ -127,6 +167,8 @@ const buildService = () => {
     outboxRepository,
     dispatchService,
     outboxService,
+    templateCatalogService,
+    queryBuilder,
   };
 };
 
@@ -280,5 +322,161 @@ describe('InconnectMessagingSendService', () => {
 
     expect(second.messageId).not.toBe(first.messageId);
     expect(fixture.attemptRepository.insert).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends a valid template outside the free-form window and persists its audit snapshot', async () => {
+    const fixture = buildService();
+
+    fixture.conversationRepository.findOne.mockResolvedValue({
+      ...conversation,
+      lastInboundAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+    });
+    const result = await fixture.service.sendMessage({
+      authContext: authContext as never,
+      conversationId,
+      clientRequestId,
+      mode: 'TEMPLATE',
+      templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      templateVariables: [
+        { key: '2', value: 'mañana' },
+        { key: '1', value: 'Ana' },
+      ],
+    });
+
+    expect(result.outboundState).toBe('QUEUED');
+    expect(fixture.messageRepository.createQueryBuilder).toHaveBeenCalled();
+    expect(fixture.queryBuilder.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sendMode: 'TEMPLATE',
+        body: 'Hola Ana, cita mañana.',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateProviderReference: 'opaque-provider-reference',
+        templateDisplayName: 'Appointment reminder',
+        templateLanguage: 'es',
+        templateVariables: { '1': 'Ana', '2': 'mañana' },
+        templateDefinitionFingerprint: 'definition-fingerprint',
+      }),
+    );
+    expect(fixture.dispatchService.requestDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a valid template inside the free-form window', async () => {
+    const fixture = buildService();
+
+    await expect(
+      fixture.service.sendMessage({
+        authContext: authContext as never,
+        conversationId,
+        clientRequestId,
+        mode: 'TEMPLATE',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateVariables: [
+          { key: '1', value: 'Ana' },
+          { key: '2', value: 'mañana' },
+        ],
+      }),
+    ).resolves.toMatchObject({ outboundState: 'QUEUED' });
+  });
+
+  it('rejects a template that is not in the current authorized catalog', async () => {
+    const fixture = buildService();
+
+    fixture.templateCatalogService.getAuthorizedCatalog.mockResolvedValue({
+      conversation,
+      supportsFreeform: true,
+      supportsTemplates: true,
+      catalogAvailable: true,
+      templates: [],
+    });
+    await expect(
+      fixture.service.sendMessage({
+        authContext: authContext as never,
+        conversationId,
+        clientRequestId,
+        mode: 'TEMPLATE',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateVariables: [],
+      }),
+    ).rejects.toMatchObject({
+      extensions: { subCode: 'TEMPLATE_UNAVAILABLE' },
+    });
+    expect(fixture.dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing, extra, and changed template variables', async () => {
+    const fixture = buildService();
+
+    await expect(
+      fixture.service.sendMessage({
+        authContext: authContext as never,
+        conversationId,
+        clientRequestId,
+        mode: 'TEMPLATE',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateVariables: [{ key: '1', value: 'Ana' }],
+      }),
+    ).rejects.toMatchObject({
+      extensions: { subCode: 'INVALID_TEMPLATE_VARIABLES' },
+    });
+
+    await expect(
+      fixture.service.sendMessage({
+        authContext: authContext as never,
+        conversationId,
+        clientRequestId,
+        mode: 'TEMPLATE',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateVariables: [
+          { key: '1', value: 'Ana' },
+          { key: '2', value: 'mañana' },
+          { key: '3', value: 'extra' },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      extensions: { subCode: 'INVALID_TEMPLATE_VARIABLES' },
+    });
+  });
+
+  it('conflicts when the same template request ID is reused with different variables', async () => {
+    const fixture = buildService();
+    const sendTemplate = (value: string) =>
+      fixture.service.sendMessage({
+        authContext: authContext as never,
+        conversationId,
+        clientRequestId,
+        mode: 'TEMPLATE',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateVariables: [
+          { key: '1', value },
+          { key: '2', value: 'mañana' },
+        ],
+      });
+
+    await sendTemplate('Ana');
+    await expect(sendTemplate('Beto')).rejects.toThrow(
+      'IDEMPOTENCY_KEY_CONFLICT',
+    );
+  });
+
+  it('returns the same durable Message for an identical template retry', async () => {
+    const fixture = buildService();
+    const sendTemplate = () =>
+      fixture.service.sendMessage({
+        authContext: authContext as never,
+        conversationId,
+        clientRequestId,
+        mode: 'TEMPLATE',
+        templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        templateVariables: [
+          { key: '1', value: 'Ana' },
+          { key: '2', value: 'mañana' },
+        ],
+      });
+
+    const first = await sendTemplate();
+    const retry = await sendTemplate();
+
+    expect(retry).toEqual(first);
+    expect(fixture.dispatchService.requestDispatch).toHaveBeenCalledTimes(1);
   });
 });

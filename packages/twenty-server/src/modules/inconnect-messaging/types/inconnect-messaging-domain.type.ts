@@ -15,7 +15,7 @@ export const INCONNECT_MESSAGING_MESSAGE_TYPES = [
 export type InconnectMessagingMessageType =
   (typeof INCONNECT_MESSAGING_MESSAGE_TYPES)[number];
 
-export const INCONNECT_MESSAGING_SEND_MODES = ['FREEFORM'] as const;
+export const INCONNECT_MESSAGING_SEND_MODES = ['FREEFORM', 'TEMPLATE'] as const;
 
 export type InconnectMessagingSendMode =
   (typeof INCONNECT_MESSAGING_SEND_MODES)[number];

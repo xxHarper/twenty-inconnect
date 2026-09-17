@@ -6,6 +6,7 @@ import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { InconnectMessagingDispatchService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-dispatch.service';
+import { buildInconnectMessagingTemplateDefinitionFingerprint } from 'src/modules/inconnect-messaging/utils/inconnect-messaging-template.util';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const messageId = '22222222-2222-4222-8222-222222222222';
@@ -33,6 +34,12 @@ const buildService = () => {
     type: 'TEXT',
     sendMode: 'FREEFORM',
     body: 'Hola',
+    templateId: null as string | null,
+    templateProviderReference: null as string | null,
+    templateDisplayName: null as string | null,
+    templateLanguage: null as string | null,
+    templateVariables: null as Record<string, string> | null,
+    templateDefinitionFingerprint: null as string | null,
     outboundState: 'QUEUED',
     providerMessageId: null as string | null,
     providerStatus: null as string | null,
@@ -120,7 +127,8 @@ const buildService = () => {
   };
   const queue = { add: jest.fn().mockResolvedValue(undefined) };
   const provider = {
-    capabilities: ['DISPATCH_FREEFORM'],
+    capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_TEMPLATE'],
+    listTemplates: jest.fn(),
     dispatch: jest.fn().mockResolvedValue({
       kind: 'ACCEPTED',
       providerMessageId: 'SM123',
@@ -252,5 +260,64 @@ describe('InconnectMessagingDispatchService', () => {
       1,
     );
     expect(fixture.queue.add).toHaveBeenCalledTimes(2);
+  });
+
+  it('revalidates and dispatches a durable template without applying the free-form window', async () => {
+    const fixture = buildService();
+    const template = {
+      providerReference: 'opaque-template-reference',
+      displayName: 'Appointment reminder',
+      language: 'es',
+      availability: 'AVAILABLE' as const,
+      content: { kind: 'TEXT' as const, body: 'Hola {{1}}' },
+      variables: [
+        {
+          key: '1',
+          required: true,
+          maxLength: 1600,
+          allowsNewlines: false,
+        },
+      ],
+    };
+
+    fixture.message.sendMode = 'TEMPLATE';
+    fixture.message.body = 'Hola Ana';
+    fixture.message.templateId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    fixture.message.templateProviderReference = template.providerReference;
+    fixture.message.templateDisplayName = template.displayName;
+    fixture.message.templateLanguage = template.language;
+    fixture.message.templateVariables = { '1': 'Ana' };
+    fixture.message.templateDefinitionFingerprint =
+      buildInconnectMessagingTemplateDefinitionFingerprint(template);
+    fixture.conversation.lastInboundAt = new Date(
+      Date.now() - 25 * 60 * 60 * 1000,
+    );
+    fixture.provider.listTemplates.mockResolvedValue([template]);
+
+    await fixture.service.dispatchMessage(messageId);
+    expect(fixture.provider.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: {
+          kind: 'TEMPLATE',
+          templateProviderReference: 'opaque-template-reference',
+          variables: { '1': 'Ana' },
+        },
+      }),
+    );
+    expect(fixture.message.outboundState).toBe('SENT');
+  });
+
+  it('fails safely when a durable template is no longer available', async () => {
+    const fixture = buildService();
+
+    fixture.message.sendMode = 'TEMPLATE';
+    fixture.message.templateProviderReference = 'removed-template';
+    fixture.message.templateVariables = {};
+    fixture.message.templateDefinitionFingerprint = 'old-fingerprint';
+    fixture.provider.listTemplates.mockResolvedValue([]);
+
+    await fixture.service.dispatchMessage(messageId);
+    expect(fixture.provider.dispatch).not.toHaveBeenCalled();
+    expect(fixture.message.outboundState).toBe('FAILED');
   });
 });

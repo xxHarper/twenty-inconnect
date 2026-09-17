@@ -158,6 +158,10 @@ export const InconnectMessagingPage = () => {
     setSelectedId(null);
     setSelectionUnavailable(true);
   }, []);
+  const handleMessageAccepted = useCallback(
+    () => scheduleRefresh(true, true),
+    [scheduleRefresh],
+  );
 
   if (!hasMessagingPermission) {
     return (
@@ -247,6 +251,7 @@ export const InconnectMessagingPage = () => {
             onUnavailable={handleUnavailable}
             showBack={isMobile}
             realtimeUnavailable={!sseClient || subscriptionError}
+            onMessageAccepted={handleMessageAccepted}
           />
         ) : (
           !isMobile && (

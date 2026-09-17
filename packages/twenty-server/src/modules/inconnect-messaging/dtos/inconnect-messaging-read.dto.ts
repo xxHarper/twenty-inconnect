@@ -2,6 +2,7 @@ import { Field, Int, ObjectType } from '@nestjs/graphql';
 
 import { UUIDScalarType } from 'src/engine/api/graphql/workspace-schema-builder/graphql-types/scalars';
 import { PageInfoDTO } from 'src/engine/metadata-modules/pagination/dtos/page-info.dto';
+import { InconnectMessagingMessageTemplateAuditDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-template.dto';
 
 @ObjectType('InconnectMessagingConversation')
 export class InconnectMessagingConversationDTO {
@@ -90,6 +91,9 @@ export class InconnectMessagingMessageDTO {
   body: string;
 
   @Field(() => String, { nullable: true })
+  sendMode: string | null;
+
+  @Field(() => String, { nullable: true })
   outboundState: string | null;
 
   @Field(() => Date)
@@ -103,6 +107,9 @@ export class InconnectMessagingMessageDTO {
 
   @Field(() => [InconnectMessagingMediaDTO])
   media: InconnectMessagingMediaDTO[];
+
+  @Field(() => InconnectMessagingMessageTemplateAuditDTO, { nullable: true })
+  template: InconnectMessagingMessageTemplateAuditDTO | null;
 }
 
 @ObjectType('InconnectMessagingMessageEdge')

@@ -12,6 +12,8 @@ import {
   type InconnectMessagingNormalizedStatus,
   type InconnectMessagingNormalizedWebhook,
   type InconnectMessagingProvider,
+  type InconnectMessagingProviderTemplate,
+  type InconnectMessagingTemplateCatalogRequest,
   type InconnectMessagingWebhookNormalizationRequest,
   type InconnectMessagingWebhookRequest,
   type InconnectMessagingWebhookRoutingHints,
@@ -35,6 +37,79 @@ const twilioCredentialsSchema = z.object({
   authToken: z.string().min(1),
   accountSid: z.string().min(1).optional(),
 });
+
+const TWILIO_CONTENT_SID_PATTERN = /^HX[0-9a-fA-F]{32}$/;
+const TWILIO_TEMPLATE_VARIABLE_PATTERN = /{{\s*([A-Za-z0-9]+)\s*}}/g;
+const MAX_TWILIO_TEMPLATE_VARIABLES = 100;
+const MAX_TWILIO_TEMPLATE_VARIABLE_LENGTH = 1600;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizeTwilioTextTemplate = (template: {
+  sid: string;
+  friendlyName: string;
+  language: string;
+  variables: Record<string, object>;
+  types: Record<string, object>;
+  approvalRequests: Record<string, object>;
+}): InconnectMessagingProviderTemplate | null => {
+  const whatsappApproval = template.approvalRequests.whatsapp;
+  const textContent = template.types['twilio/text'];
+
+  if (
+    !TWILIO_CONTENT_SID_PATTERN.test(template.sid) ||
+    template.friendlyName.trim().length === 0 ||
+    template.language.trim().length === 0 ||
+    !isRecord(whatsappApproval) ||
+    typeof whatsappApproval.status !== 'string' ||
+    whatsappApproval.status.toLowerCase() !== 'approved' ||
+    !isRecord(textContent) ||
+    typeof textContent.body !== 'string' ||
+    textContent.body.length === 0
+  ) {
+    return null;
+  }
+
+  const bodyVariableKeys = Array.from(
+    textContent.body.matchAll(TWILIO_TEMPLATE_VARIABLE_PATTERN),
+    (match) => match[1],
+  );
+  const uniqueBodyVariableKeys = [...new Set(bodyVariableKeys)].sort(
+    (left, right) => left.localeCompare(right, 'en', { numeric: true }),
+  );
+  const declaredVariableKeys = Object.keys(template.variables).sort(
+    (left, right) => left.localeCompare(right, 'en', { numeric: true }),
+  );
+
+  if (
+    uniqueBodyVariableKeys.length > MAX_TWILIO_TEMPLATE_VARIABLES ||
+    uniqueBodyVariableKeys.some(
+      (key) => key.length > 16 || !/^[A-Za-z0-9]+$/.test(key),
+    ) ||
+    JSON.stringify(uniqueBodyVariableKeys) !==
+      JSON.stringify(declaredVariableKeys) ||
+    textContent.body
+      .replace(TWILIO_TEMPLATE_VARIABLE_PATTERN, '')
+      .includes('{{')
+  ) {
+    return null;
+  }
+
+  return {
+    providerReference: template.sid,
+    displayName: template.friendlyName,
+    language: template.language,
+    availability: 'AVAILABLE',
+    content: { kind: 'TEXT', body: textContent.body },
+    variables: uniqueBodyVariableKeys.map((key) => ({
+      key,
+      required: true,
+      maxLength: MAX_TWILIO_TEMPLATE_VARIABLE_LENGTH,
+      allowsNewlines: false,
+    })),
+  };
+};
 
 const getSingleParameter = (
   parameters: Record<string, string | string[]>,
@@ -187,6 +262,7 @@ export class TwilioWhatsappMessagingProvider
   public readonly capabilities = [
     'NORMALIZE_WEBHOOK',
     'DISPATCH_FREEFORM',
+    'DISPATCH_TEMPLATE',
   ] as const;
 
   public constructor(
@@ -202,17 +278,6 @@ export class TwilioWhatsappMessagingProvider
   public async dispatch(
     request: InconnectMessagingDispatchRequest,
   ): Promise<InconnectMessagingDispatchResult> {
-    if (request.content.kind !== 'FREEFORM_TEXT') {
-      return {
-        kind: 'REJECTED_DEFINITIVE',
-        error: {
-          code: 'TEMPLATE_NOT_AVAILABLE',
-          message: 'Template dispatch is not available',
-          retryable: false,
-        },
-      };
-    }
-
     const credentials = twilioCredentialsSchema.safeParse(request.credentials);
     const sender = normalizeWhatsappAddress(request.senderAddressNormalized);
     const destination = normalizeWhatsappAddress(
@@ -224,7 +289,11 @@ export class TwilioWhatsappMessagingProvider
       credentials.data.accountSid === undefined ||
       sender === null ||
       destination === null ||
-      request.content.body.trim().length === 0
+      (request.content.kind === 'FREEFORM_TEXT'
+        ? request.content.body.trim().length === 0
+        : !TWILIO_CONTENT_SID_PATTERN.test(
+            request.content.templateProviderReference,
+          ))
     ) {
       return {
         kind: 'FAILED_BEFORE_SUBMIT',
@@ -268,10 +337,17 @@ export class TwilioWhatsappMessagingProvider
         credentials.data.accountSid,
         credentials.data.authToken,
       );
+      const content =
+        request.content.kind === 'FREEFORM_TEXT'
+          ? { body: request.content.body }
+          : {
+              contentSid: request.content.templateProviderReference,
+              contentVariables: JSON.stringify(request.content.variables),
+            };
       const message = await client.messages.create({
         from: `whatsapp:${sender}`,
         to: `whatsapp:${destination}`,
-        body: request.content.body,
+        ...content,
         statusCallback,
       });
 
@@ -326,6 +402,35 @@ export class TwilioWhatsappMessagingProvider
         },
       };
     }
+  }
+
+  public async listTemplates({
+    credentials,
+  }: InconnectMessagingTemplateCatalogRequest): Promise<
+    InconnectMessagingProviderTemplate[]
+  > {
+    const parsedCredentials = twilioCredentialsSchema.parse(credentials);
+
+    if (parsedCredentials.accountSid === undefined) {
+      throw new Error('Twilio account is unavailable');
+    }
+
+    const client = this.clientFactory.create(
+      parsedCredentials.accountSid,
+      parsedCredentials.authToken,
+    );
+    const templates = await client.content.v2.contentAndApprovals.list({
+      channelEligibility: ['whatsapp:approved'],
+      contentType: ['twilio/text'],
+      limit: 1000,
+    });
+
+    return templates
+      .map(normalizeTwilioTextTemplate)
+      .filter(
+        (template): template is InconnectMessagingProviderTemplate =>
+          template !== null,
+      );
   }
 
   public getWebhookRoutingHints(

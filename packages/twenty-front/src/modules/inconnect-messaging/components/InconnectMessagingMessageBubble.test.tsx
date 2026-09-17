@@ -12,10 +12,12 @@ const baseMessage: InconnectMessagingMessage = {
   direction: 'INBOUND',
   type: 'TEXT',
   body: 'Hello',
+  sendMode: null,
   outboundState: null,
   displayAt: '2026-09-14T12:00:00.000Z',
   location: null,
   media: [],
+  template: null,
 };
 
 const renderMessage = (message: InconnectMessagingMessage) => {
@@ -84,5 +86,26 @@ describe('InconnectMessagingMessageBubble', () => {
     expect(screen.getByText('Main Street')).toBeInTheDocument();
     expect(screen.getByText(/1, 2/)).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('renders the persisted template audit without consulting the catalog', () => {
+    renderMessage({
+      ...baseMessage,
+      direction: 'OUTBOUND',
+      sendMode: 'TEMPLATE',
+      outboundState: 'SENT',
+      body: 'Hola Ana',
+      template: {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        displayName: 'Appointment reminder',
+        language: 'es',
+        variables: [{ key: '1', value: 'Ana' }],
+      },
+    });
+
+    expect(
+      screen.getByText(/Template.*Appointment reminder.*es/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Hola Ana')).toBeInTheDocument();
   });
 });

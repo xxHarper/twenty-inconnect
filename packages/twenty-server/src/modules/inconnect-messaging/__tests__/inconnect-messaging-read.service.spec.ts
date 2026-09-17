@@ -22,6 +22,11 @@ const message = {
   direction: 'INBOUND',
   type: 'IMAGE',
   body: 'caption',
+  sendMode: null,
+  templateId: null,
+  templateDisplayName: null,
+  templateLanguage: null,
+  templateVariables: null,
   outboundState: null,
   createdAt: new Date('2026-09-11T10:00:00.000Z'),
   providerMetadata: {
@@ -122,6 +127,7 @@ describe('InconnectMessagingReadService', () => {
       direction: 'INBOUND',
       type: 'IMAGE',
       body: 'caption',
+      sendMode: null,
       outboundState: null,
       displayAt: message.createdAt,
       createdAt: message.createdAt,
@@ -133,9 +139,58 @@ describe('InconnectMessagingReadService', () => {
         name: null,
         address: 'Ciudad de México',
       },
+      template: null,
     });
     expect(JSON.stringify(result)).not.toContain('providerLocator');
     expect(JSON.stringify(result)).not.toContain('TWILIO');
+  });
+
+  it('renders historical template audit without consulting the current catalog', async () => {
+    const { service, messageQueryService } = buildService();
+    const templateMessage = {
+      ...message,
+      direction: 'OUTBOUND',
+      type: 'TEXT',
+      body: 'Hola Ana',
+      sendMode: 'TEMPLATE',
+      outboundState: 'SENT',
+      templateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      templateProviderReference: 'opaque-provider-reference',
+      templateDisplayName: 'Appointment reminder',
+      templateLanguage: 'es',
+      templateVariables: { '1': 'Ana' },
+      templateDefinitionFingerprint: 'internal-fingerprint',
+      providerMetadata: null,
+    };
+
+    messageQueryService.getAuthorizedMessagePage.mockResolvedValue({
+      edges: [
+        {
+          cursor: 'message-cursor',
+          node: templateMessage,
+          sortAt: templateMessage.createdAt,
+        },
+      ],
+      hasNextPage: false,
+      totalCount: 1,
+    });
+    const result = await service.getMessages({
+      authContext,
+      conversationId: conversation.id,
+    });
+
+    expect(result?.edges[0].node).toMatchObject({
+      sendMode: 'TEMPLATE',
+      body: 'Hola Ana',
+      template: {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        displayName: 'Appointment reminder',
+        language: 'es',
+        variables: [{ key: '1', value: 'Ana' }],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('opaque-provider-reference');
+    expect(JSON.stringify(result)).not.toContain('internal-fingerprint');
   });
 
   it('returns null-equivalent history when the Conversation is unauthorized', async () => {

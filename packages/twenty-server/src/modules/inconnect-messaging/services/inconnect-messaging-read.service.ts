@@ -163,11 +163,29 @@ export class InconnectMessagingReadService {
       direction: message.direction,
       type: message.type,
       body: message.body,
+      sendMode: message.sendMode,
       outboundState: message.outboundState,
       displayAt,
       createdAt: message.createdAt,
       location: this.toSafeLocation(message.providerMetadata),
       media: this.toSafeMedia(message.providerMetadata),
+      template:
+        message.sendMode === 'TEMPLATE' &&
+        message.templateId !== null &&
+        message.templateDisplayName !== null &&
+        message.templateLanguage !== null &&
+        message.templateVariables !== null
+          ? {
+              id: message.templateId,
+              displayName: message.templateDisplayName,
+              language: message.templateLanguage,
+              variables: Object.entries(message.templateVariables)
+                .sort(([left], [right]) =>
+                  left.localeCompare(right, 'en', { numeric: true }),
+                )
+                .map(([key, value]) => ({ key, value })),
+            }
+          : null,
     };
   }
 

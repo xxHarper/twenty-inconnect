@@ -148,6 +148,7 @@ import { EncryptEmptyApplicationVariablesSlowInstanceCommand } from 'src/databas
 import { CreateInconnectCommercialTeamsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786578553730-create-inconnect-commercial-teams';
 import { CreateInconnectRecordAccessPersistenceFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786740000000-create-inconnect-record-access-persistence';
 import { CreateInconnectMessagingTransportSpineFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1788982508902-create-inconnect-messaging-transport-spine';
+import { AddInconnectMessagingTemplateIntentFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789473600000-add-inconnect-messaging-template-intent';
 
 export const INSTANCE_COMMANDS = [
   AddViewFieldGroupIdIndexOnViewFieldFastInstanceCommand,
@@ -298,4 +299,5 @@ export const INSTANCE_COMMANDS = [
   CreateInconnectCommercialTeamsFastInstanceCommand,
   CreateInconnectRecordAccessPersistenceFastInstanceCommand,
   CreateInconnectMessagingTransportSpineFastInstanceCommand,
+  AddInconnectMessagingTemplateIntentFastInstanceCommand,
 ];

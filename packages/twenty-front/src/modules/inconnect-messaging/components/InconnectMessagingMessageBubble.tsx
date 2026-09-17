@@ -34,6 +34,12 @@ const StyledMeta = styled.div`
   margin-top: ${themeCssVariables.spacing[2]};
 `;
 
+const StyledTemplateLabel = styled.div`
+  color: ${themeCssVariables.font.color.tertiary};
+  font-size: ${themeCssVariables.font.size.sm};
+  margin-bottom: ${themeCssVariables.spacing[2]};
+`;
+
 type InconnectMessagingMessageBubbleProps = {
   message: InconnectMessagingMessage;
 };
@@ -88,6 +94,12 @@ export const InconnectMessagingMessageBubble = ({
         isOutbound={isOutbound}
         aria-label={isOutbound ? t`Outgoing message` : t`Incoming message`}
       >
+        {message.template && (
+          <StyledTemplateLabel>
+            {t`Template`}: {message.template.displayName} ·{' '}
+            {message.template.language}
+          </StyledTemplateLabel>
+        )}
         {message.type === 'TEXT' && <div>{message.body}</div>}
         {message.type === 'LOCATION' && (
           <div>

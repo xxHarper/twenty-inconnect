@@ -13,6 +13,45 @@ const request = {
 };
 
 describe('FakeInconnectMessagingProvider', () => {
+  it('exposes a deterministic provider-neutral template catalog', async () => {
+    const provider = new FakeInconnectMessagingProvider(
+      {
+        provider: 'fake',
+        channel: 'test',
+      },
+      {
+        kind: 'FAILED_BEFORE_SUBMIT',
+        error: { code: 'offline', message: 'Offline', retryable: true },
+      },
+    );
+    const templates = [
+      {
+        providerReference: 'template-1',
+        displayName: 'Appointment reminder',
+        language: 'es',
+        availability: 'AVAILABLE' as const,
+        content: { kind: 'TEXT' as const, body: 'Hola {{1}}' },
+        variables: [
+          {
+            key: '1',
+            required: true,
+            maxLength: 1600,
+            allowsNewlines: false,
+          },
+        ],
+      },
+    ];
+
+    provider.setTemplates(templates);
+
+    await expect(
+      provider.listTemplates({
+        credentials: request.credentials,
+      }),
+    ).resolves.toEqual(templates);
+    expect(provider.templateCatalogCalls).toHaveLength(1);
+  });
+
   it.each([
     {
       kind: 'ACCEPTED',

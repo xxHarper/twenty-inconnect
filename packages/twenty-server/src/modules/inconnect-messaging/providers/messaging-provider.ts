@@ -105,9 +105,29 @@ export type InconnectMessagingDispatchRequest = {
     | { kind: 'FREEFORM_TEXT'; body: string }
     | {
         kind: 'TEMPLATE';
-        templateIdentifier: string;
+        templateProviderReference: string;
         variables: Record<string, string>;
       };
+};
+
+export type InconnectMessagingTemplateVariable = {
+  key: string;
+  required: boolean;
+  maxLength: number;
+  allowsNewlines: boolean;
+};
+
+export type InconnectMessagingProviderTemplate = {
+  providerReference: string;
+  displayName: string;
+  language: string;
+  availability: 'AVAILABLE' | 'UNAVAILABLE';
+  content: { kind: 'TEXT'; body: string };
+  variables: InconnectMessagingTemplateVariable[];
+};
+
+export type InconnectMessagingTemplateCatalogRequest = {
+  credentials: InconnectMessagingJson;
 };
 
 export type InconnectMessagingProviderError = {
@@ -138,6 +158,9 @@ export interface InconnectMessagingProvider {
   dispatch(
     request: InconnectMessagingDispatchRequest,
   ): Promise<InconnectMessagingDispatchResult>;
+  listTemplates?(
+    request: InconnectMessagingTemplateCatalogRequest,
+  ): Promise<InconnectMessagingProviderTemplate[]>;
   getWebhookRoutingHints(
     request: InconnectMessagingWebhookRequest,
   ): InconnectMessagingWebhookRoutingHints;

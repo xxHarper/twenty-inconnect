@@ -5,6 +5,7 @@ import { MetadataResolver } from 'src/engine/api/graphql/graphql-config/decorato
 import { UUIDScalarType } from 'src/engine/api/graphql/workspace-schema-builder/graphql-types/scalars';
 import { getWorkspaceAuthContext } from 'src/engine/core-modules/auth/storage/workspace-auth-context.storage';
 import { ResolverValidationPipe } from 'src/engine/core-modules/graphql/pipes/resolver-validation.pipe';
+import { CustomPermissionGuard } from 'src/engine/guards/custom-permission.guard';
 import { UserAuthGuard } from 'src/engine/guards/user-auth.guard';
 import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
 import { InconnectMessagingPagingInput } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-paging.input';
@@ -16,7 +17,7 @@ import {
 import { InconnectMessagingReadService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-read.service';
 
 @MetadataResolver()
-@UseGuards(WorkspaceAuthGuard, UserAuthGuard)
+@UseGuards(WorkspaceAuthGuard, UserAuthGuard, CustomPermissionGuard)
 @UsePipes(ResolverValidationPipe)
 export class InconnectMessagingReadResolver {
   constructor(

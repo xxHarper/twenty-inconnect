@@ -62,10 +62,7 @@ export const StyledDate = styled.div`
 
 export const StyledFooter = styled.div`
   border-top: 1px solid ${themeCssVariables.border.color.medium};
-  color: ${themeCssVariables.font.color.tertiary};
-  font-size: ${themeCssVariables.font.size.sm};
   padding: ${themeCssVariables.spacing[4]};
-  text-align: center;
 `;
 
 export const StyledButton = styled.button`

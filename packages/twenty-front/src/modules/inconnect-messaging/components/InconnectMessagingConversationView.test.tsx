@@ -45,6 +45,12 @@ let mockMessages: {
 jest.mock('@apollo/client/react', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
 }));
+jest.mock(
+  '@/inconnect-messaging/components/InconnectMessagingComposer',
+  () => ({
+    InconnectMessagingComposer: () => <div>Composer</div>,
+  }),
+);
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -110,6 +116,7 @@ const renderView = (refreshNonce = 0) =>
         onUnavailable={mockOnUnavailable}
         showBack={false}
         realtimeUnavailable={false}
+        onMessageAccepted={jest.fn()}
       />
     </I18nProvider>,
   );
@@ -146,6 +153,7 @@ describe('InconnectMessagingConversationView', () => {
           onUnavailable={mockOnUnavailable}
           showBack={false}
           realtimeUnavailable={false}
+          onMessageAccepted={jest.fn()}
         />
       </I18nProvider>,
     );
@@ -164,6 +172,7 @@ describe('InconnectMessagingConversationView', () => {
           onUnavailable={mockOnUnavailable}
           showBack={false}
           realtimeUnavailable={false}
+          onMessageAccepted={jest.fn()}
         />
       </I18nProvider>,
     );
