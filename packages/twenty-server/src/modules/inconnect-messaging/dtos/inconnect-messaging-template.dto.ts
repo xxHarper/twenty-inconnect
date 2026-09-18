@@ -32,6 +32,21 @@ export class InconnectMessagingTemplateDTO {
   variables: InconnectMessagingTemplateVariableDTO[];
 }
 
+@ObjectType('InconnectMessagingMediaTypeCapability')
+export class InconnectMessagingMediaTypeCapabilityDTO {
+  @Field(() => String)
+  type: string;
+
+  @Field(() => [String])
+  mimeTypes: string[];
+
+  @Field(() => Int)
+  maxBytes: number;
+
+  @Field(() => Boolean)
+  captionSupported: boolean;
+}
+
 @ObjectType('InconnectMessagingSendCapabilities')
 export class InconnectMessagingSendCapabilitiesDTO {
   @Field(() => Boolean)
@@ -42,6 +57,15 @@ export class InconnectMessagingSendCapabilitiesDTO {
 
   @Field(() => Boolean)
   canSendTemplate: boolean;
+
+  @Field(() => Boolean)
+  canSendMedia: boolean;
+
+  @Field(() => Int)
+  maxMediaItems: number;
+
+  @Field(() => [InconnectMessagingMediaTypeCapabilityDTO])
+  mediaTypes: InconnectMessagingMediaTypeCapabilityDTO[];
 
   @Field(() => String)
   sessionWindowState: string;

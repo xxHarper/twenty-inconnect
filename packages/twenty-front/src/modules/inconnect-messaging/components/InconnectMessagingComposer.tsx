@@ -1,18 +1,22 @@
-import { CombinedGraphQLErrors } from '@apollo/client/errors';
 import { useLazyQuery, useMutation, useQuery } from '@apollo/client/react';
 import { useLingui } from '@lingui/react/macro';
 import { useEffect, useState } from 'react';
-import { Button } from 'twenty-ui/input';
 
 import {
-  StyledComposer,
-  StyledComposerActions,
   StyledComposerError,
   StyledComposerStatus,
 } from '@/inconnect-messaging/components/InconnectMessagingComposer.styles';
+import { InconnectMessagingComposerForm } from '@/inconnect-messaging/components/InconnectMessagingComposerForm';
 import { InconnectMessagingTemplatePicker } from '@/inconnect-messaging/components/InconnectMessagingTemplatePicker';
+import {
+  type InconnectMessagingAttachmentSelectionError,
+  useInconnectMessagingAttachmentUpload,
+} from '@/inconnect-messaging/hooks/useInconnectMessagingAttachmentUpload';
 import { type InconnectMessagingTemplate } from '@/inconnect-messaging/types/InconnectMessagingRead';
-import { TextArea } from '@/ui/input/components/TextArea';
+import {
+  formatInconnectMessagingWindowExpiry,
+  getInconnectMessagingErrorDetails,
+} from '@/inconnect-messaging/utils/getInconnectMessagingErrorDetails';
 import { useModal } from '@/ui/layout/modal/hooks/useModal';
 import {
   InconnectMessagingSendCapabilitiesDocument,
@@ -25,20 +29,6 @@ type InconnectMessagingComposerProps = {
   refreshNonce: number;
   onAccepted: () => void;
   onUnavailable: () => void;
-};
-
-const getErrorDetails = (error: unknown) => {
-  if (!CombinedGraphQLErrors.is(error)) {
-    return { code: null, subCode: null };
-  }
-
-  const extensions = error.errors[0]?.extensions;
-
-  return {
-    code: typeof extensions?.code === 'string' ? extensions.code : null,
-    subCode:
-      typeof extensions?.subCode === 'string' ? extensions.subCode : null,
-  };
 };
 
 export const InconnectMessagingComposer = ({
@@ -60,6 +50,8 @@ export const InconnectMessagingComposer = ({
   const [clientRequestId, setClientRequestId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasUncertainResult, setHasUncertainResult] = useState(false);
+  const [selectionError, setSelectionError] =
+    useState<InconnectMessagingAttachmentSelectionError | null>(null);
   const capabilitiesQuery = useQuery(
     InconnectMessagingSendCapabilitiesDocument,
     {
@@ -82,12 +74,29 @@ export const InconnectMessagingComposer = ({
       | InconnectMessagingTemplate[]
       | null
       | undefined) ?? [];
+  const {
+    attachment,
+    selectFile,
+    retryUpload,
+    removeAttachment,
+    clearAttachment,
+  } = useInconnectMessagingAttachmentUpload({
+    mediaTypes: capabilities?.mediaTypes ?? [],
+    onSelectionError: setSelectionError,
+    onIntentionChanged: () => {
+      setClientRequestId(crypto.randomUUID());
+      setHasUncertainResult(false);
+      setErrorMessage(null);
+      setSelectionError(null);
+    },
+  });
 
   useEffect(() => {
     if (capabilitiesQuery.data?.inconnectMessagingSendCapabilities === null) {
+      clearAttachment();
       onUnavailable();
     }
-  }, [capabilitiesQuery.data, onUnavailable]);
+  }, [capabilitiesQuery.data, clearAttachment, onUnavailable]);
 
   useEffect(() => {
     if (refreshNonce === 0) {
@@ -114,21 +123,29 @@ export const InconnectMessagingComposer = ({
   }, [capabilities?.freeformWindowExpiresAt, refetchCapabilities]);
 
   const resetIntent = () => {
+    clearAttachment();
     setBody('');
     setSelectedTemplateId(null);
     setVariableValues({});
     setClientRequestId(null);
     setErrorMessage(null);
     setHasUncertainResult(false);
+    setSelectionError(null);
   };
 
   const handleBodyChange = (value: string) => {
     setBody(value);
-    setClientRequestId((current) => current ?? crypto.randomUUID());
+    setClientRequestId(crypto.randomUUID());
+    setHasUncertainResult(false);
     setErrorMessage(null);
   };
 
   const handleOpenTemplates = () => {
+    if (attachment !== null) {
+      setErrorMessage(t`Remove the attachment before choosing a template.`);
+
+      return;
+    }
     setErrorMessage(null);
     openModal(modalInstanceId);
     void loadTemplates({ variables: { conversationId } });
@@ -150,7 +167,8 @@ export const InconnectMessagingComposer = ({
 
   const handleVariableChange = (key: string, value: string) => {
     setVariableValues((current) => ({ ...current, [key]: value }));
-    setClientRequestId((current) => current ?? crypto.randomUUID());
+    setClientRequestId(crypto.randomUUID());
+    setHasUncertainResult(false);
     setErrorMessage(null);
   };
 
@@ -173,7 +191,10 @@ export const InconnectMessagingComposer = ({
                   conversationId,
                   clientRequestId: effectiveClientRequestId,
                   mode,
-                  body,
+                  ...(body.trim().length > 0 ? { body } : {}),
+                  ...(attachment?.status === 'READY' && attachment.uploadId
+                    ? { outboundUploadIds: [attachment.uploadId] }
+                    : {}),
                 }
               : {
                   conversationId,
@@ -191,7 +212,7 @@ export const InconnectMessagingComposer = ({
       await refetchCapabilities().catch(() => undefined);
       onAccepted();
     } catch (error) {
-      const { code, subCode } = getErrorDetails(error);
+      const { code, subCode } = getInconnectMessagingErrorDetails(error);
 
       if (['NOT_FOUND', 'FORBIDDEN', 'UNAUTHENTICATED'].includes(code ?? '')) {
         resetIntent();
@@ -209,6 +230,10 @@ export const InconnectMessagingComposer = ({
       } else if (subCode === 'IDEMPOTENCY_KEY_CONFLICT') {
         setErrorMessage(
           t`This send attempt no longer matches its original content. Start a new message before sending.`,
+        );
+      } else if (subCode === 'OUTBOUND_UPLOAD_UNAVAILABLE') {
+        setErrorMessage(
+          t`This upload is no longer available. Remove it and attach the file again.`,
         );
       } else if (
         subCode === 'TEMPLATE_UNAVAILABLE' ||
@@ -243,64 +268,30 @@ export const InconnectMessagingComposer = ({
     );
   }
 
-  const expiryLabel = capabilities.freeformWindowExpiresAt
-    ? new Intl.DateTimeFormat(i18n.locale, {
-        hour: 'numeric',
-        minute: '2-digit',
-      }).format(new Date(capabilities.freeformWindowExpiresAt))
-    : null;
-
+  const expiryLabel = formatInconnectMessagingWindowExpiry(
+    capabilities.freeformWindowExpiresAt,
+    i18n.locale,
+  );
   return (
-    <StyledComposer>
-      <StyledComposerStatus role="status">
-        {capabilities.canSendFreeform
-          ? expiryLabel
-            ? t`24-hour service window open until ${expiryLabel}`
-            : t`24-hour service window open`
-          : t`The 24-hour service window is closed. Free-form messages are unavailable.`}
-      </StyledComposerStatus>
-      {capabilities.canSendFreeform && (
-        <TextArea
-          textAreaId={`inconnect-messaging-composer-${conversationId}`}
-          label={t`Message`}
-          placeholder={t`Write a message`}
-          value={body}
-          minRows={2}
-          maxRows={6}
-          disabled={sendState.loading || hasUncertainResult}
-          onChange={handleBodyChange}
-        />
-      )}
-      {errorMessage !== null && (
-        <StyledComposerError role="alert">{errorMessage}</StyledComposerError>
-      )}
-      <StyledComposerActions>
-        {hasUncertainResult && (
-          <Button
-            title={t`Discard and start a new message`}
-            variant="secondary"
-            onClick={resetIntent}
-            disabled={sendState.loading}
-          />
-        )}
-        {capabilities.canSendTemplate && (
-          <Button
-            title={t`Use template`}
-            variant="secondary"
-            onClick={handleOpenTemplates}
-            disabled={sendState.loading}
-          />
-        )}
-        {capabilities.canSendFreeform && (
-          <Button
-            title={sendState.loading ? t`Sending…` : t`Send`}
-            variant="primary"
-            accent="blue"
-            onClick={() => void handleSend('FREEFORM')}
-            disabled={body.trim().length === 0 || sendState.loading}
-          />
-        )}
-      </StyledComposerActions>
+    <>
+      <InconnectMessagingComposerForm
+        conversationId={conversationId}
+        capabilities={capabilities}
+        expiryLabel={expiryLabel}
+        body={body}
+        attachment={attachment}
+        selectionError={selectionError}
+        errorMessage={errorMessage}
+        hasUncertainResult={hasUncertainResult}
+        sending={sendState.loading}
+        onBodyChange={handleBodyChange}
+        onSelectFile={selectFile}
+        onRetryUpload={retryUpload}
+        onRemoveAttachment={removeAttachment}
+        onResetIntent={resetIntent}
+        onOpenTemplates={handleOpenTemplates}
+        onSendFreeform={() => void handleSend('FREEFORM')}
+      />
       <InconnectMessagingTemplatePicker
         modalInstanceId={modalInstanceId}
         templates={templates}
@@ -315,6 +306,6 @@ export const InconnectMessagingComposer = ({
         onSend={() => void handleSend('TEMPLATE')}
         onClose={() => undefined}
       />
-    </StyledComposer>
+    </>
   );
 };

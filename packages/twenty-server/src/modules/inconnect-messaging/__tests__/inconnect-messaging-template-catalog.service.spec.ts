@@ -1,4 +1,5 @@
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
+import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingTemplateCatalogService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-template-catalog.service';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
@@ -35,7 +36,19 @@ const buildService = () => {
       .mockResolvedValue(conversation),
   };
   const provider = {
-    capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_TEMPLATE'],
+    capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_MEDIA', 'DISPATCH_TEMPLATE'],
+    outboundMediaCapabilities: {
+      maximumAttachments: 1,
+      supportedMimeTypesByType: {
+        IMAGE: ['image/jpeg'],
+        STICKER: [],
+        AUDIO: [],
+        VIDEO: [],
+        DOCUMENT: [],
+        CONTACT: [],
+      },
+      captionSupportedTypes: ['IMAGE'],
+    },
     listTemplates: jest.fn().mockResolvedValue([
       {
         providerReference: 'approved-provider-reference',
@@ -78,11 +91,15 @@ const buildService = () => {
       .fn()
       .mockReturnValue(JSON.stringify({ secret: 'not-public' })),
   };
+  const authorizedProviderContextService =
+    new InconnectMessagingAuthorizedProviderContextService(
+      dataSource as never,
+      authorizationService as never,
+      providerRegistry as never,
+      encryption as never,
+    );
   const service = new InconnectMessagingTemplateCatalogService(
-    dataSource as never,
-    authorizationService as never,
-    providerRegistry as never,
-    encryption as never,
+    authorizedProviderContextService,
   );
 
   return {
@@ -120,6 +137,9 @@ describe('InconnectMessagingTemplateCatalogService', () => {
       language: 'es',
       body: 'Hola {{1}}',
       variables: [{ key: '1', required: true, maxLength: 1600 }],
+    });
+    expect(fixture.provider.listTemplates).toHaveBeenCalledWith({
+      credentials: { secret: 'not-public' },
     });
     expect(JSON.stringify(result)).not.toContain('provider-reference');
     expect(JSON.stringify(result)).not.toContain('not-public');
@@ -160,7 +180,7 @@ describe('InconnectMessagingTemplateCatalogService', () => {
   it('fails closed when the provider has no template capability', async () => {
     const fixture = buildService();
 
-    fixture.provider.capabilities.splice(1, 1);
+    fixture.provider.capabilities.splice(2, 1);
     const catalog = await fixture.service.getAuthorizedCatalog({
       authContext: { workspace: { id: workspaceId } } as never,
       conversationId: conversation.id,
@@ -187,6 +207,10 @@ describe('InconnectMessagingTemplateCatalogService', () => {
     ).resolves.toMatchObject({
       catalogAvailable: false,
       templates: [],
+      outboundMediaCapabilities: {
+        maximumAttachments: 1,
+      },
     });
+    expect(fixture.provider.listTemplates).toHaveBeenCalledTimes(1);
   });
 });

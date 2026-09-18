@@ -1,20 +1,15 @@
 import { Injectable } from '@nestjs/common';
 
-import { DataSource } from 'typeorm';
 import { v5 as uuidv5 } from 'uuid';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
-import { SecretEncryptionService } from 'src/engine/core-modules/secret-encryption/secret-encryption.service';
 import { type InconnectMessagingTemplateDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-template.dto';
 import { type InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
-import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import {
+  type InconnectMessagingOutboundMediaCapabilities,
   type InconnectMessagingProviderTemplate,
-  type InconnectMessagingProvider,
 } from 'src/modules/inconnect-messaging/providers/messaging-provider';
-import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
-import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
-import { type InconnectMessagingJson } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
+import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { buildInconnectMessagingTemplateDefinitionFingerprint } from 'src/modules/inconnect-messaging/utils/inconnect-messaging-template.util';
 
 export type InconnectMessagingCatalogTemplate =
@@ -27,12 +22,10 @@ export type InconnectMessagingAuthorizedCatalog = {
   conversation: InconnectMessagingConversationEntity;
   supportsFreeform: boolean;
   supportsTemplates: boolean;
+  outboundMediaCapabilities: InconnectMessagingOutboundMediaCapabilities | null;
   catalogAvailable: boolean;
   templates: InconnectMessagingCatalogTemplate[];
 };
-
-const isJsonObject = (value: unknown): value is InconnectMessagingJson =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isValidTemplate = (
   template: InconnectMessagingProviderTemplate,
@@ -70,10 +63,7 @@ const isValidTemplate = (
 @Injectable()
 export class InconnectMessagingTemplateCatalogService {
   constructor(
-    private readonly dataSource: DataSource,
-    private readonly authorizationService: InconnectMessagingAuthorizationService,
-    private readonly providerRegistry: InconnectMessagingProviderRegistry,
-    private readonly secretEncryptionService: SecretEncryptionService,
+    private readonly authorizedProviderContextService: InconnectMessagingAuthorizedProviderContextService,
   ) {}
 
   async getTemplates({
@@ -112,23 +102,24 @@ export class InconnectMessagingTemplateCatalogService {
     authContext: WorkspaceAuthContext;
     conversationId: string;
   }): Promise<InconnectMessagingAuthorizedCatalog | null> {
-    const conversation =
-      await this.authorizationService.findAuthorizedConversationForSend({
+    const providerContext =
+      await this.authorizedProviderContextService.getAuthorizedContext({
         authContext,
         conversationId,
       });
 
-    if (conversation === null) {
+    if (providerContext === null) {
       return null;
     }
 
-    const providerContext = await this.resolveProviderContext(conversation);
+    const { conversation } = providerContext;
 
-    if (providerContext === null) {
+    if (providerContext.availability === 'UNAVAILABLE') {
       return {
         conversation,
         supportsFreeform: false,
         supportsTemplates: false,
+        outboundMediaCapabilities: null,
         catalogAvailable: false,
         templates: [],
       };
@@ -138,6 +129,10 @@ export class InconnectMessagingTemplateCatalogService {
       providerContext.provider.capabilities.includes('DISPATCH_FREEFORM');
     const supportsTemplates =
       providerContext.provider.capabilities.includes('DISPATCH_TEMPLATE');
+    const outboundMediaCapabilities =
+      providerContext.provider.capabilities.includes('DISPATCH_MEDIA')
+        ? (providerContext.provider.outboundMediaCapabilities ?? null)
+        : null;
 
     if (
       !supportsTemplates ||
@@ -147,6 +142,7 @@ export class InconnectMessagingTemplateCatalogService {
         conversation,
         supportsFreeform,
         supportsTemplates,
+        outboundMediaCapabilities,
         catalogAvailable: true,
         templates: [],
       };
@@ -161,6 +157,7 @@ export class InconnectMessagingTemplateCatalogService {
         conversation,
         supportsFreeform,
         supportsTemplates,
+        outboundMediaCapabilities,
         catalogAvailable: true,
         templates: templates.filter(isValidTemplate).map((template) => ({
           ...template,
@@ -177,52 +174,10 @@ export class InconnectMessagingTemplateCatalogService {
         conversation,
         supportsFreeform,
         supportsTemplates,
+        outboundMediaCapabilities,
         catalogAvailable: false,
         templates: [],
       };
-    }
-  }
-
-  private async resolveProviderContext(
-    conversation: InconnectMessagingConversationEntity,
-  ): Promise<{
-    provider: InconnectMessagingProvider;
-    credentials: InconnectMessagingJson;
-  } | null> {
-    const connection = await this.dataSource
-      .getRepository(InconnectMessagingProviderConnectionEntity)
-      .findOne({
-        where: {
-          id: conversation.providerConnectionId,
-          workspaceId: conversation.workspaceId,
-          lifecycleStatus: 'ENABLED',
-        },
-      });
-
-    if (connection === null || connection.encryptedCredentials === null) {
-      return null;
-    }
-
-    try {
-      const plaintext = this.secretEncryptionService.decryptVersionedOrThrow(
-        connection.encryptedCredentials,
-        { workspaceId: connection.workspaceId },
-      );
-      const credentials: unknown = JSON.parse(plaintext);
-
-      if (!isJsonObject(credentials)) {
-        return null;
-      }
-
-      return {
-        credentials,
-        provider: this.providerRegistry.resolve({
-          provider: connection.provider,
-          channel: connection.channel,
-        }),
-      };
-    } catch {
-      return null;
     }
   }
 }

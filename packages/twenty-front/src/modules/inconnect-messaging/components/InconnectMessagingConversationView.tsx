@@ -259,6 +259,7 @@ export const InconnectMessagingConversationView = ({
             <div role="status">{t`Live updates are temporarily unavailable.`}</div>
           )}
           <InconnectMessagingComposer
+            key={conversationId}
             conversationId={conversationId}
             refreshNonce={refreshNonce}
             onAccepted={onMessageAccepted}

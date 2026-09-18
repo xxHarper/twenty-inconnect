@@ -16,6 +16,7 @@ import { InconnectMessagingDispatchJob } from 'src/modules/inconnect-messaging/j
 import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-read.resolver';
 import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
+import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { ModulesModule } from 'src/modules/modules.module';
 
@@ -83,6 +84,9 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleImports).toContain(InconnectRecordAccessModule);
     expect(moduleImports).toContain(PermissionsModule);
     expect(moduleProviders).toContain(InconnectMessagingAuthorizationService);
+    expect(moduleProviders).toContain(
+      InconnectMessagingAuthorizedProviderContextService,
+    );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationQueryService,
     );

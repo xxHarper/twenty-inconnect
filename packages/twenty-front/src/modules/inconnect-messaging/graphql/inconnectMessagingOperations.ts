@@ -96,10 +96,50 @@ export const INCONNECT_MESSAGING_SEND_CAPABILITIES = gql`
       canSend
       canSendFreeform
       canSendTemplate
+      canSendMedia
+      maxMediaItems
+      mediaTypes {
+        type
+        mimeTypes
+        maxBytes
+        captionSupported
+      }
       sessionWindowState
       freeformWindowExpiresAt
       freeformUnavailableReason
       templateUnavailableReason
+    }
+  }
+`;
+
+export const CREATE_INCONNECT_MESSAGING_OUTBOUND_UPLOAD = gql`
+  mutation CreateInconnectMessagingOutboundUpload(
+    $input: CreateInconnectMessagingOutboundUploadInput!
+  ) {
+    createInconnectMessagingOutboundUpload(input: $input) {
+      uploadId
+      state
+      type
+      filename
+      size
+      contentType
+      uploadUrl
+      uploadContentType
+      expiresAt
+    }
+  }
+`;
+
+export const COMPLETE_INCONNECT_MESSAGING_OUTBOUND_UPLOAD = gql`
+  mutation CompleteInconnectMessagingOutboundUpload($uploadId: UUID!) {
+    completeInconnectMessagingOutboundUpload(uploadId: $uploadId) {
+      uploadId
+      state
+      type
+      filename
+      size
+      contentType
+      expiresAt
     }
   }
 `;

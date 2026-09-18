@@ -43,6 +43,7 @@ import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-me
 import { InconnectMessagingTemplateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-template.resolver';
 import { InconnectMessagingOutboundUploadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-outbound-upload.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
+import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { InconnectMessagingMessageQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-message-query.service';
 import { InconnectMessagingOutboxService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service';
@@ -99,6 +100,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
     TwilioWhatsappClientFactory,
     TwilioWhatsappMessagingProvider,
     InconnectMessagingAuthorizationService,
+    InconnectMessagingAuthorizedProviderContextService,
     InconnectMessagingConversationQueryService,
     InconnectMessagingMessageQueryService,
     InconnectMessagingReadService,

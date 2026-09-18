@@ -25,6 +25,62 @@ export const StyledComposerError = styled.div`
   font-size: ${themeCssVariables.font.size.sm};
 `;
 
+export const StyledAttachmentControls = styled.div`
+  align-items: center;
+  display: flex;
+  gap: ${themeCssVariables.spacing[2]};
+  min-width: 0;
+`;
+
+export const StyledHiddenFileInput = styled.input`
+  display: none;
+`;
+
+export const StyledAttachmentCard = styled.div`
+  align-items: center;
+  background: ${themeCssVariables.background.secondary};
+  border: 1px solid ${themeCssVariables.border.color.medium};
+  border-radius: ${themeCssVariables.border.radius.md};
+  display: grid;
+  gap: ${themeCssVariables.spacing[2]};
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: 100%;
+  padding: ${themeCssVariables.spacing[2]};
+`;
+
+export const StyledAttachmentDetails = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[1]};
+  min-width: 0;
+`;
+
+export const StyledAttachmentFilename = styled.strong`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+export const StyledAttachmentPreview = styled.div`
+  grid-column: 1 / -1;
+  max-width: 100%;
+  overflow: hidden;
+
+  img,
+  video {
+    border-radius: ${themeCssVariables.border.radius.sm};
+    display: block;
+    max-height: 180px;
+    max-width: 100%;
+  }
+
+  audio {
+    display: block;
+    max-width: 100%;
+    width: 100%;
+  }
+`;
+
 export const StyledTemplateList = styled.div`
   display: flex;
   flex-direction: column;
