@@ -80,6 +80,20 @@ export class InconnectMessagingAuthorizationService {
     );
   }
 
+  async canStageOutboundUpload(
+    authContext: WorkspaceAuthContext,
+  ): Promise<boolean> {
+    const authorization = await this.resolveHumanAuthorization(authContext);
+
+    return (
+      authorization !== null &&
+      (await this.hasPermissionFlags(authorization, [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.SEND_INCONNECT_MESSAGING,
+      ]))
+    );
+  }
+
   async canSendConversation({
     authContext,
     conversationId,

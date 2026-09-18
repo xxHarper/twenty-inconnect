@@ -1,6 +1,7 @@
 import { type EntityManager } from 'typeorm';
 
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
@@ -104,6 +105,7 @@ const buildService = () => {
     findOne: jest.fn().mockResolvedValue(conversation),
   };
   const outboxRepository = { insert: jest.fn().mockResolvedValue(undefined) };
+  const attachmentRepository = { find: jest.fn().mockResolvedValue([]) };
   const getRepository = jest.fn().mockImplementation((entity: unknown) => {
     if (entity === InconnectMessagingDispatchAttemptEntity)
       return attemptRepository;
@@ -113,6 +115,8 @@ const buildService = () => {
     if (entity === InconnectMessagingConversationEntity)
       return conversationRepository;
     if (entity === InconnectMessagingOutboxEventEntity) return outboxRepository;
+    if (entity === InconnectMessagingAttachmentEntity)
+      return attachmentRepository;
     throw new Error('Unexpected repository');
   });
   const manager = { getRepository } as unknown as EntityManager;
@@ -127,7 +131,19 @@ const buildService = () => {
   };
   const queue = { add: jest.fn().mockResolvedValue(undefined) };
   const provider = {
-    capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_TEMPLATE'],
+    capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_MEDIA', 'DISPATCH_TEMPLATE'],
+    outboundMediaCapabilities: {
+      maximumAttachments: 1,
+      supportedMimeTypesByType: {
+        IMAGE: ['image/png'],
+        STICKER: ['image/webp'],
+        AUDIO: ['audio/mpeg'],
+        VIDEO: ['video/mp4'],
+        DOCUMENT: ['application/pdf'],
+        CONTACT: ['text/vcard'],
+      },
+      captionSupportedTypes: ['IMAGE'],
+    },
     listTemplates: jest.fn(),
     dispatch: jest.fn().mockResolvedValue({
       kind: 'ACCEPTED',
@@ -163,6 +179,7 @@ const buildService = () => {
     queue,
     provider,
     outbox,
+    attachmentRepository,
   };
 };
 
@@ -198,6 +215,106 @@ describe('InconnectMessagingDispatchService', () => {
     await fixture.service.dispatchMessage(messageId);
     expect(fixture.provider.dispatch).toHaveBeenCalledTimes(1);
     expect(fixture.queue.add).not.toHaveBeenCalled();
+  });
+
+  it('dispatches durable outbound media through the provider-neutral descriptor', async () => {
+    const fixture = buildService();
+
+    fixture.message.type = 'IMAGE';
+    fixture.message.body = 'caption';
+    fixture.attachmentRepository.find.mockResolvedValue([
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        workspaceId,
+        messageId,
+        providerConnectionId: fixture.message.providerConnectionId,
+        ordinal: 0,
+        type: 'IMAGE',
+        ingestionState: 'AVAILABLE',
+        fileId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        mimeType: 'image/png',
+        size: 9,
+        safeFilename: 'photo.png',
+      },
+    ]);
+
+    await fixture.service.dispatchMessage(messageId);
+    expect(fixture.provider.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: {
+          kind: 'MEDIA',
+          body: 'caption',
+          attachments: [
+            {
+              attachmentId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              type: 'IMAGE',
+              mimeType: 'image/png',
+              size: 9,
+              safeFilename: 'photo.png',
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it.each([
+    {
+      label: 'provider-unsupported MIME/type combination',
+      type: 'DOCUMENT',
+      mimeType: 'image/png',
+      size: 9,
+    },
+    {
+      label: 'corrupt oversized durable attachment',
+      type: 'IMAGE',
+      mimeType: 'image/png',
+      size: 5 * 1024 * 1024 + 1,
+    },
+  ])('fails before submit for $label', async ({ type, mimeType, size }) => {
+    const fixture = buildService();
+
+    fixture.message.type = type;
+    fixture.message.body = '';
+    fixture.attachmentRepository.find.mockResolvedValue([
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        workspaceId,
+        messageId,
+        providerConnectionId: fixture.message.providerConnectionId,
+        ordinal: 0,
+        type,
+        ingestionState: 'AVAILABLE',
+        fileId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        mimeType,
+        size,
+        safeFilename: 'media.bin',
+      },
+    ]);
+
+    await fixture.service.dispatchMessage(messageId);
+
+    expect(fixture.provider.dispatch).not.toHaveBeenCalled();
+    expect(fixture.message.outboundState).toBe('FAILED');
+    expect(fixture.attempt.outcome).toBe('FAILED_BEFORE_SUBMIT');
+    expect(fixture.attempt.error).toEqual({
+      category: 'UNSUPPORTED_CONTENT',
+    });
+  });
+
+  it('does not call the provider when the free-form window closes after queueing', async () => {
+    const fixture = buildService();
+
+    fixture.conversation.lastInboundAt = new Date(
+      Date.now() - 25 * 60 * 60 * 1000,
+    );
+    await fixture.service.dispatchMessage(messageId);
+    expect(fixture.provider.dispatch).not.toHaveBeenCalled();
+    expect(fixture.message.outboundState).toBe('FAILED');
+    expect(fixture.attempt.outcome).toBe('FAILED_BEFORE_SUBMIT');
+    expect(fixture.attempt.error).toEqual({
+      category: 'SESSION_WINDOW_CLOSED',
+    });
   });
 
   it('preserves a callback that advances the projection before SDK completion', async () => {

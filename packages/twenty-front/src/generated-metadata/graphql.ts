@@ -1205,6 +1205,13 @@ export type CreateInconnectCommercialTeamInput = {
   name: Scalars['String']['input'];
 };
 
+export type CreateInconnectMessagingOutboundUploadInput = {
+  clientUploadId: Scalars['UUID']['input'];
+  filename: Scalars['String']['input'];
+  size: Scalars['Int']['input'];
+  type: Scalars['String']['input'];
+};
+
 export type CreateIndexFieldInput = {
   fieldMetadataId: Scalars['UUID']['input'];
   subFieldName?: InputMaybe<Scalars['String']['input']>;
@@ -2271,6 +2278,19 @@ export type InconnectMessagingMessageTemplateAudit = {
   variables: Array<InconnectMessagingTemplateVariableValue>;
 };
 
+export type InconnectMessagingOutboundUpload = {
+  __typename?: 'InconnectMessagingOutboundUpload';
+  contentType?: Maybe<Scalars['String']['output']>;
+  expiresAt: Scalars['DateTime']['output'];
+  filename: Scalars['String']['output'];
+  size: Scalars['Int']['output'];
+  state: Scalars['String']['output'];
+  type: Scalars['String']['output'];
+  uploadContentType?: Maybe<Scalars['String']['output']>;
+  uploadId: Scalars['UUID']['output'];
+  uploadUrl?: Maybe<Scalars['String']['output']>;
+};
+
 export type InconnectMessagingPaging = {
   after?: InputMaybe<Scalars['ConnectionCursor']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
@@ -2955,6 +2975,7 @@ export type Mutation = {
   claimApplicationRegistrationOwnership: ApplicationRegistration;
   completeBookCallOnboardingStep: OnboardingStepSuccess;
   completeFileUpload: FileWithSignedUrl;
+  completeInconnectMessagingOutboundUpload: InconnectMessagingOutboundUpload;
   createApiKey: ApiKey;
   createApplicationRegistration: CreateApplicationRegistration;
   createApplicationRegistrationVariable: ApplicationRegistrationVariable;
@@ -2969,6 +2990,7 @@ export type Mutation = {
   createFileUpload: FileUploadTarget;
   createFrontComponent: FrontComponent;
   createInconnectCommercialTeam: InconnectCommercialTeamSettingsMutationResult;
+  createInconnectMessagingOutboundUpload: InconnectMessagingOutboundUpload;
   createManyNavigationMenuItems: Array<NavigationMenuItem>;
   createManyViewFieldGroups: Array<ViewFieldGroup>;
   createManyViewFields: Array<ViewField>;
@@ -3278,6 +3300,11 @@ export type MutationCompleteFileUploadArgs = {
 };
 
 
+export type MutationCompleteInconnectMessagingOutboundUploadArgs = {
+  uploadId: Scalars['UUID']['input'];
+};
+
+
 export type MutationCreateApiKeyArgs = {
   input: CreateApiKeyInput;
 };
@@ -3340,6 +3367,11 @@ export type MutationCreateFrontComponentArgs = {
 
 export type MutationCreateInconnectCommercialTeamArgs = {
   input: CreateInconnectCommercialTeamInput;
+};
+
+
+export type MutationCreateInconnectMessagingOutboundUploadArgs = {
+  input: CreateInconnectMessagingOutboundUploadInput;
 };
 
 
@@ -5819,6 +5851,7 @@ export type SendInconnectMessagingMessageInput = {
   clientRequestId: Scalars['UUID']['input'];
   conversationId: Scalars['UUID']['input'];
   mode: Scalars['String']['input'];
+  outboundUploadIds?: InputMaybe<Array<Scalars['UUID']['input']>>;
   templateId?: InputMaybe<Scalars['UUID']['input']>;
   templateVariables?: InputMaybe<Array<InconnectMessagingTemplateVariableInput>>;
 };

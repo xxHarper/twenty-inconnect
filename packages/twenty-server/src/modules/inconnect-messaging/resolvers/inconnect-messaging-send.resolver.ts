@@ -33,6 +33,7 @@ export class InconnectMessagingSendResolver {
       body: input.body,
       templateId: input.templateId,
       templateVariables: input.templateVariables,
+      outboundUploadIds: input.outboundUploadIds,
     });
   }
 }

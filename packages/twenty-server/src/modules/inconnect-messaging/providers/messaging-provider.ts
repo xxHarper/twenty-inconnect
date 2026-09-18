@@ -88,6 +88,7 @@ export type InconnectMessagingWebhookRoutingHints = {
 
 export const INCONNECT_MESSAGING_PROVIDER_CAPABILITIES = [
   'DISPATCH_FREEFORM',
+  'DISPATCH_MEDIA',
   'DISPATCH_TEMPLATE',
   'NORMALIZE_WEBHOOK',
   'RETRIEVE_MEDIA',
@@ -114,10 +115,31 @@ export type InconnectMessagingDispatchRequest = {
   content:
     | { kind: 'FREEFORM_TEXT'; body: string }
     | {
+        kind: 'MEDIA';
+        body: string;
+        attachments: InconnectMessagingOutboundMediaDescriptor[];
+      }
+    | {
         kind: 'TEMPLATE';
         templateProviderReference: string;
         variables: Record<string, string>;
       };
+};
+
+export type InconnectMessagingOutboundMediaDescriptor = {
+  attachmentId: string;
+  type: InconnectMessagingAttachmentType;
+  mimeType: string;
+  size: number;
+  safeFilename: string;
+};
+
+export type InconnectMessagingOutboundMediaCapabilities = {
+  maximumAttachments: number;
+  supportedMimeTypesByType: Readonly<
+    Record<InconnectMessagingAttachmentType, readonly string[]>
+  >;
+  captionSupportedTypes: readonly InconnectMessagingAttachmentType[];
 };
 
 export type InconnectMessagingTemplateVariable = {
@@ -186,6 +208,7 @@ export type InconnectMessagingDispatchResult =
 export interface InconnectMessagingProvider {
   readonly key: InconnectMessagingProviderKey;
   readonly capabilities: readonly InconnectMessagingProviderCapability[];
+  readonly outboundMediaCapabilities?: InconnectMessagingOutboundMediaCapabilities;
   dispatch(
     request: InconnectMessagingDispatchRequest,
   ): Promise<InconnectMessagingDispatchResult>;

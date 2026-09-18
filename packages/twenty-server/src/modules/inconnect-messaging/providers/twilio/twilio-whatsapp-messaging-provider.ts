@@ -15,6 +15,7 @@ import {
   type InconnectMessagingNormalizedStatus,
   type InconnectMessagingNormalizedWebhook,
   type InconnectMessagingProvider,
+  type InconnectMessagingOutboundMediaCapabilities,
   type InconnectMessagingProviderTemplate,
   type InconnectMessagingTemplateCatalogRequest,
   type InconnectMessagingWebhookNormalizationRequest,
@@ -26,6 +27,7 @@ import { SecureHttpClientService } from 'src/engine/core-modules/secure-http-cli
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { TwilioWhatsappClientFactory } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-client.factory';
+import { InconnectMessagingProviderMediaDeliveryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-provider-media-delivery.service';
 import {
   type InconnectMessagingJson,
   type InconnectMessagingMessageType,
@@ -59,6 +61,35 @@ const TWILIO_MEDIA_SID_PATTERN = /^ME[0-9a-fA-F]{32}$/;
 const TWILIO_MEDIA_HOSTNAME = 'api.twilio.com';
 const TWILIO_MEDIA_REDIRECT_HOSTNAME = 'mms.twiliocdn.com';
 const TWILIO_MEDIA_TIMEOUT_MILLISECONDS = 15_000;
+
+const TWILIO_WHATSAPP_OUTBOUND_MEDIA_CAPABILITIES: InconnectMessagingOutboundMediaCapabilities =
+  {
+    maximumAttachments: 1,
+    supportedMimeTypesByType: {
+      IMAGE: ['image/jpeg', 'image/png'],
+      STICKER: ['image/webp'],
+      AUDIO: [
+        'audio/mpeg',
+        'audio/ogg',
+        'audio/amr',
+        'audio/aac',
+        'audio/mp4',
+        'audio/3gpp',
+      ],
+      VIDEO: ['video/mp4'],
+      DOCUMENT: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ],
+      CONTACT: ['text/vcard', 'text/x-vcard', 'application/vcard'],
+    },
+    captionSupportedTypes: ['IMAGE'],
+  };
 
 const normalizeMimeType = (value: string): string =>
   value.split(';', 1)[0].trim().toLowerCase();
@@ -382,15 +413,19 @@ export class TwilioWhatsappMessagingProvider
   public readonly capabilities = [
     'NORMALIZE_WEBHOOK',
     'DISPATCH_FREEFORM',
+    'DISPATCH_MEDIA',
     'DISPATCH_TEMPLATE',
     'RETRIEVE_MEDIA',
   ] as const;
+  public readonly outboundMediaCapabilities =
+    TWILIO_WHATSAPP_OUTBOUND_MEDIA_CAPABILITIES;
 
   public constructor(
     private readonly providerRegistry: InconnectMessagingProviderRegistry,
     private readonly clientFactory: TwilioWhatsappClientFactory,
     private readonly twentyConfigService: TwentyConfigService,
     private readonly secureHttpClientService: SecureHttpClientService,
+    private readonly providerMediaDeliveryService: InconnectMessagingProviderMediaDeliveryService,
   ) {}
 
   public onModuleInit(): void {
@@ -411,11 +446,7 @@ export class TwilioWhatsappMessagingProvider
       credentials.data.accountSid === undefined ||
       sender === null ||
       destination === null ||
-      (request.content.kind === 'FREEFORM_TEXT'
-        ? request.content.body.trim().length === 0
-        : !TWILIO_CONTENT_SID_PATTERN.test(
-            request.content.templateProviderReference,
-          ))
+      !this.isDispatchContentValid(request.content)
     ) {
       return {
         kind: 'FAILED_BEFORE_SUBMIT',
@@ -428,6 +459,36 @@ export class TwilioWhatsappMessagingProvider
     }
 
     let statusCallback: string;
+
+    let providerMediaUrls: string[] = [];
+
+    if (request.content.kind === 'MEDIA') {
+      try {
+        providerMediaUrls = await Promise.all(
+          request.content.attachments.map((attachment) =>
+            this.providerMediaDeliveryService.createCapabilityUrl({
+              workspaceId: request.workspaceId,
+              attachmentId: attachment.attachmentId,
+            }),
+          ),
+        );
+
+        if (
+          providerMediaUrls.some((url) => new URL(url).protocol !== 'https:')
+        ) {
+          throw new Error('Provider media URL must use HTTPS');
+        }
+      } catch {
+        return {
+          kind: 'FAILED_BEFORE_SUBMIT',
+          error: {
+            code: 'MEDIA_DELIVERY_UNAVAILABLE',
+            message: 'Provider media delivery is unavailable',
+            retryable: false,
+          },
+        };
+      }
+    }
 
     try {
       const serverUrl = new URL(this.twentyConfigService.get('SERVER_URL'));
@@ -462,10 +523,17 @@ export class TwilioWhatsappMessagingProvider
       const content =
         request.content.kind === 'FREEFORM_TEXT'
           ? { body: request.content.body }
-          : {
-              contentSid: request.content.templateProviderReference,
-              contentVariables: JSON.stringify(request.content.variables),
-            };
+          : request.content.kind === 'TEMPLATE'
+            ? {
+                contentSid: request.content.templateProviderReference,
+                contentVariables: JSON.stringify(request.content.variables),
+              }
+            : {
+                ...(request.content.body.length > 0
+                  ? { body: request.content.body }
+                  : {}),
+                mediaUrl: providerMediaUrls,
+              };
       const message = await client.messages.create({
         from: `whatsapp:${sender}`,
         to: `whatsapp:${destination}`,
@@ -524,6 +592,32 @@ export class TwilioWhatsappMessagingProvider
         },
       };
     }
+  }
+
+  private isDispatchContentValid(
+    content: InconnectMessagingDispatchRequest['content'],
+  ): boolean {
+    if (content.kind === 'FREEFORM_TEXT') {
+      return content.body.trim().length > 0;
+    }
+
+    if (content.kind === 'TEMPLATE') {
+      return TWILIO_CONTENT_SID_PATTERN.test(content.templateProviderReference);
+    }
+
+    return (
+      content.attachments.length > 0 &&
+      content.attachments.length <=
+        this.outboundMediaCapabilities.maximumAttachments &&
+      content.attachments.every(
+        (attachment) =>
+          this.outboundMediaCapabilities.supportedMimeTypesByType[
+            attachment.type
+          ].includes(attachment.mimeType) && attachment.size > 0,
+      ) &&
+      (content.body.length === 0 ||
+        content.attachments.every((attachment) => attachment.type === 'IMAGE'))
+    );
   }
 
   public async listTemplates({

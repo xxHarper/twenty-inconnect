@@ -63,14 +63,7 @@ export class FileUploadService {
     private readonly fileRepository: WorkspaceScopedRepository<FileEntity>,
   ) {}
 
-  async createFileUpload({
-    workspaceId,
-    filename,
-    size,
-    fileFolder,
-    fieldMetadataId,
-    fieldMetadataUniversalIdentifier,
-  }: {
+  async createFileUpload(args: {
     workspaceId: string;
     filename: string;
     size: number;
@@ -80,11 +73,11 @@ export class FileUploadService {
   }): Promise<FileUploadTargetDTO> {
     if (
       !DIRECT_UPLOAD_FILE_FOLDERS.includes(
-        fileFolder as (typeof DIRECT_UPLOAD_FILE_FOLDERS)[number],
+        args.fileFolder as (typeof DIRECT_UPLOAD_FILE_FOLDERS)[number],
       )
     ) {
       throw new FileUploadException(
-        `Direct upload is not supported for file folder ${fileFolder}`,
+        `Direct upload is not supported for file folder ${args.fileFolder}`,
         FileUploadExceptionCode.BAD_REQUEST,
         {
           userFriendlyMessage: msg`Direct upload is not supported for this file type.`,
@@ -92,11 +85,102 @@ export class FileUploadService {
       );
     }
 
-    const maxFileSize = bytes(settings.storage.maxDirectUploadFileSize) ?? 0;
+    return this.createFileUploadInternal({
+      workspaceId: args.workspaceId,
+      filename: args.filename,
+      size: args.size,
+      fileFolder: args.fileFolder,
+      fieldMetadataId: args.fieldMetadataId,
+      fieldMetadataUniversalIdentifier: args.fieldMetadataUniversalIdentifier,
+      maximumFileSize: this.getConfiguredMaximumFileSize(),
+    });
+  }
 
-    if (!Number.isInteger(size) || size <= 0 || size > maxFileSize) {
+  async createServerOwnedFileUpload({
+    workspaceId,
+    filename,
+    size,
+    fileFolder,
+    fileId,
+    maximumFileSize,
+  }: {
+    workspaceId: string;
+    filename: string;
+    size: number;
+    fileFolder: FileFolder;
+    fileId: string;
+    maximumFileSize: number;
+  }): Promise<FileUploadTargetDTO> {
+    return this.createFileUploadInternal({
+      workspaceId,
+      filename,
+      size,
+      fileFolder,
+      fileId,
+      maximumFileSize: Math.min(
+        this.getConfiguredMaximumFileSize(),
+        maximumFileSize,
+      ),
+    });
+  }
+
+  async refreshServerOwnedFileUploadTarget({
+    workspaceId,
+    fileId,
+    fileFolder: expectedFileFolder,
+  }: {
+    workspaceId: string;
+    fileId: string;
+    fileFolder: FileFolder;
+  }): Promise<FileUploadTargetDTO> {
+    const file = await this.findFileOrThrow({ workspaceId, fileId });
+    const { application, fileFolder, resourcePath } =
+      await this.resolveFileLocation({ workspaceId, file });
+
+    if (
+      fileFolder !== expectedFileFolder ||
+      file.status !== FILE_STATUS.PENDING
+    ) {
       throw new FileUploadException(
-        `Invalid file size ${size} (max ${maxFileSize} bytes)`,
+        `File ${fileId} is not awaiting a server-owned upload in ${expectedFileFolder}`,
+        FileUploadExceptionCode.BAD_REQUEST,
+        { userFriendlyMessage: msg`This file is not awaiting an upload.` },
+      );
+    }
+
+    return this.buildUploadTarget({
+      workspaceId,
+      fileId,
+      fileFolder,
+      applicationUniversalIdentifier: application.universalIdentifier,
+      resourcePath,
+      size: Number(file.size),
+      mimeType: file.mimeType,
+    });
+  }
+
+  private async createFileUploadInternal({
+    workspaceId,
+    filename,
+    size,
+    fileFolder,
+    fieldMetadataId,
+    fieldMetadataUniversalIdentifier,
+    fileId: serverOwnedFileId,
+    maximumFileSize,
+  }: {
+    workspaceId: string;
+    filename: string;
+    size: number;
+    fileFolder: FileFolder;
+    fieldMetadataId?: string;
+    fieldMetadataUniversalIdentifier?: string;
+    fileId?: string;
+    maximumFileSize: number;
+  }): Promise<FileUploadTargetDTO> {
+    if (!Number.isInteger(size) || size <= 0 || size > maximumFileSize) {
+      throw new FileUploadException(
+        `Invalid file size ${size} (max ${maximumFileSize} bytes)`,
         FileUploadExceptionCode.FILE_TOO_LARGE,
         {
           userFriendlyMessage: msg`The file is empty or exceeds the maximum allowed size.`,
@@ -107,7 +191,7 @@ export class FileUploadService {
     const { ext } = buildFileInfo(filename);
     const mimeType = 'application/octet-stream';
 
-    const fileId = v4();
+    const fileId = serverOwnedFileId ?? v4();
     const name = `${fileId}${isNonEmptyString(ext) ? `.${ext}` : ''}`;
 
     const { applicationUniversalIdentifier, resourcePath } =
@@ -133,6 +217,34 @@ export class FileUploadService {
       },
     });
 
+    return this.buildUploadTarget({
+      workspaceId,
+      fileId,
+      fileFolder,
+      applicationUniversalIdentifier,
+      resourcePath,
+      size,
+      mimeType,
+    });
+  }
+
+  private async buildUploadTarget({
+    workspaceId,
+    fileId,
+    fileFolder,
+    applicationUniversalIdentifier,
+    resourcePath,
+    size,
+    mimeType,
+  }: {
+    workspaceId: string;
+    fileId: string;
+    fileFolder: FileFolder;
+    applicationUniversalIdentifier: string;
+    resourcePath: string;
+    size: number;
+    mimeType: string;
+  }): Promise<FileUploadTargetDTO> {
     const expiresInSeconds = this.twentyConfigService.get(
       'STORAGE_S3_PRESIGNED_URL_EXPIRES_IN',
     );
@@ -287,29 +399,62 @@ export class FileUploadService {
     workspaceId: string;
     fileId: string;
   }): Promise<FileWithSignedUrlDTO> {
+    const file = await this.completeFileUploadInternal({
+      workspaceId,
+      fileId,
+      allowedFileFolders: [...DIRECT_UPLOAD_FILE_FOLDERS],
+    });
+    const [fileFolder] = file.path.split('/');
+
+    return this.toFileWithSignedUrl({
+      file,
+      fileFolder: fileFolder as FileFolder,
+      workspaceId,
+    });
+  }
+
+  async completeServerOwnedFileUpload({
+    workspaceId,
+    fileId,
+    fileFolder,
+    allowedMimeTypes,
+  }: {
+    workspaceId: string;
+    fileId: string;
+    fileFolder: FileFolder;
+    allowedMimeTypes: readonly string[];
+  }): Promise<FileEntity> {
+    return this.completeFileUploadInternal({
+      workspaceId,
+      fileId,
+      allowedFileFolders: [fileFolder],
+      allowedMimeTypes,
+    });
+  }
+
+  private async completeFileUploadInternal({
+    workspaceId,
+    fileId,
+    allowedFileFolders,
+    allowedMimeTypes,
+  }: {
+    workspaceId: string;
+    fileId: string;
+    allowedFileFolders: FileFolder[];
+    allowedMimeTypes?: readonly string[];
+  }): Promise<FileEntity> {
     const file = await this.findFileOrThrow({ workspaceId, fileId });
     const [fileFolder] = file.path.split('/');
 
-    // Restrict to files created through createFileUpload so this mutation
-    // cannot be used to mint signed download urls for arbitrary files.
-    if (
-      !DIRECT_UPLOAD_FILE_FOLDERS.includes(
-        fileFolder as (typeof DIRECT_UPLOAD_FILE_FOLDERS)[number],
-      )
-    ) {
+    if (!allowedFileFolders.includes(fileFolder as FileFolder)) {
       throw new FileUploadException(
         `File not found: ${fileId}`,
         FileUploadExceptionCode.FILE_NOT_FOUND,
-        {
-          userFriendlyMessage: msg`File not found.`,
-        },
+        { userFriendlyMessage: msg`File not found.` },
       );
     }
 
     if (file.status === FILE_STATUS.UPLOADED) {
-      // Idempotent retry of a confirm that already succeeded. Only files not
-      // yet attached to a record qualify: this cannot be used to mint signed
-      // urls for files that went through the legacy flow and got attached.
       if (!file.settings?.isTemporaryFile) {
         throw new FileUploadException(
           `File ${fileId} is not awaiting an upload confirmation`,
@@ -320,11 +465,9 @@ export class FileUploadService {
         );
       }
 
-      return this.toFileWithSignedUrl({
-        file,
-        fileFolder: fileFolder as FileFolder,
-        workspaceId,
-      });
+      this.assertMimeTypeAllowed(file.mimeType, allowedMimeTypes);
+
+      return file;
     }
 
     const { application, resourcePath } = await this.resolveFileLocation({
@@ -369,17 +512,15 @@ export class FileUploadService {
 
     this.assertMimeTypeAllowedForFolder(fileFolder as FileFolder, mimeType);
 
+    this.assertMimeTypeAllowed(mimeType, allowedMimeTypes);
+
     await this.fileRepository.update(
       workspaceId,
       { id: fileId },
       { status: FILE_STATUS.UPLOADED, mimeType },
     );
 
-    return this.toFileWithSignedUrl({
-      file: { ...file, status: FILE_STATUS.UPLOADED, mimeType },
-      fileFolder: fileFolder as FileFolder,
-      workspaceId,
-    });
+    return { ...file, status: FILE_STATUS.UPLOADED, mimeType };
   }
 
   private async detectUploadedMimeTypeOrThrow({
@@ -432,6 +573,31 @@ export class FileUploadService {
         userFriendlyMessage: msg`This file format is not supported.`,
       },
     );
+  }
+
+  private assertMimeTypeAllowed(
+    mimeType: string,
+    allowedMimeTypes?: readonly string[],
+  ): void {
+    if (
+      !allowedMimeTypes ||
+      allowedMimeTypes.some(
+        (allowedMimeType) =>
+          allowedMimeType.toLowerCase() === mimeType.toLowerCase(),
+      )
+    ) {
+      return;
+    }
+
+    throw new FileUploadException(
+      `MIME type ${mimeType} is not allowed for this upload`,
+      FileUploadExceptionCode.BAD_REQUEST,
+      { userFriendlyMessage: msg`This file format is not supported.` },
+    );
+  }
+
+  private getConfiguredMaximumFileSize(): number {
+    return bytes(settings.storage.maxDirectUploadFileSize) ?? 0;
   }
 
   private async resolveUploadLocation({

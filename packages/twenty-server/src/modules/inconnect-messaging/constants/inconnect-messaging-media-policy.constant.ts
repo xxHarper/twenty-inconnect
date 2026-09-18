@@ -2,6 +2,20 @@ import { type InconnectMessagingAttachmentType } from 'src/modules/inconnect-mes
 
 export const INCONNECT_MESSAGING_MAXIMUM_MEDIA_BYTES = 16 * 1024 * 1024;
 
+export const INCONNECT_MESSAGING_OUTBOUND_UPLOAD_TTL_MILLISECONDS =
+  24 * 60 * 60 * 1000;
+
+const INCONNECT_MESSAGING_OUTBOUND_MAXIMUM_BYTES_BY_TYPE: Readonly<
+  Record<InconnectMessagingAttachmentType, number>
+> = {
+  IMAGE: 5 * 1024 * 1024,
+  STICKER: 100 * 1024,
+  AUDIO: INCONNECT_MESSAGING_MAXIMUM_MEDIA_BYTES,
+  VIDEO: INCONNECT_MESSAGING_MAXIMUM_MEDIA_BYTES,
+  DOCUMENT: INCONNECT_MESSAGING_MAXIMUM_MEDIA_BYTES,
+  CONTACT: INCONNECT_MESSAGING_MAXIMUM_MEDIA_BYTES,
+};
+
 export const INCONNECT_MESSAGING_MEDIA_EXTENSION_BY_MIME: Readonly<
   Record<string, string>
 > = {
@@ -58,3 +72,14 @@ export const isInconnectMessagingMimeAllowedForType = ({
     !normalized.startsWith('video/')
   );
 };
+
+export const getInconnectMessagingOutboundMaximumBytes = (
+  type: InconnectMessagingAttachmentType,
+): number => INCONNECT_MESSAGING_OUTBOUND_MAXIMUM_BYTES_BY_TYPE[type];
+
+export const getInconnectMessagingAllowedMimeTypesForType = (
+  type: InconnectMessagingAttachmentType,
+): readonly string[] =>
+  Object.keys(INCONNECT_MESSAGING_MEDIA_EXTENSION_BY_MIME).filter((mimeType) =>
+    isInconnectMessagingMimeAllowedForType({ mimeType, type }),
+  );

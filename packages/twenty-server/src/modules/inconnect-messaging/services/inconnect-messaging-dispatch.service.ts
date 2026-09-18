@@ -16,6 +16,7 @@ import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queu
 import { MessageQueueService } from 'src/engine/core-modules/message-queue/services/message-queue.service';
 import { SecretEncryptionService } from 'src/engine/core-modules/secret-encryption/secret-encryption.service';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
@@ -30,6 +31,7 @@ import {
   InconnectMessagingOutboxService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbox.service';
 import { createInconnectMessagingOutboundOutboxEvent } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbound-outbox.util';
+import { getInconnectMessagingOutboundMaximumBytes } from 'src/modules/inconnect-messaging/constants/inconnect-messaging-media-policy.constant';
 import { isInconnectMessagingFreeformWindowOpen } from 'src/modules/inconnect-messaging/services/inconnect-messaging-session-window.policy';
 import { resolveInconnectMessagingOutboundStateTransition } from 'src/modules/inconnect-messaging/state-machine/outbound-message-state-machine';
 import {
@@ -243,10 +245,11 @@ export class InconnectMessagingDispatchService {
       return this.preSubmitFailure('CONNECTION_UNAVAILABLE');
     }
 
-    if (
-      message.type !== 'TEXT' ||
-      !['FREEFORM', 'TEMPLATE'].includes(message.sendMode ?? '')
-    ) {
+    if (!['FREEFORM', 'TEMPLATE'].includes(message.sendMode ?? '')) {
+      return this.preSubmitFailure('UNSUPPORTED_CONTENT');
+    }
+
+    if (message.sendMode === 'TEMPLATE' && message.type !== 'TEXT') {
       return this.preSubmitFailure('UNSUPPORTED_CONTENT');
     }
 
@@ -290,10 +293,14 @@ export class InconnectMessagingDispatchService {
         channel: connection.channel,
       });
 
+      const hasMedia =
+        message.sendMode === 'FREEFORM' && message.type !== 'TEXT';
       const requiredCapability =
-        message.sendMode === 'FREEFORM'
-          ? 'DISPATCH_FREEFORM'
-          : 'DISPATCH_TEMPLATE';
+        message.sendMode === 'TEMPLATE'
+          ? 'DISPATCH_TEMPLATE'
+          : hasMedia
+            ? 'DISPATCH_MEDIA'
+            : 'DISPATCH_FREEFORM';
 
       if (!provider.capabilities.includes(requiredCapability)) {
         return this.preSubmitFailure('PROVIDER_UNAVAILABLE');
@@ -305,7 +312,60 @@ export class InconnectMessagingDispatchService {
     let content: InconnectMessagingDispatchRequest['content'];
 
     if (message.sendMode === 'FREEFORM') {
-      content = { kind: 'FREEFORM_TEXT', body: message.body };
+      if (message.type === 'TEXT') {
+        content = { kind: 'FREEFORM_TEXT', body: message.body };
+      } else {
+        const attachments = await this.dataSource
+          .getRepository(InconnectMessagingAttachmentEntity)
+          .find({
+            where: {
+              messageId: message.id,
+              workspaceId: message.workspaceId,
+              providerConnectionId: message.providerConnectionId,
+            },
+            order: { ordinal: 'ASC' },
+          });
+        const capabilities = provider.outboundMediaCapabilities;
+
+        if (
+          capabilities === undefined ||
+          attachments.length === 0 ||
+          attachments.length > capabilities.maximumAttachments ||
+          attachments.some(
+            (attachment) =>
+              attachment.ingestionState !== 'AVAILABLE' ||
+              attachment.fileId === null ||
+              attachment.mimeType === null ||
+              attachment.size === null ||
+              !Number.isSafeInteger(Number(attachment.size)) ||
+              Number(attachment.size) <= 0 ||
+              Number(attachment.size) >
+                getInconnectMessagingOutboundMaximumBytes(attachment.type) ||
+              !capabilities.supportedMimeTypesByType[attachment.type].includes(
+                attachment.mimeType,
+              ),
+          ) ||
+          (message.body.length > 0 &&
+            attachments.some(
+              (attachment) =>
+                !capabilities.captionSupportedTypes.includes(attachment.type),
+            ))
+        ) {
+          return this.preSubmitFailure('UNSUPPORTED_CONTENT');
+        }
+
+        content = {
+          kind: 'MEDIA',
+          body: message.body,
+          attachments: attachments.map((attachment) => ({
+            attachmentId: attachment.id,
+            type: attachment.type,
+            mimeType: attachment.mimeType as string,
+            size: Number(attachment.size),
+            safeFilename: attachment.safeFilename,
+          })),
+        };
+      }
     } else {
       if (
         message.templateProviderReference === null ||

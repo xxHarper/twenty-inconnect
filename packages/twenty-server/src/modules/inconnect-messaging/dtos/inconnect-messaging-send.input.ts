@@ -3,6 +3,7 @@ import { Field, InputType, ObjectType } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  ArrayMaxSize,
   IsIn,
   IsOptional,
   IsString,
@@ -57,6 +58,13 @@ export class SendInconnectMessagingMessageInput {
   @Type(() => InconnectMessagingTemplateVariableInput)
   @Field(() => [InconnectMessagingTemplateVariableInput], { nullable: true })
   templateVariables?: InconnectMessagingTemplateVariableInput[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID(undefined, { each: true })
+  @Field(() => [UUIDScalarType], { nullable: true })
+  outboundUploadIds?: string[];
 }
 
 @ObjectType('SendInconnectMessagingMessageResult')

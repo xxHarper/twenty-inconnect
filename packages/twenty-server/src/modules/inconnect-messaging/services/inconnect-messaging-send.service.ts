@@ -13,8 +13,10 @@ import {
   UserInputError,
 } from 'src/engine/core-modules/graphql/utils/graphql-errors.util';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
+import { InconnectMessagingOutboundUploadEntity } from 'src/modules/inconnect-messaging/entities/outbound-upload.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
@@ -36,7 +38,7 @@ const MAX_BODY_LENGTH = 4096;
 type TemplateVariableInput = { key: string; value: string };
 
 type NormalizedSendIntent =
-  | { mode: 'FREEFORM'; body: string }
+  | { mode: 'FREEFORM'; body: string; outboundUploadIds: string[] }
   | {
       mode: 'TEMPLATE';
       templateId: string;
@@ -62,6 +64,7 @@ export class InconnectMessagingSendService {
     body,
     templateId,
     templateVariables,
+    outboundUploadIds,
   }: {
     authContext: WorkspaceAuthContext;
     conversationId: string;
@@ -70,6 +73,7 @@ export class InconnectMessagingSendService {
     body?: string;
     templateId?: string;
     templateVariables?: TemplateVariableInput[];
+    outboundUploadIds?: string[];
   }): Promise<{ messageId: string; outboundState: string }> {
     const authorizedConversation =
       await this.authorizationService.findAuthorizedConversationForSend({
@@ -88,7 +92,16 @@ export class InconnectMessagingSendService {
       body,
       templateId,
       templateVariables,
+      outboundUploadIds,
     });
+    const outboundUploads =
+      intent.mode === 'FREEFORM' && intent.outboundUploadIds.length > 0
+        ? await this.resolveOwnedOutboundUploads({
+            workspaceId,
+            workspaceMemberId: actorId,
+            uploadIds: intent.outboundUploadIds,
+          })
+        : [];
     const scopedClientRequestId = uuidv5(
       `${actorId}:${conversationId}:${clientRequestId}`,
       workspaceId,
@@ -99,6 +112,7 @@ export class InconnectMessagingSendService {
       conversationId,
       clientRequestId,
       intent,
+      outboundUploads,
     });
     const alreadyPersisted = await this.dataSource
       .getRepository(InconnectMessagingMessageEntity)
@@ -234,14 +248,44 @@ export class InconnectMessagingSendService {
         });
 
         const requiredCapability =
-          intent.mode === 'FREEFORM'
-            ? 'DISPATCH_FREEFORM'
-            : 'DISPATCH_TEMPLATE';
+          intent.mode === 'TEMPLATE'
+            ? 'DISPATCH_TEMPLATE'
+            : outboundUploads.length > 0
+              ? 'DISPATCH_MEDIA'
+              : 'DISPATCH_FREEFORM';
 
         if (!provider.capabilities.includes(requiredCapability)) {
           throw new Error('Unsupported provider capability');
         }
-      } catch {
+
+        if (outboundUploads.length > 0) {
+          const capabilities = provider.outboundMediaCapabilities;
+
+          if (
+            capabilities === undefined ||
+            outboundUploads.length > capabilities.maximumAttachments ||
+            outboundUploads.some(
+              (upload) =>
+                upload.mimeType === null ||
+                !capabilities.supportedMimeTypesByType[upload.type].includes(
+                  upload.mimeType,
+                ),
+            ) ||
+            (intent.mode === 'FREEFORM' &&
+              intent.body.length > 0 &&
+              outboundUploads.some(
+                (upload) =>
+                  !capabilities.captionSupportedTypes.includes(upload.type),
+              ))
+          ) {
+            throw new UserInputError('Unsupported provider media', {
+              subCode: 'UNSUPPORTED_PROVIDER_MEDIA',
+            });
+          }
+        }
+      } catch (error) {
+        if (error instanceof UserInputError) throw error;
+
         throw new UserInputError('Messaging provider is unavailable', {
           subCode: 'PROVIDER_UNAVAILABLE',
         });
@@ -276,7 +320,7 @@ export class InconnectMessagingSendService {
           conversationId,
           providerConnectionId: connection.id,
           direction: 'OUTBOUND',
-          type: 'TEXT',
+          type: outboundUploads[0]?.type ?? 'TEXT',
           sendMode: intent.mode,
           body: renderedBody,
           templateId: templateAudit?.id ?? null,
@@ -330,6 +374,68 @@ export class InconnectMessagingSendService {
           created: false,
           event: null,
         };
+      }
+
+      if (outboundUploads.length > 0) {
+        const uploadRepository = manager.getRepository(
+          InconnectMessagingOutboundUploadEntity,
+        );
+        const lockedUploads: InconnectMessagingOutboundUploadEntity[] = [];
+
+        for (const expectedUpload of outboundUploads) {
+          const lockedUpload = await uploadRepository.findOne({
+            where: {
+              id: expectedUpload.id,
+              workspaceId,
+              workspaceMemberId: actorId,
+            },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (
+            lockedUpload === null ||
+            lockedUpload.state !== 'AVAILABLE' ||
+            lockedUpload.expiresAt <= new Date() ||
+            lockedUpload.fileId === null ||
+            lockedUpload.mimeType === null ||
+            lockedUpload.contentFingerprint === null
+          ) {
+            throw new UserInputError('Outbound upload is unavailable', {
+              subCode: 'OUTBOUND_UPLOAD_UNAVAILABLE',
+            });
+          }
+
+          lockedUploads.push(lockedUpload);
+        }
+
+        await manager.getRepository(InconnectMessagingAttachmentEntity).insert(
+          lockedUploads.map((upload, ordinal) => ({
+            workspaceId,
+            messageId,
+            providerConnectionId: connection.id,
+            ordinal,
+            type: upload.type,
+            ingestionState: 'AVAILABLE' as const,
+            providerMediaLocator: null,
+            declaredMimeType: upload.mimeType,
+            safeFilename: upload.safeFilename,
+            fileId: upload.fileId,
+            mimeType: upload.mimeType,
+            size: Number(upload.size),
+            leaseToken: null,
+            leaseExpiresAt: null,
+            attemptCount: 0,
+            lastErrorCode: null,
+            availableAt: new Date(),
+          })),
+        );
+
+        for (const upload of lockedUploads) {
+          upload.state = 'CONSUMED';
+          upload.consumedByMessageId = messageId;
+          upload.consumedAt = new Date();
+          await uploadRepository.save(upload);
+        }
       }
 
       await manager
@@ -389,17 +495,23 @@ export class InconnectMessagingSendService {
     body,
     templateId,
     templateVariables,
+    outboundUploadIds,
   }: {
     mode: string;
     body?: string;
     templateId?: string;
     templateVariables?: TemplateVariableInput[];
+    outboundUploadIds?: string[];
   }): NormalizedSendIntent {
     if (mode === 'FREEFORM') {
+      const normalizedUploadIds = outboundUploadIds ?? [];
+
       if (
-        body === undefined ||
-        body.trim().length === 0 ||
-        body.length > MAX_BODY_LENGTH ||
+        (body === undefined && normalizedUploadIds.length === 0) ||
+        (body !== undefined && body.length > MAX_BODY_LENGTH) ||
+        (body?.trim().length === 0 && normalizedUploadIds.length === 0) ||
+        normalizedUploadIds.length > 10 ||
+        new Set(normalizedUploadIds).size !== normalizedUploadIds.length ||
         templateId !== undefined ||
         templateVariables !== undefined
       ) {
@@ -408,12 +520,17 @@ export class InconnectMessagingSendService {
         });
       }
 
-      return { mode, body };
+      return {
+        mode,
+        body: body?.trim().length === 0 ? '' : (body ?? ''),
+        outboundUploadIds: normalizedUploadIds,
+      };
     }
 
     if (
       mode !== 'TEMPLATE' ||
       body !== undefined ||
+      outboundUploadIds !== undefined ||
       templateId === undefined ||
       templateId.length === 0
     ) {
@@ -486,16 +603,27 @@ export class InconnectMessagingSendService {
     conversationId,
     clientRequestId,
     intent,
+    outboundUploads,
   }: {
     workspaceId: string;
     actorId: string;
     conversationId: string;
     clientRequestId: string;
     intent: NormalizedSendIntent;
+    outboundUploads: InconnectMessagingOutboundUploadEntity[];
   }): string {
     const content =
       intent.mode === 'FREEFORM'
-        ? ['TEXT', 'FREEFORM', intent.body]
+        ? [
+            outboundUploads[0]?.type ?? 'TEXT',
+            'FREEFORM',
+            intent.body,
+            outboundUploads.map((upload) => [
+              upload.id,
+              upload.type,
+              upload.contentFingerprint,
+            ]),
+          ]
         : ['TEXT', 'TEMPLATE', intent.templateId, intent.variables];
 
     return createHash('sha256')
@@ -509,5 +637,42 @@ export class InconnectMessagingSendService {
         ]),
       )
       .digest('hex');
+  }
+
+  private async resolveOwnedOutboundUploads({
+    workspaceId,
+    workspaceMemberId,
+    uploadIds,
+  }: {
+    workspaceId: string;
+    workspaceMemberId: string;
+    uploadIds: string[];
+  }): Promise<InconnectMessagingOutboundUploadEntity[]> {
+    const repository = this.dataSource.getRepository(
+      InconnectMessagingOutboundUploadEntity,
+    );
+    const uploads: InconnectMessagingOutboundUploadEntity[] = [];
+
+    for (const uploadId of uploadIds) {
+      const upload = await repository.findOne({
+        where: { id: uploadId, workspaceId, workspaceMemberId },
+      });
+
+      if (
+        upload === null ||
+        !['AVAILABLE', 'CONSUMED'].includes(upload.state) ||
+        upload.fileId === null ||
+        upload.mimeType === null ||
+        upload.contentFingerprint === null
+      ) {
+        throw new UserInputError('Outbound upload is unavailable', {
+          subCode: 'OUTBOUND_UPLOAD_UNAVAILABLE',
+        });
+      }
+
+      uploads.push(upload);
+    }
+
+    return uploads;
   }
 }

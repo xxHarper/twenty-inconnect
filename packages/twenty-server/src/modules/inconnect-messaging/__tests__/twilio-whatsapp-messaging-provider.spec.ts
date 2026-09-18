@@ -5,6 +5,7 @@ import { TwilioWhatsappMessagingProvider } from 'src/modules/inconnect-messaging
 import { TwilioWhatsappClientFactory } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-client.factory';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { SecureHttpClientService } from 'src/engine/core-modules/secure-http-client/secure-http-client.service';
+import { InconnectMessagingProviderMediaDeliveryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-provider-media-delivery.service';
 import { type InconnectMessagingWebhookRequest } from 'src/modules/inconnect-messaging/providers/messaging-provider';
 
 const AUTH_TOKEN = 'test-auth-token';
@@ -73,11 +74,20 @@ describe('TwilioWhatsappMessagingProvider', () => {
   const secureHttpClientService = {
     getHttpClient: jest.fn().mockReturnValue({ get: getMedia }),
   } as unknown as SecureHttpClientService;
+  const createCapabilityUrl = jest
+    .fn()
+    .mockResolvedValue(
+      'https://crm.example.com/inconnect-messaging/provider-media/attachment-id?token=server-token',
+    );
+  const providerMediaDeliveryService = {
+    createCapabilityUrl,
+  } as unknown as InconnectMessagingProviderMediaDeliveryService;
   const provider = new TwilioWhatsappMessagingProvider(
     registry,
     clientFactory,
     configService,
     secureHttpClientService,
+    providerMediaDeliveryService,
   );
 
   beforeAll(() => provider.onModuleInit());
@@ -89,6 +99,7 @@ describe('TwilioWhatsappMessagingProvider', () => {
     expect(provider.capabilities).toEqual([
       'NORMALIZE_WEBHOOK',
       'DISPATCH_FREEFORM',
+      'DISPATCH_MEDIA',
       'DISPATCH_TEMPLATE',
       'RETRIEVE_MEDIA',
     ]);
@@ -204,6 +215,52 @@ describe('TwilioWhatsappMessagingProvider', () => {
     });
   });
 
+  it('sends media with only the server-generated delivery capability', async () => {
+    createMessage.mockResolvedValueOnce({ sid: 'SM-media', status: 'queued' });
+
+    await expect(
+      provider.dispatch({
+        workspaceId: 'workspace-id',
+        providerConnectionId: 'connection-id',
+        messageId: 'message-id',
+        externalAddressNormalized: '+525512345678',
+        senderAddressNormalized: '+14155238886',
+        callbackRoutingKey: 'route-1',
+        credentials: { accountSid: 'AC123', authToken: AUTH_TOKEN },
+        content: {
+          kind: 'MEDIA',
+          body: 'caption',
+          attachments: [
+            {
+              attachmentId: 'attachment-id',
+              type: 'IMAGE',
+              mimeType: 'image/png',
+              size: 9,
+              safeFilename: 'photo.png',
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
+      kind: 'ACCEPTED',
+      providerMessageId: 'SM-media',
+    });
+    expect(createCapabilityUrl).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      attachmentId: 'attachment-id',
+    });
+    expect(createMessage).toHaveBeenLastCalledWith({
+      from: 'whatsapp:+14155238886',
+      to: 'whatsapp:+525512345678',
+      body: 'caption',
+      mediaUrl: [
+        'https://crm.example.com/inconnect-messaging/provider-media/attachment-id?token=server-token',
+      ],
+      statusCallback:
+        'https://crm.example.com/webhooks/inconnect-messaging/twilio/whatsapp/route-1/status/message-id',
+    });
+  });
+
   it('dispatches a template using only its server-side provider reference', async () => {
     createMessage.mockResolvedValueOnce({
       sid: 'SM-template',
@@ -277,6 +334,7 @@ describe('TwilioWhatsappMessagingProvider', () => {
       clientFactory,
       unsafeConfig,
       secureHttpClientService,
+      providerMediaDeliveryService,
     );
     const callsBefore = createMessage.mock.calls.length;
 

@@ -15,8 +15,36 @@ import {
 export class FakeInconnectMessagingProvider implements InconnectMessagingProvider {
   public readonly capabilities = [
     'DISPATCH_FREEFORM',
+    'DISPATCH_MEDIA',
     'DISPATCH_TEMPLATE',
   ] as const;
+  public readonly outboundMediaCapabilities = {
+    maximumAttachments: 10,
+    supportedMimeTypesByType: {
+      IMAGE: ['image/jpeg', 'image/png'],
+      STICKER: ['image/webp'],
+      AUDIO: [
+        'audio/mpeg',
+        'audio/ogg',
+        'audio/amr',
+        'audio/aac',
+        'audio/mp4',
+        'audio/3gpp',
+      ],
+      VIDEO: ['video/mp4'],
+      DOCUMENT: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ],
+      CONTACT: ['text/vcard', 'text/x-vcard', 'application/vcard'],
+    },
+    captionSupportedTypes: ['IMAGE'],
+  } as const;
   public readonly calls: InconnectMessagingDispatchRequest[] = [];
   public readonly templateCatalogCalls: InconnectMessagingTemplateCatalogRequest[] =
     [];

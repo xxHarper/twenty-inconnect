@@ -1,15 +1,19 @@
 import { type EntityManager } from 'typeorm';
 
+import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
+import { InconnectMessagingOutboundUploadEntity } from 'src/modules/inconnect-messaging/entities/outbound-upload.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { InconnectMessagingSendService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-send.service';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const conversationId = '22222222-2222-4222-8222-222222222222';
 const clientRequestId = '33333333-3333-4333-8333-333333333333';
+const outboundUploadId = 'aaaaaaaa-1111-4111-8111-111111111111';
+const otherOutboundUploadId = 'bbbbbbbb-1111-4111-8111-111111111111';
 const authContext = {
   type: 'user',
   workspace: { id: workspaceId },
@@ -27,6 +31,29 @@ const conversation = {
 
 const buildService = () => {
   const persistedMessages = new Map<string, Record<string, unknown>>();
+  const outboundUploads = new Map(
+    [outboundUploadId, otherOutboundUploadId].map((id, index) => [
+      id,
+      {
+        id,
+        workspaceId,
+        workspaceMemberId: authContext.workspaceMemberId,
+        clientUploadId: `cccccccc-1111-4111-8111-11111111111${index}`,
+        state: 'AVAILABLE',
+        type: 'IMAGE',
+        safeFilename: `photo-${index}.png`,
+        size: 9,
+        fileId: `dddddddd-1111-4111-8111-11111111111${index}`,
+        mimeType: 'image/png',
+        contentFingerprint: `content-fingerprint-${index}`,
+        requestFingerprint: `request-fingerprint-${index}`,
+        expiresAt: new Date(Date.now() + 60_000),
+        completedAt: new Date(),
+        consumedByMessageId: null,
+        consumedAt: null,
+      } as InconnectMessagingOutboundUploadEntity,
+    ]),
+  );
   let committed = false;
   const queryBuilder = {
     insert: jest.fn().mockReturnThis(),
@@ -64,6 +91,28 @@ const buildService = () => {
   };
   const attemptRepository = { insert: jest.fn().mockResolvedValue(undefined) };
   const outboxRepository = { insert: jest.fn().mockResolvedValue(undefined) };
+  const attachmentRepository = {
+    insert: jest.fn().mockResolvedValue(undefined),
+  };
+  const outboundUploadRepository = {
+    findOne: jest.fn().mockImplementation(
+      async (options: {
+        where: {
+          id: string;
+          workspaceId: string;
+          workspaceMemberId: string;
+        };
+      }) => {
+        const upload = outboundUploads.get(options.where.id);
+
+        return upload?.workspaceId === options.where.workspaceId &&
+          upload.workspaceMemberId === options.where.workspaceMemberId
+          ? upload
+          : null;
+      },
+    ),
+    save: jest.fn().mockImplementation(async (upload) => upload),
+  };
   const manager = {
     getRepository: jest.fn().mockImplementation((entity: unknown) => {
       if (entity === InconnectMessagingMessageEntity) return messageRepository;
@@ -75,12 +124,18 @@ const buildService = () => {
         return attemptRepository;
       if (entity === InconnectMessagingOutboxEventEntity)
         return outboxRepository;
+      if (entity === InconnectMessagingAttachmentEntity)
+        return attachmentRepository;
+      if (entity === InconnectMessagingOutboundUploadEntity)
+        return outboundUploadRepository;
       throw new Error('Unexpected repository');
     }),
   } as unknown as EntityManager;
   const dataSource = {
     getRepository: jest.fn().mockImplementation((entity: unknown) => {
       if (entity === InconnectMessagingMessageEntity) return messageRepository;
+      if (entity === InconnectMessagingOutboundUploadEntity)
+        return outboundUploadRepository;
       throw new Error('Unexpected repository');
     }),
     transaction: jest
@@ -102,7 +157,23 @@ const buildService = () => {
   };
   const providerRegistry = {
     resolve: jest.fn().mockReturnValue({
-      capabilities: ['DISPATCH_FREEFORM', 'DISPATCH_TEMPLATE'],
+      capabilities: [
+        'DISPATCH_FREEFORM',
+        'DISPATCH_MEDIA',
+        'DISPATCH_TEMPLATE',
+      ],
+      outboundMediaCapabilities: {
+        maximumAttachments: 1,
+        supportedMimeTypesByType: {
+          IMAGE: ['image/png'],
+          STICKER: ['image/webp'],
+          AUDIO: ['audio/ogg'],
+          VIDEO: ['video/mp4'],
+          DOCUMENT: ['application/pdf'],
+          CONTACT: ['text/vcard'],
+        },
+        captionSupportedTypes: ['IMAGE'],
+      },
     }),
   };
   const dispatchService = {
@@ -165,6 +236,9 @@ const buildService = () => {
     messageRepository,
     attemptRepository,
     outboxRepository,
+    attachmentRepository,
+    outboundUploadRepository,
+    outboundUploads,
     dispatchService,
     outboxService,
     templateCatalogService,
@@ -181,6 +255,23 @@ const send = (
     conversationId,
     clientRequestId: overrides.clientRequestId ?? clientRequestId,
     body: overrides.body ?? 'Hola',
+  });
+
+const sendMedia = (
+  service: InconnectMessagingSendService,
+  overrides: Partial<{
+    clientRequestId: string;
+    body: string;
+    outboundUploadIds: string[];
+  }> = {},
+) =>
+  service.sendMessage({
+    authContext: authContext as never,
+    conversationId,
+    clientRequestId: overrides.clientRequestId ?? clientRequestId,
+    mode: 'FREEFORM',
+    body: overrides.body,
+    outboundUploadIds: overrides.outboundUploadIds ?? [outboundUploadId],
   });
 
 describe('InconnectMessagingSendService', () => {
@@ -477,6 +568,96 @@ describe('InconnectMessagingSendService', () => {
     const retry = await sendTemplate();
 
     expect(retry).toEqual(first);
+    expect(fixture.dispatchService.requestDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('atomically consumes an owned upload and creates an available Attachment', async () => {
+    const fixture = buildService();
+
+    const result = await sendMedia(fixture.service, { body: 'caption' });
+    const upload = fixture.outboundUploads.get(outboundUploadId);
+
+    expect(result.outboundState).toBe('QUEUED');
+    expect(fixture.attachmentRepository.insert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        messageId: result.messageId,
+        ordinal: 0,
+        type: 'IMAGE',
+        ingestionState: 'AVAILABLE',
+        fileId: upload?.fileId,
+        mimeType: 'image/png',
+        size: 9,
+      }),
+    ]);
+    expect(upload).toMatchObject({
+      state: 'CONSUMED',
+      consumedByMessageId: result.messageId,
+    });
+  });
+
+  it('returns the same durable media Message for an identical retry', async () => {
+    const fixture = buildService();
+
+    const first = await sendMedia(fixture.service);
+    const retry = await sendMedia(fixture.service);
+
+    expect(retry).toEqual(first);
+    expect(fixture.attachmentRepository.insert).toHaveBeenCalledTimes(1);
+    expect(fixture.dispatchService.requestDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('conflicts when a media request ID is reused with a different upload', async () => {
+    const fixture = buildService();
+
+    await sendMedia(fixture.service);
+    await expect(
+      sendMedia(fixture.service, {
+        outboundUploadIds: [otherOutboundUploadId],
+      }),
+    ).rejects.toThrow('IDEMPOTENCY_KEY_CONFLICT');
+    expect(fixture.attachmentRepository.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an upload owned by a different actor without creating a Message', async () => {
+    const fixture = buildService();
+    const upload = fixture.outboundUploads.get(outboundUploadId);
+
+    if (upload !== undefined) {
+      upload.workspaceMemberId = 'eeeeeeee-1111-4111-8111-111111111111';
+    }
+
+    await expect(sendMedia(fixture.service)).rejects.toMatchObject({
+      extensions: { subCode: 'OUTBOUND_UPLOAD_UNAVAILABLE' },
+    });
+    expect(fixture.messageRepository.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('rejects an upload from another workspace without creating a Message', async () => {
+    const fixture = buildService();
+    const upload = fixture.outboundUploads.get(outboundUploadId);
+
+    if (upload !== undefined) {
+      upload.workspaceId = 'ffffffff-1111-4111-8111-111111111111';
+    }
+
+    await expect(sendMedia(fixture.service)).rejects.toMatchObject({
+      extensions: { subCode: 'OUTBOUND_UPLOAD_UNAVAILABLE' },
+    });
+    expect(fixture.messageRepository.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('prevents the same single-use upload from being consumed by another send intention', async () => {
+    const fixture = buildService();
+
+    await sendMedia(fixture.service);
+    await expect(
+      sendMedia(fixture.service, {
+        clientRequestId: '99999999-1111-4111-8111-111111111111',
+      }),
+    ).rejects.toMatchObject({
+      extensions: { subCode: 'OUTBOUND_UPLOAD_UNAVAILABLE' },
+    });
+    expect(fixture.attachmentRepository.insert).toHaveBeenCalledTimes(1);
     expect(fixture.dispatchService.requestDispatch).toHaveBeenCalledTimes(1);
   });
 });

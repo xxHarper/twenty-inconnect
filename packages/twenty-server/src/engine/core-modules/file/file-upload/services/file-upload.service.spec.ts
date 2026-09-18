@@ -214,6 +214,167 @@ describe('FileUploadService', () => {
       );
       expect(result.uploadUrl).toBe('https://bucket/presigned-put');
     });
+
+    it('should not expose server-owned folders or file ids through the existing upload API', async () => {
+      await expect(
+        service.createFileUpload({
+          workspaceId: 'workspace-id',
+          filename: 'image.png',
+          size: 1024,
+          fileFolder: FileFolder.InconnectMessaging,
+        }),
+      ).rejects.toMatchObject({
+        code: FileUploadExceptionCode.BAD_REQUEST,
+      });
+
+      fileStorageService.getPresignedUploadUrl.mockResolvedValueOnce(
+        'https://bucket/presigned-put',
+      );
+      await service.createFileUpload({
+        workspaceId: 'workspace-id',
+        filename: 'document.pdf',
+        size: 1024,
+        fileFolder: FileFolder.Workflow,
+        fileId: 'client-controlled-file-id',
+      } as never);
+
+      expect(fileStorageService.createPendingFile).toHaveBeenLastCalledWith(
+        expect.objectContaining({ fileId: 'mocked-file-id' }),
+      );
+    });
+  });
+
+  describe('server-owned upload primitives', () => {
+    const pendingServerOwnedFile = {
+      id: 'server-owned-file-id',
+      path: `${FileFolder.InconnectMessaging}/server-owned-file-id.png`,
+      size: 1024,
+      applicationId: 'application-id',
+      mimeType: 'application/octet-stream',
+      status: FILE_STATUS.PENDING,
+      settings: { isTemporaryFile: true, toDelete: false },
+      createdAt: new Date(),
+    };
+    const PNG_BYTES = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    );
+
+    it('should create a deterministic file only through the explicit server-owned primitive', async () => {
+      fileStorageService.getPresignedUploadUrl.mockResolvedValueOnce(
+        'https://bucket/presigned-put',
+      );
+
+      const result = await service.createServerOwnedFileUpload({
+        workspaceId: 'workspace-id',
+        filename: 'image.png',
+        size: 1024,
+        fileFolder: FileFolder.InconnectMessaging,
+        fileId: 'server-owned-file-id',
+        maximumFileSize: 2048,
+      });
+
+      expect(fileStorageService.createPendingFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileFolder: FileFolder.InconnectMessaging,
+          fileId: 'server-owned-file-id',
+          resourcePath: 'server-owned-file-id.png',
+          size: 1024,
+        }),
+      );
+      expect(result).toMatchObject({
+        fileId: 'server-owned-file-id',
+        uploadUrl: 'https://bucket/presigned-put',
+      });
+    });
+
+    it('should enforce the explicit server-owned size policy', async () => {
+      await expect(
+        service.createServerOwnedFileUpload({
+          workspaceId: 'workspace-id',
+          filename: 'image.png',
+          size: 1025,
+          fileFolder: FileFolder.InconnectMessaging,
+          fileId: 'server-owned-file-id',
+          maximumFileSize: 1024,
+        }),
+      ).rejects.toMatchObject({
+        code: FileUploadExceptionCode.FILE_TOO_LARGE,
+      });
+      expect(fileStorageService.createPendingFile).not.toHaveBeenCalled();
+    });
+
+    it('should refresh only a pending file in the expected folder', async () => {
+      fileRepository.findOne.mockResolvedValueOnce(pendingServerOwnedFile);
+      fileStorageService.getPresignedUploadUrl.mockResolvedValueOnce(
+        'https://bucket/refreshed-put',
+      );
+
+      const result = await service.refreshServerOwnedFileUploadTarget({
+        workspaceId: 'workspace-id',
+        fileId: 'server-owned-file-id',
+        fileFolder: FileFolder.InconnectMessaging,
+      });
+
+      expect(result.uploadUrl).toBe('https://bucket/refreshed-put');
+      expect(fileStorageService.createPendingFile).not.toHaveBeenCalled();
+    });
+
+    it('should reject refreshing a server-owned file through another folder policy', async () => {
+      fileRepository.findOne.mockResolvedValueOnce(pendingServerOwnedFile);
+
+      await expect(
+        service.refreshServerOwnedFileUploadTarget({
+          workspaceId: 'workspace-id',
+          fileId: 'server-owned-file-id',
+          fileFolder: FileFolder.Workflow,
+        }),
+      ).rejects.toMatchObject({ code: FileUploadExceptionCode.BAD_REQUEST });
+    });
+
+    it('should inspect stored bytes and apply the caller-owned MIME allowlist', async () => {
+      fileRepository.findOne.mockResolvedValueOnce(pendingServerOwnedFile);
+      fileStorageService.getFileMetadata.mockResolvedValueOnce({ size: 1024 });
+      fileStorageService.readFile.mockResolvedValueOnce(
+        Readable.from(PNG_BYTES),
+      );
+
+      const result = await service.completeServerOwnedFileUpload({
+        workspaceId: 'workspace-id',
+        fileId: 'server-owned-file-id',
+        fileFolder: FileFolder.InconnectMessaging,
+        allowedMimeTypes: ['image/png'],
+      });
+
+      expect(result).toMatchObject({
+        id: 'server-owned-file-id',
+        status: FILE_STATUS.UPLOADED,
+        mimeType: 'image/png',
+      });
+      expect(fileRepository.update).toHaveBeenCalledWith(
+        'workspace-id',
+        { id: 'server-owned-file-id' },
+        { status: FILE_STATUS.UPLOADED, mimeType: 'image/png' },
+      );
+    });
+
+    it('should reject detected MIME outside the caller-owned allowlist', async () => {
+      fileRepository.findOne.mockResolvedValueOnce(pendingServerOwnedFile);
+      fileStorageService.getFileMetadata.mockResolvedValueOnce({ size: 1024 });
+      fileStorageService.readFile.mockResolvedValueOnce(
+        Readable.from(PNG_BYTES),
+      );
+
+      await expect(
+        service.completeServerOwnedFileUpload({
+          workspaceId: 'workspace-id',
+          fileId: 'server-owned-file-id',
+          fileFolder: FileFolder.InconnectMessaging,
+          allowedMimeTypes: ['application/pdf'],
+        }),
+      ).rejects.toMatchObject({ code: FileUploadExceptionCode.BAD_REQUEST });
+      expect(fileRepository.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('completeFileUpload', () => {

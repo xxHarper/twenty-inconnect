@@ -5,12 +5,14 @@ import { AddInconnectMessagingWebhookProjectionFastInstanceCommand } from 'src/d
 import { AddInconnectMessagingTemplateIntentFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789473600000-add-inconnect-messaging-template-intent';
 import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments';
+import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
+import { InconnectMessagingOutboundUploadEntity } from 'src/modules/inconnect-messaging/entities/outbound-upload.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { InconnectMessagingProviderStatusEventEntity } from 'src/modules/inconnect-messaging/entities/provider-status-event.entity';
 import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-messaging/entities/webhook-receipt.entity';
@@ -25,6 +27,7 @@ const MESSAGING_ENTITIES: EntityTarget<object>[] = [
   InconnectMessagingProviderStatusEventEntity,
   InconnectMessagingOutboxEventEntity,
   InconnectMessagingAttachmentEntity,
+  InconnectMessagingOutboundUploadEntity,
 ];
 
 const buildMetadataDataSource = async (): Promise<DataSource> => {
@@ -60,6 +63,9 @@ describe('INCONNECT Messaging persistence model', () => {
       query,
     } as never);
     await new AddInconnectMessagingInboundAttachmentsFastInstanceCommand().up({
+      query,
+    } as never);
+    await new AddInconnectMessagingOutboundUploadsFastInstanceCommand().up({
       query,
     } as never);
 
@@ -132,6 +138,8 @@ describe('INCONNECT Messaging persistence model', () => {
       'FK_INCONNECT_MSG_STATUS_RECEIPT',
       'FK_INCONNECT_MSG_ATTACHMENT_MESSAGE',
       'FK_INCONNECT_MSG_ATTACHMENT_FILE',
+      'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_FILE',
+      'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_CONSUMED_MESSAGE',
     ];
     const foreignKeys = MESSAGING_ENTITIES.flatMap(
       (entity) => dataSource.getMetadata(entity).foreignKeys,

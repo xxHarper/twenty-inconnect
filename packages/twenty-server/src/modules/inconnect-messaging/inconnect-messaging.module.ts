@@ -6,6 +6,7 @@ import { AuthModule } from 'src/engine/core-modules/auth/auth.module';
 import { SecretEncryptionModule } from 'src/engine/core-modules/secret-encryption/secret-encryption.module';
 import { SecureHttpClientModule } from 'src/engine/core-modules/secure-http-client/secure-http-client.module';
 import { FileModule } from 'src/engine/core-modules/file/file.module';
+import { JwtModule } from 'src/engine/core-modules/jwt/jwt.module';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
@@ -16,12 +17,14 @@ import { InconnectMessagingDispatchRecoveryCronCommand } from 'src/modules/incon
 import { InconnectMessagingOutboxRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-outbox-recovery.cron.command';
 import { InconnectMessagingWebhookController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-webhook.controller';
 import { InconnectMessagingAttachmentController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-attachment.controller';
+import { InconnectMessagingProviderMediaController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-provider-media.controller';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
+import { InconnectMessagingOutboundUploadEntity } from 'src/modules/inconnect-messaging/entities/outbound-upload.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import { InconnectMessagingProviderStatusEventEntity } from 'src/modules/inconnect-messaging/entities/provider-status-event.entity';
 import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-messaging/entities/webhook-receipt.entity';
@@ -38,6 +41,7 @@ import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/
 import { InconnectMessagingSendResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-send.resolver';
 import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
 import { InconnectMessagingTemplateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-template.resolver';
+import { InconnectMessagingOutboundUploadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-outbound-upload.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { InconnectMessagingMessageQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-message-query.service';
@@ -55,6 +59,8 @@ import { InconnectMessagingSendCapabilitiesService } from 'src/modules/inconnect
 import { InconnectMessagingTemplateCatalogService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-template-catalog.service';
 import { InconnectMessagingMediaIngestionService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-media-ingestion.service';
 import { InconnectMessagingAttachmentAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-attachment-access.service';
+import { InconnectMessagingOutboundUploadService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-outbound-upload.service';
+import { InconnectMessagingProviderMediaDeliveryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-provider-media-delivery.service';
 import { InconnectMessagingMediaIngestionJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-media-ingestion.job';
 import { InconnectMessagingMediaRecoveryCronJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-media-recovery.cron.job';
 import { InconnectMessagingMediaRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-media-recovery.cron.command';
@@ -69,6 +75,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingProviderStatusEventEntity,
   InconnectMessagingOutboxEventEntity,
   InconnectMessagingAttachmentEntity,
+  InconnectMessagingOutboundUploadEntity,
 ];
 
 @Module({
@@ -82,6 +89,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
     SecretEncryptionModule,
     SecureHttpClientModule,
     FileModule,
+    JwtModule,
     PermissionsModule,
     WorkspaceCacheModule,
     WorkspaceCacheStorageModule,
@@ -100,6 +108,9 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingTemplateCatalogService,
     InconnectMessagingMediaIngestionService,
     InconnectMessagingAttachmentAccessService,
+    InconnectMessagingOutboundUploadService,
+    InconnectMessagingOutboundUploadResolver,
+    InconnectMessagingProviderMediaDeliveryService,
     InconnectMessagingMediaIngestionJob,
     InconnectMessagingMediaRecoveryCronJob,
     InconnectMessagingMediaRecoveryCronCommand,
@@ -130,6 +141,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
   controllers: [
     InconnectMessagingWebhookController,
     InconnectMessagingAttachmentController,
+    InconnectMessagingProviderMediaController,
   ],
   exports: [
     InconnectMessagingProviderRegistry,
