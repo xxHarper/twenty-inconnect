@@ -235,7 +235,7 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-17 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer, and the template picker. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical.
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-18 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer, the template picker, secure outbound media backend preparation, actor/workspace-scoped upload staging, deterministic and idempotent server-owned file identities, `FileStorage`/`FileEntity` outbound preparation, transactional outbound `Message` + `Attachment` consumption, provider-neutral media dispatch, Twilio outbound media delivery, an expiring provider-media capability, and metadata GraphQL upload mutations. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical.
 
 ## Purpose and Licensing Boundary
 
@@ -530,7 +530,7 @@ Administrative visibility is controlled by `PermissionFlagType.SECURITY` in both
 
 Backend: `packages/twenty-server/src/modules/inconnect-messaging/`. Frontend: `packages/twenty-front/src/modules/inconnect-messaging/` and `packages/twenty-front/src/pages/inconnect-messaging/`.
 
-INCONNECT Messaging is a provider-neutral native Twenty feature with durable inbound processing, secure rich-media ingestion, authorized reads and file access, secure realtime, and a functional Messaging frontend. The native inbox supports outbound free-form and template sends through its composer and template picker. It is not a Twenty App and must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio remains behind the provider port; provider-specific concepts must not become domain authority.
+INCONNECT Messaging is a provider-neutral native Twenty feature with durable inbound processing, secure rich-media ingestion, authorized reads and file access, secure realtime, a secure outbound media backend, and a functional Messaging frontend. The native inbox supports text free-form and template sends through its composer and template picker; the outbound media backend is implemented, while its user-facing attachment picker/progress UX is not. It is not a Twenty App and must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio remains behind the provider port; provider-specific concepts must not become domain authority.
 
 ### Implemented Persistence Foundation
 
@@ -545,10 +545,13 @@ The following TypeORM entities and dedicated `core` tables are implemented:
 - `InconnectMessagingProviderStatusEventEntity` / `core.inconnectMessagingProviderStatusEvent`
 - `InconnectMessagingOutboxEventEntity` / `core.inconnectMessagingOutboxEvent`
 - `InconnectMessagingAttachmentEntity` / `core.inconnectMessagingAttachment`
+- `InconnectMessagingOutboundUploadEntity` / `core.inconnectMessagingOutboundUpload`
 
 These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies durable-inbox and transactional-outbox records, idempotency keys, leases, `DispatchAttempt` audit, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery, inbound media ingestion and recovery, outbound WhatsApp dispatch, realtime outbox publishing, and their BullMQ workers are implemented. BullMQ is at-least-once transport and must never become authority.
 
 An Attachment has the durable logical identity `Message + ordinal`, a provider-neutral attachment type, and one of the ingestion states `PENDING`, `PROCESSING`, `AVAILABLE`, `FAILED`, or `EXPIRED`. It stores an opaque server-only provider media locator only while needed for ingestion, an optional workspace-isolated `FileEntity` reference, lease and attempt data, and safe presentation metadata. Composite foreign keys prevent its Message, workspace, and Provider Connection from diverging and require a referenced File to belong to the same workspace. A File cannot be deleted while an Attachment references it; Message deletion cascades its Attachments.
+
+An Outbound Upload is actor/workspace-scoped staging with states `CREATING`, `PENDING`, `AVAILABLE`, and `CONSUMED`. It persists workspace, uploading Workspace Member, actor-scoped `clientUploadId`, provider-neutral media type, safe filename, size, workspace-local `FileEntity`, detected MIME, durable content fingerprint, expiration, and optional consumed Message/timestamp. Idempotency is unique by workspace + actor + `clientUploadId`; composite references keep File and consumed Message in the same workspace. PostgreSQL remains staging and consumption authority.
 
 `MessagingConfiguration` selects the anchor through a real workspace-local `ObjectMetadata` reference. A `Conversation` references the CRM record with:
 
@@ -560,13 +563,40 @@ The linked tuple is either fully null or fully present, and a composite FK requi
 
 `Message.providerConnectionId` is persisted because provider message identity is connection-scoped. Its composite FK `(conversationId, providerConnectionId, workspaceId)` to `Conversation` prevents the Message connection or workspace from diverging from its Conversation. Retry lineage is also connection/workspace constrained.
 
-### Implemented Message and Inbound Content Taxonomy
+### Implemented Secure Outbound Upload Staging
+
+The outbound upload backend follows:
+
+    authenticated human
+    -> createInconnectMessagingOutboundUpload
+    -> actor/workspace-scoped Outbound Upload staging
+    -> generic FileUploadService server-owned primitive
+    -> FileStorage + FileEntity
+    -> completeInconnectMessagingOutboundUpload
+    -> verify actual stored size
+    -> detect MIME from bytes
+    -> content fingerprint
+    -> Outbound Upload AVAILABLE
+
+Creation and completion require an authenticated human Workspace Member with `INCONNECT_MESSAGING` and `SEND_INCONNECT_MESSAGING`. Knowing an upload ID is not authorization: every operation resolves the staging row for the current workspace + actor. Staging authorization never substitutes for current Conversation authorization, which is evaluated again at send time.
+
+The raw `clientUploadId` is scoped by workspace + actor. The server derives deterministic staging and `FileEntity` identities so retries of the same upload intention reuse one logical upload; conflicting filename, type, or size metadata for that intention fails. Public clients never choose a `FileEntity` ID. Frontend/API callers receive only an opaque upload identity and a bounded upload capability.
+
+Outbound staging expires after 24 hours, and expired uploads cannot be consumed. An `AVAILABLE` upload that is never sent remains private and actor-scoped but may leave its `FileEntity` and storage object until future explicit garbage collection or reconciliation; no automatic GC is implemented.
+
+### Core File Upload Boundary
+
+Twenty's `FileUploadService` exposes generic reusable server-owned create, refresh, and completion primitives. It does not know that INCONNECT Messaging exists. Core owns generic upload mechanics such as configured global size ceilings, pending `FileEntity` creation, upload capabilities, storage metadata verification, byte-based file detection, and temporary-file completion rules.
+
+INCONNECT Messaging owns `FileFolder.InconnectMessaging` selection, logical media policy, MIME allowlists, media size limits, workspace/actor authorization, deterministic upload identity, and staging lifecycle. Permanent boundary: core provides generic file-upload primitives; feature modules own feature-specific upload policy. A public upload API must never expose the server-owned file-ID capability.
+
+### Implemented Message and Media Content Taxonomy
 
 The implemented provider-neutral Message types are `TEXT`, `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION`.
 
 - Normal Unicode, emoji, multi-codepoint emoji, and ZWJ sequences remain `TEXT`; there is no separate emoji Message type.
-- `LOCATION` is structured provider-neutral content and is not stored as a File or Attachment.
-- `CONTACT` represents an inbound vCard for safe presentation/download only. Supported normalization includes `text/vcard`, `text/x-vcard`, and `application/vcard`; it never auto-imports CRM data, creates a Lead, or changes ownership.
+- `LOCATION` is structured provider-neutral inbound content and is not stored as a File or Attachment; outbound `LOCATION` is not implemented.
+- `CONTACT` represents a vCard for safe presentation/download and supported outbound delivery. Supported normalization includes `text/vcard`, `text/x-vcard`, and `application/vcard`; it never auto-imports CRM data, creates a Lead, or changes ownership.
 - `STICKER` is provider-neutral domain semantics. The Twilio WhatsApp adapter classifies `image/webp` as `STICKER` according to the documented contract for that specific provider/channel; never generalize WEBP-to-STICKER classification to future providers.
 - Reactions are not implemented and must not be modeled as ordinary TEXT emoji. No stable reaction model exists.
 
@@ -606,11 +636,13 @@ The current symbols are `InconnectMessagingProvider`, `InconnectMessagingProvide
 
 - `(provider, channel)` identifies an adapter.
 - Unknown combinations and duplicate registrations fail closed.
-- The provider contract supports provider-neutral free-form dispatch, template dispatch capability, and a normalized template catalog when the adapter supports them.
+- The provider contract supports provider-neutral free-form text and media dispatch, template dispatch capability, and a normalized template catalog when the adapter supports them. Media capabilities declare supported logical types, supported MIME, maximum attachment count, and whether body/caption is supported.
 - The inbound provider boundary can supply provider-neutral `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, and `CONTACT` attachments without exposing Twilio locator semantics to the domain or frontend. `LOCATION` remains structured content.
 - The Fake Provider supports the dispatch and template cases needed by tests/development and is not registered automatically by `InconnectMessagingModule`.
-- `TwilioWhatsappMessagingProvider` is registered by `InconnectMessagingModule` for inbound normalization, authenticated media retrieval, signed status callbacks, outbound free-form dispatch, outbound template dispatch, and template catalog normalization.
+- `TwilioWhatsappMessagingProvider` is registered by `InconnectMessagingModule` for inbound normalization, authenticated media retrieval, signed status callbacks, outbound free-form text/media dispatch, outbound template dispatch, and template catalog normalization.
 - Provider account, sender, credentials, Content SIDs, and raw provider template payloads do not become public domain authority.
+
+The current Twilio WhatsApp adapter accepts at most one outbound media item. Its own adapter-local capability supports `IMAGE` as JPEG/PNG, `STICKER` as WEBP, supported WhatsApp audio MIME, `VIDEO` as MP4, supported PDF/Office `DOCUMENT`, and vCard `CONTACT`. `IMAGE` may carry the current free-form body as a caption; the other currently supported media types do not. Unsupported type, MIME, count, or caption combinations fail closed. These are Twilio adapter constraints, not universal domain rules. Outbound `LOCATION` and rich/media templates are not implemented.
 
 ### Implemented Twilio Inbound and Status Pipeline
 
@@ -648,7 +680,7 @@ PRE-8A Messages with historical media metadata but no Attachment remain valid. T
 
 The Fast Instance Command is `2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments.ts`. It was validated by executing the real command against disposable PostgreSQL, not asserted as applied to production. Validation established that `up` accepts PRE-8A data, no Slow Command is required, the physical Attachment schema matches the entities, and the Message type constraint adds `STICKER` and `CONTACT`. `down` succeeds with POST-8A rows by converting `STICKER` to `IMAGE` and `CONTACT` to `DOCUMENT` before restoring the PRE-8A constraint; it removes the Attachment table but does not clean `FileEntity` or physical storage rows.
 
-The current file lifecycle can leave orphan `FileEntity` or storage objects. Message deletion cascades Attachment deletion, but the File row and physical object may remain. A crash after a successful storage write but before Attachment reaches `AVAILABLE` can also leave bytes and/or a File row orphaned if later provider refetch is impossible. Deterministic identity prevents multiplication during ordinary retry but is not full garbage collection or reconciliation. Safe explicit GC/reconciliation is future work; do not add destructive cascade rules without a separate design.
+The current file lifecycle can leave orphan `FileEntity` or storage objects. Message deletion cascades Attachment deletion, but the File row and physical object may remain. A crash after a successful inbound storage write but before Attachment reaches `AVAILABLE` can leave bytes and/or a File row orphaned if later provider refetch is impossible. Outbound debt also includes abandoned `AVAILABLE` staging and `FileEntity`/storage that survive staging removal or the Outbound Upload Fast Command `down`. Deterministic identity prevents multiplication during ordinary retry but is not full garbage collection or reconciliation. A consumed Outbound Upload references its Message, and the current restrictive FK can prevent Message deletion while that staging row exists. Safe explicit GC/reconciliation is future work; do not add destructive cascade rules without a separate design.
 
 Status callbacks resolve only an exact local outbound Message by workspace, Provider Connection, and provider message ID. Every accepted callback can produce a `ProviderStatusEvent`; projection changes use the existing outbound state machine, so duplicates and late lower-progress states do not degrade the Message. Missing local Messages remain durable and retryable until controlled operational failure. Webhook processing has no CRM-record, Lead, linking, ownership, or human-authorization capability.
 
@@ -661,17 +693,23 @@ Human outbound dispatch follows one durable pipeline:
     authenticated human mutation
     -> InconnectMessagingAuthorizationService
     -> server-side send/session policy
-    -> transactional Message QUEUED + DispatchAttempt + OutboxEvent
+    -> resolve and lock any actor-owned outbound staging
+    -> transactional Message QUEUED + optional Attachment AVAILABLE
+    -> mark staging CONSUMED + DispatchAttempt + OutboxEvent
     -> COMMIT
     -> immediate BullMQ enqueue
     -> durable claim
-    -> provider dispatch
+    -> provider-neutral text/template/media dispatch
     -> normalized result
     -> outbound state machine
     -> status callback progression
     -> realtime hint and authorized refetch
 
 No Twilio call occurs inside the database transaction, and enqueue happens only after a successful commit. PostgreSQL remains authority. Recovery scans cover a lost post-commit enqueue, process restart, queued work, and expired leases without making BullMQ authoritative.
+
+At send time the server authorizes the Conversation, revalidates the 24-hour free-form session when applicable, locks and resolves the current actor's staging rows, creates or reuses the idempotent Message, creates outbound `Attachment` rows already in `AVAILABLE`, marks staging `CONSUMED`, and records `DispatchAttempt` + `OutboxEvent` in the same transaction. After commit, `Message` + `Attachment` + `FileEntity` are historical authority; later reads and renders do not depend on the staging row.
+
+Outbound Attachment `AVAILABLE` means only that durable validated media is ready for provider delivery. It does not mean the Message was sent. Message state remains independently `QUEUED`, `SENDING`, `SENT`, `DELIVERED`, `READ`, `FAILED`, or `UNKNOWN`; provider delivery failure never reuses Attachment ingestion state. Media dispatch preserves the `providerRequestStartedAt` conservative boundary: an ambiguous submit becomes `UNKNOWN`, is never blindly retried, and may be resolved later only by a definitive callback allowed by the existing state machine.
 
 ### Implemented Security Foundation
 
@@ -733,15 +771,29 @@ Every file request follows `Attachment -> Message -> Conversation -> InconnectMe
 
 The file stream is opened only after current Conversation authorization succeeds. Missing, unavailable, unauthorized, revoked, and cross-workspace resources use the same not-found/non-disclosing behavior for an authenticated caller. Download responses use `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`, safe filenames, and Twenty's existing Content-Disposition policy. Only allowlisted media can render inline; active HTML/SVG is not served inline.
 
+Human and provider access are intentionally distinct:
+
+    HUMAN: Attachment -> Message -> Conversation authorization -> FileEntity/FileStorage
+    PROVIDER: expiring provider-media capability -> exact OUTBOUND AVAILABLE Attachment
+              -> exact workspace FileEntity -> FileStorage stream
+
+Twilio has no human session and cannot use the human attachment endpoint. Provider delivery therefore uses a server-generated, signed, expiring, attachment-bound, workspace-bound, exact-purpose capability with dedicated JWT type `INCONNECT_MESSAGING_PROVIDER_MEDIA`. It is valid only for an exact outbound `AVAILABLE` Attachment. It is not a human access token, workspace session, API key, GraphQL authentication token, or upload token and cannot authenticate a human.
+
+The provider delivery route supports `GET`/`HEAD` for one exact outbound Attachment. It resolves the `FileEntity` server-side and serves only `FileFolder.InconnectMessaging`; it accepts no arbitrary file ID, path, workspace selection, or inbound Attachment, and invalid capabilities fail closed as not found. Provider access never makes FileStorage public, and provider URLs/tokens are never returned through normal frontend GraphQL DTOs.
+
+The provider-media capability currently reuses `FILE_TOKEN_EXPIRES_IN`; the effective/default value validated at this checkpoint is one day. This is a non-blocking **FOLLOW-UP RECOMMENDED**: a dedicated provider-media TTL may later reduce exposure without changing normal Twenty signed-file flows. It is not a current security defect.
+
+Once outbound staging is consumed, its Attachment uses the same authorized human file path as inbound media. Provider capability expiration does not affect historical Conversation access, and no separate outbound-media read API exists.
+
 ### Implemented Human Send and Idempotency
 
-The metadata GraphQL mutation `sendInconnectMessagingMessage` reauthorizes the current human and Conversation on every request. The frontend creates one raw `clientRequestId` for each user send intention and preserves it across safe retries. The backend derives a scoped UUID v5 from workspace, actor, Conversation, and the raw client request ID. Outbound Messages with a non-null client request ID have unique protection on `(workspaceId, clientRequestId)`.
+The metadata GraphQL mutation `sendInconnectMessagingMessage` reauthorizes the current human and Conversation on every request and accepts optional opaque `outboundUploadIds` for server-resolved media. The public client does not provide a `FileEntity` ID, storage path, authoritative MIME, provider URL/token, sender, or Provider Connection. The frontend creates one raw `clientRequestId` for each user send intention and preserves it across safe retries. The backend derives a scoped UUID v5 from workspace, actor, Conversation, and the raw client request ID. Outbound Messages with a non-null client request ID have unique protection on `(workspaceId, clientRequestId)`.
 
-The normalized content, template identity, and template variables participate in `requestFingerprint`. Reusing the same intention returns the same logical Message; reusing it with different content, template, or variables is rejected. Correctness never depends only on disabling the Send button or frontend debounce, and the frontend does not create a duplicate optimistic Message.
+The normalized content, template identity, and template variables participate in `requestFingerprint`. For outbound media it also includes normalized media intent: body/caption, ordered upload/attachment identity, logical media type, and durable content fingerprint. The same `clientRequestId` with the same media intention returns the same logical Message; the same key with different media fails with `IDEMPOTENCY_KEY_CONFLICT`. Correctness never depends only on disabling the Send button or frontend debounce, and the frontend does not create a duplicate optimistic Message.
 
 ### Implemented WhatsApp Session Policy
 
-Free-form send authority is server-side. The WhatsApp session is open only when `0 <= now - lastInboundAt < 24 hours`; no inbound timestamp, exactly 24 hours, more than 24 hours, or a future/skewed timestamp is closed. The UI reflects this state but is not authority. Both the mutation and dispatcher reauthorize and revalidate before submit.
+Free-form text and media send authority is server-side. The WhatsApp session is open only when `0 <= now - lastInboundAt < 24 hours`; no inbound timestamp, exactly 24 hours, more than 24 hours, or a future/skewed timestamp is closed. The UI reflects this state but is not authority. Both the mutation and dispatcher reauthorize and revalidate before submit. An `AVAILABLE` outbound Attachment never bypasses the session policy.
 
 If the session closes after queueing but before dispatch, Twilio is not called, the Message becomes `FAILED`, the `DispatchAttempt` becomes `FAILED_BEFORE_SUBMIT`, and the safe error is `SESSION_WINDOW_CLOSED`; there is no automatic retry.
 
@@ -774,7 +826,7 @@ PostgreSQL and the authorized Read API remain authority. Redis realtime is not a
 
 Twenty has a native Messaging navigation entry and route. Navigation visibility uses `INCONNECT_MESSAGING`, while backend authorization still decides which Conversations and Messages are returned. The inbox has a Conversation list, backend-authorized search, cursor pagination, selection, and Message history with older-message loading. It renders inbound and outbound bubbles, text, structured locations, authorized lazy image previews, visual stickers, authorized audio and supported video playback, document filename/type/size with authorized open/download, and safe vCard/contact presentation with download. `PENDING` media shows processing state; `FAILED`, `EXPIRED`, unavailable, and legacy media without an Attachment show a safe unavailable state. It also renders persisted outbound states and durable template audit details, handles desktop and narrow screens, loading/empty/error states, and lost access by clearing previously visible Conversation content. `MESSAGE_UPDATED` and other realtime hints, plus reconnect, cause localized authorized refetches.
 
-The functional composer supports free-form sends, a Send button, server-driven 24-hour-window UX, a template picker, dynamic variable inputs, and a safe template preview. Free-form is blocked when the session is closed while template send remains available only when current authorization and capabilities permit it. Pending UX preserves the same `clientRequestId` for safe retry and does not create duplicate optimistic Messages.
+The functional composer supports text free-form sends, a Send button, server-driven 24-hour-window UX, a template picker, dynamic variable inputs, and a safe template preview. Free-form is blocked when the session is closed while template send remains available only when current authorization and capabilities permit it. Pending UX preserves the same `clientRequestId` for safe retry and does not create duplicate optimistic Messages. Historical inbound and outbound media render from authorized Attachment DTOs, but user-facing attachment selection, upload progress, remove/replace, drag/drop, and send-media composer UX are not implemented yet.
 
 The UI never controls Content SID, sender, Provider Connection, credentials, outbound state, session authority, storage paths, or provider media locators. The browser never loads Twilio `MediaUrl` directly, and media bytes are not persisted in localStorage or durable Jotai state. Messaging operations participate in metadata GraphQL codegen, and the frontend consumes generated metadata operation types rather than a parallel handwritten GraphQL contract.
 
@@ -788,21 +840,31 @@ Relevant queries are:
 - `inconnectMessagingTemplates`
 - `inconnectMessagingSendCapabilities`
 
-The mutation is `sendInconnectMessagingMessage`, and the subscription is `onInconnectMessagingEvent`. Messaging remains integrated with metadata GraphQL codegen and generated frontend metadata types.
+Mutations are:
+
+- `createInconnectMessagingOutboundUpload`
+- `completeInconnectMessagingOutboundUpload`
+- `sendInconnectMessagingMessage`
+
+`sendInconnectMessagingMessage` accepts opaque `outboundUploadIds`. Public GraphQL does not expose or accept `FileEntity` IDs, storage paths, provider URLs/tokens, sender, Provider Connection, or authoritative MIME. The subscription remains `onInconnectMessagingEvent`. Metadata GraphQL codegen was regenerated and validated successfully, and the frontend continues to consume generated metadata types rather than a parallel handwritten contract.
 
 ### Validation Checkpoint
 
-The current Messaging checkpoint has green server and frontend Messaging tests and green typecheck, lint, format, codegen, and diff checks from its implementation validation. Read, subscription, and file-access paths preserve their authorization boundaries, including non-disclosing attachment access.
+The current Messaging checkpoint has green server and frontend Messaging tests plus green typecheck, typed lint, format, metadata codegen, and diff checks from implementation validation. Outbound upload/media tests and core `FileUploadService` regression tests are green. Read, subscription, human file-access, and provider-media paths preserve their authorization boundaries, including non-disclosing attachment access. Metadata codegen confirmed the upload mutations and opaque send references without exposing file/storage/provider authority. Review found no provider JWT token-type confusion; the provider endpoint is exact Attachment/workspace scoped, and the core `FileUploadService` coupling to INCONNECT was removed.
 
 The inbound-attachment Fast Instance Command was exercised against real disposable PostgreSQL. Entity/schema parity, PRE-8A compatibility, `up`/`down` behavior with `STICKER`, `CONTACT`, and Attachments, physical workspace/File isolation, and download authorization/security were confirmed; the disposable database was removed. This does not assert that the command ran in production.
+
+The outbound-staging Fast Instance Command is `2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads.ts`. Its real `up` was executed against disposable PostgreSQL and accepted PRE-outbound-staging data. Validation confirmed physical parity with `InconnectMessagingOutboundUploadEntity`, actor-scoped uniqueness, workspace-isolated File and consumed-Message references, and no need for a Slow Command. Its real `down` succeeded with `CREATING`, `PENDING`, `AVAILABLE`, and `CONSUMED` rows: the staging table was removed while Message, Attachment, and File rows remained. The disposable database was removed. This does not assert that the command ran in production.
 
 ### Planned Boundaries
 
 Personal/shared state is approved but **NOT IMPLEMENTED**: Favorite and Unread are personal per Workspace Member; Pending is shared Conversation state. `ConversationMemberState` does not exist yet.
 
-Still **NOT IMPLEMENTED**: outbound media, file upload from the composer, outbound image/audio/video/document/contact, microphone recording, reactions, Favorite, Unread, operational Pending, `ConversationMemberState`, a CRM Lead context panel, Lead matching, auto-link, automatic Lead creation, CRM owner changes from Messaging, historical media backfill, automatic `FileEntity`/FileStorage garbage collection or reconciliation, template administration/editor, or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates.
+The outbound media backend **IS IMPLEMENTED**: secure actor/workspace-scoped staging, upload completion and validation, deterministic `FileStorage`/`FileEntity` preparation, transactional outbound Message + Attachment consumption, Twilio free-form media dispatch, and provider-media capability delivery.
 
-The next intended Messaging boundary is outbound media/file upload from the existing composer, reusing the secure Attachment/FileStorage foundation. It is planned, not implemented, and requires explicit design before work begins.
+Still **NOT IMPLEMENTED**: composer attachment button, frontend file picker, frontend upload/progress UX, remove/replace-before-send UX, drag/drop, microphone recording, outbound `LOCATION`, rich/media templates, reactions, Favorite, Unread, operational Pending, `ConversationMemberState`, a CRM Lead context panel, Lead matching, auto-link, automatic Lead creation, CRM owner changes from Messaging, historical media backfill, automatic `FileEntity`/FileStorage garbage collection or reconciliation, template administration/editor, or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates.
+
+The next intended Messaging boundary is the frontend attachment/upload UX using the existing secure outbound backend. Backend media capability must not be described as missing merely because the user-facing picker and progress experience remain pending.
 
 ### Local Development Runtime
 
@@ -934,14 +996,18 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - PostgreSQL is operational authority. BullMQ may provide at-least-once transport but is never authority.
 - Do not reuse email `modules/messaging` as the WhatsApp domain.
 - Human send must always use `InconnectMessagingAuthorizationService`; never trust frontend session-window state or send capabilities as authority.
+- Outbound staging is actor/workspace scoped and never substitutes for current Conversation authorization; reauthorize the Conversation at send time.
+- Public clients never choose server-owned `FileEntity` IDs.
+- Keep core `FileUploadService` feature-neutral; INCONNECT owns its upload folder, logical type, MIME, size, actor authorization, and staging policy.
 - Never expose or accept a Twilio Content SID as frontend template identity; provider references remain server-side.
 - Preserve one `clientRequestId` for retries of the same user send intention.
-- Do not blindly retry ambiguous provider outcomes; preserve `UNKNOWN` semantics and the conservative provider-submit boundary.
+- Do not blindly retry ambiguous provider outcomes, including media submits; preserve `UNKNOWN` semantics and the conservative provider-submit boundary.
 - Template history must not depend on the current provider catalog.
 - Do not create a parallel outbound pipeline for templates; free-form and templates converge on durable `Message` and `DispatchAttempt` processing.
 - Keep Messaging realtime member-scoped; reauthorize each recipient against current Conversation access before publishing a hint. Never use a workspace-wide or generic object stream as an authorization shortcut, and never substitute hints for authorized API reads/refetches.
-- A provider media URL is never a frontend or product download URL. Never expose it, and never fetch an arbitrary client-supplied media URL.
+- A provider media URL is never a frontend or product download URL. Never expose it, and never fetch an arbitrary client-supplied media URL. Provider-media capability is exact-purpose transport authority, not human authorization, and its URL/token must never appear in normal frontend APIs.
 - Inbound media must become durable through Twenty `FileEntity`/FileStorage; do not create a parallel Messaging storage system or treat Twilio as historical media storage.
+- Outbound media must converge on the existing durable `Message` + `Attachment` + `DispatchAttempt` pipeline; Attachment `AVAILABLE` is independent of Message delivery state, and free-form media obeys the server-authoritative 24-hour session policy.
 - Do not authorize files from only `workspaceId + fileId` or `workspaceId + attachmentId`; always reauthorize the owning Conversation and, when linked, its anchor record before opening a stream.
 - Keep Attachment creation, ingestion, and recovery idempotent and PostgreSQL-authoritative; BullMQ deduplication is not the correctness boundary.
 - Preserve `LOCATION` as structured content rather than an Attachment, and preserve normal Unicode/emoji as `TEXT` rather than introducing an emoji type.
