@@ -29,6 +29,13 @@ import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnec
   ['id', 'providerConnectionId', 'workspaceId'],
   { unique: true },
 )
+@Index(
+  'IDX_INCONNECT_MSG_CONVERSATION_ID_WORKSPACE_UNIQUE',
+  ['id', 'workspaceId'],
+  {
+    unique: true,
+  },
+)
 @Index('IDX_INCONNECT_MSG_CONVERSATION_WORKSPACE', ['workspaceId'])
 @Index('IDX_INCONNECT_MSG_CONVERSATION_CONNECTION', ['providerConnectionId'])
 @Index(
@@ -87,6 +94,9 @@ export class InconnectMessagingConversationEntity {
 
   @Column({ nullable: true, type: 'timestamptz' })
   lastInboundAt: Date | null;
+
+  @Column({ nullable: true, type: 'timestamptz' })
+  pendingAt: Date | null;
 
   @ManyToOne(() => InconnectMessagingConfigurationEntity, {
     nullable: true,

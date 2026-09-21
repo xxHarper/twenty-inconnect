@@ -12,10 +12,13 @@ import {
   type InconnectMessagingMessageConnectionDTO,
   type InconnectMessagingMessageDTO,
 } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-read.dto';
-import { type InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingConversationWorkStateFilter } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-work-state.dto';
 import { type InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
-import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
+import {
+  InconnectMessagingConversationQueryService,
+  type InconnectMessagingConversationWithWorkState,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { InconnectMessagingMessageQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-message-query.service';
 
 const DEFAULT_PAGE_SIZE = 30;
@@ -37,7 +40,7 @@ export class InconnectMessagingReadService {
     conversationId: string;
   }): Promise<InconnectMessagingConversationDTO | null> {
     const conversation =
-      await this.authorizationService.findAuthorizedConversation({
+      await this.conversationQueryService.getAuthorizedConversation({
         authContext,
         conversationId,
       });
@@ -48,11 +51,13 @@ export class InconnectMessagingReadService {
   async getConversations({
     authContext,
     search,
+    workState,
     first,
     after,
   }: {
     authContext: WorkspaceAuthContext;
     search?: string;
+    workState?: InconnectMessagingConversationWorkStateFilter;
     first?: number;
     after?: string;
   }): Promise<InconnectMessagingConversationConnectionDTO> {
@@ -61,6 +66,7 @@ export class InconnectMessagingReadService {
       await this.conversationQueryService.getAuthorizedConversationPage({
         authContext,
         search,
+        workState,
         first: pageSize,
         after,
       });
@@ -138,8 +144,10 @@ export class InconnectMessagingReadService {
   }
 
   private toConversationDTO(
-    conversation: InconnectMessagingConversationEntity,
+    result: InconnectMessagingConversationWithWorkState,
   ): InconnectMessagingConversationDTO {
+    const { conversation } = result;
+
     return {
       id: conversation.id,
       externalAddress: conversation.externalAddressNormalized,
@@ -149,6 +157,9 @@ export class InconnectMessagingReadService {
       linkedRecordObjectMetadataId: conversation.linkedRecordObjectMetadataId,
       linkedRecordId: conversation.linkedRecordId,
       lastInboundAt: conversation.lastInboundAt,
+      isFavorite: result.isFavorite,
+      isUnread: result.isUnread,
+      isPending: result.isPending,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     };

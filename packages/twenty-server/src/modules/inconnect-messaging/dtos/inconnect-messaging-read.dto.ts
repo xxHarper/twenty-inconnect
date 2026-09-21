@@ -24,6 +24,15 @@ export class InconnectMessagingConversationDTO {
   @Field(() => Date, { nullable: true })
   lastInboundAt: Date | null;
 
+  @Field(() => Boolean)
+  isFavorite: boolean;
+
+  @Field(() => Boolean)
+  isUnread: boolean;
+
+  @Field(() => Boolean)
+  isPending: boolean;
+
   @Field(() => Date)
   createdAt: Date;
 

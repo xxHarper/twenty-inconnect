@@ -22,6 +22,8 @@ export type InconnectMessagingMessageCursorPage = {
   totalCount: number;
 };
 
+// Display chronology intentionally uses provider/effective time. Personal
+// read state independently follows server arrival (Message.createdAt + id).
 const MESSAGE_DISPLAY_AT_SQL =
   'COALESCE(message.effectiveInboundAt, message.createdAt)';
 

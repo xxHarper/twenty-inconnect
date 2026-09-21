@@ -14,6 +14,7 @@ import {
   InconnectMessagingConversationDTO,
   InconnectMessagingMessageConnectionDTO,
 } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-read.dto';
+import { InconnectMessagingConversationWorkStateFilter } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-work-state.dto';
 import { InconnectMessagingReadService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-read.service';
 
 @MetadataResolver()
@@ -38,6 +39,11 @@ export class InconnectMessagingReadResolver {
   async inconnectMessagingConversations(
     @Args('search', { type: () => String, nullable: true })
     search?: string,
+    @Args('workState', {
+      type: () => InconnectMessagingConversationWorkStateFilter,
+      nullable: true,
+    })
+    workState?: InconnectMessagingConversationWorkStateFilter,
     @Args('paging', {
       type: () => InconnectMessagingPagingInput,
       nullable: true,
@@ -47,6 +53,7 @@ export class InconnectMessagingReadResolver {
     return this.inconnectMessagingReadService.getConversations({
       authContext: getWorkspaceAuthContext(),
       search,
+      workState,
       first: paging?.first,
       after: paging?.after,
     });

@@ -16,6 +16,12 @@ const conversation = {
   createdAt: new Date('2026-09-11T09:00:00.000Z'),
   updatedAt: new Date('2026-09-11T10:00:00.000Z'),
 };
+const conversationWithWorkState = {
+  conversation,
+  isFavorite: true,
+  isUnread: false,
+  isPending: true,
+};
 
 const message = {
   id: '30303030-4444-4444-8444-444444444444',
@@ -55,8 +61,13 @@ const buildService = ({ authorized = true } = {}) => {
       .mockResolvedValue(authorized ? conversation : null),
   };
   const conversationQueryService = {
+    getAuthorizedConversation: jest
+      .fn()
+      .mockResolvedValue(authorized ? conversationWithWorkState : null),
     getAuthorizedConversationPage: jest.fn().mockResolvedValue({
-      edges: [{ cursor: 'conversation-cursor', node: conversation }],
+      edges: [
+        { cursor: 'conversation-cursor', node: conversationWithWorkState },
+      ],
       hasNextPage: false,
       totalCount: 1,
     }),
@@ -111,6 +122,9 @@ describe('InconnectMessagingReadService', () => {
       linkedRecordObjectMetadataId: conversation.linkedRecordObjectMetadataId,
       linkedRecordId: conversation.linkedRecordId,
       lastInboundAt: conversation.lastInboundAt,
+      isFavorite: true,
+      isUnread: false,
+      isPending: true,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     });
@@ -271,6 +285,7 @@ describe('InconnectMessagingReadService', () => {
     await service.getConversations({
       authContext,
       search: '5512',
+      workState: undefined,
       first: 20,
       after: 'opaque-cursor',
     });

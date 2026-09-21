@@ -52,6 +52,13 @@ export class InconnectMessagingConfigurationEntity {
   @Column({ default: 0, nullable: false, type: 'bigint' })
   revision: string;
 
+  @Column({
+    default: () => 'CURRENT_TIMESTAMP',
+    nullable: false,
+    type: 'timestamptz',
+  })
+  workStateTrackingBaselineAt: Date;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

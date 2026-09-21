@@ -6,8 +6,10 @@ import { AddInconnectMessagingTemplateIntentFastInstanceCommand } from 'src/data
 import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments';
 import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads';
+import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
@@ -28,6 +30,7 @@ const MESSAGING_ENTITIES: EntityTarget<object>[] = [
   InconnectMessagingOutboxEventEntity,
   InconnectMessagingAttachmentEntity,
   InconnectMessagingOutboundUploadEntity,
+  InconnectMessagingConversationMemberStateEntity,
 ];
 
 const buildMetadataDataSource = async (): Promise<DataSource> => {
@@ -68,6 +71,9 @@ describe('INCONNECT Messaging persistence model', () => {
     await new AddInconnectMessagingOutboundUploadsFastInstanceCommand().up({
       query,
     } as never);
+    await new AddInconnectMessagingConversationWorkStateFastInstanceCommand().up(
+      { query } as never,
+    );
 
     const sql = query.mock.calls.map(([statement]) => statement).join('\n');
 
@@ -140,6 +146,7 @@ describe('INCONNECT Messaging persistence model', () => {
       'FK_INCONNECT_MSG_ATTACHMENT_FILE',
       'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_FILE',
       'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_CONSUMED_MESSAGE',
+      'FK_INCONNECT_MSG_MEMBER_STATE_CONVERSATION',
     ];
     const foreignKeys = MESSAGING_ENTITIES.flatMap(
       (entity) => dataSource.getMetadata(entity).foreignKeys,
@@ -278,6 +285,34 @@ describe('INCONNECT Messaging persistence model', () => {
     );
     expect(checks.get('CHK_INCONNECT_MSG_ATTACHMENT_LEASE')).toContain(
       '"leaseToken" IS NULL',
+    );
+  });
+
+  it('persists personal work state without a historical member-state backfill', async () => {
+    const dataSource = await buildMetadataDataSource();
+    const metadata = dataSource.getMetadata(
+      InconnectMessagingConversationMemberStateEntity,
+    );
+    const query = jest.fn().mockResolvedValue(undefined);
+
+    await new AddInconnectMessagingConversationWorkStateFastInstanceCommand().up(
+      { query } as never,
+    );
+
+    expect(metadata.columns.map(({ databaseName }) => databaseName)).toEqual(
+      expect.arrayContaining([
+        'workspaceMemberId',
+        'favorite',
+        'lastReadMessageCreatedAt',
+        'lastReadMessageId',
+        'manualUnread',
+      ]),
+    );
+    expect(
+      query.mock.calls.some(([statement]) => /^\s*UPDATE\s/i.test(statement)),
+    ).toBe(false);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('DEFAULT CURRENT_TIMESTAMP'),
     );
   });
 

@@ -2202,7 +2202,10 @@ export type InconnectMessagingConversation = {
   createdAt: Scalars['DateTime']['output'];
   externalAddress: Scalars['String']['output'];
   id: Scalars['UUID']['output'];
+  isFavorite: Scalars['Boolean']['output'];
   isLinked: Scalars['Boolean']['output'];
+  isPending: Scalars['Boolean']['output'];
+  isUnread: Scalars['Boolean']['output'];
   lastInboundAt?: Maybe<Scalars['DateTime']['output']>;
   linkedRecordId?: Maybe<Scalars['UUID']['output']>;
   linkedRecordObjectMetadataId?: Maybe<Scalars['UUID']['output']>;
@@ -2221,6 +2224,21 @@ export type InconnectMessagingConversationEdge = {
   cursor: Scalars['String']['output'];
   node: InconnectMessagingConversation;
 };
+
+export type InconnectMessagingConversationWorkState = {
+  __typename?: 'InconnectMessagingConversationWorkState';
+  conversationId: Scalars['UUID']['output'];
+  isFavorite: Scalars['Boolean']['output'];
+  isPending: Scalars['Boolean']['output'];
+  isUnread: Scalars['Boolean']['output'];
+};
+
+export enum InconnectMessagingConversationWorkStateFilter {
+  ALL = 'ALL',
+  FAVORITES = 'FAVORITES',
+  PENDING = 'PENDING',
+  UNREAD = 'UNREAD'
+}
 
 export type InconnectMessagingLocation = {
   __typename?: 'InconnectMessagingLocation';
@@ -3103,6 +3121,8 @@ export type Mutation = {
   installApplication: Application;
   /** @deprecated Use installApplication instead */
   installMarketplaceApp: Scalars['Boolean']['output'];
+  markInconnectMessagingConversationRead: InconnectMessagingConversationWorkState;
+  markInconnectMessagingConversationUnread: InconnectMessagingConversationWorkState;
   moveInconnectCommercialTeamMember: InconnectCommercialTeamSettingsMutationResult;
   refreshEnterpriseValidityToken: Scalars['Boolean']['output'];
   releaseEnterpriseServerBinding: EnterpriseLicenseInfoDto;
@@ -3138,6 +3158,8 @@ export type Mutation = {
   sendMessageCampaignTest: SendEmailViaDomainOutput;
   setAppKeyValue: AppKeyValue;
   setEnterpriseKey: EnterpriseLicenseInfoDto;
+  setInconnectMessagingConversationFavorite: InconnectMessagingConversationWorkState;
+  setInconnectMessagingConversationPending: InconnectMessagingConversationWorkState;
   setResourceCreditSubscriptionPrice: BillingUpdate;
   signIn: AvailableWorkspacesAndAccessTokens;
   signOut: Scalars['Boolean']['output'];
@@ -3871,6 +3893,17 @@ export type MutationInstallMarketplaceAppArgs = {
 };
 
 
+export type MutationMarkInconnectMessagingConversationReadArgs = {
+  conversationId: Scalars['UUID']['input'];
+  throughMessageId?: InputMaybe<Scalars['UUID']['input']>;
+};
+
+
+export type MutationMarkInconnectMessagingConversationUnreadArgs = {
+  conversationId: Scalars['UUID']['input'];
+};
+
+
 export type MutationMoveInconnectCommercialTeamMemberArgs = {
   input: MoveInconnectCommercialTeamMemberInput;
 };
@@ -4040,6 +4073,18 @@ export type MutationSetAppKeyValueArgs = {
 
 export type MutationSetEnterpriseKeyArgs = {
   enterpriseKey: Scalars['String']['input'];
+};
+
+
+export type MutationSetInconnectMessagingConversationFavoriteArgs = {
+  conversationId: Scalars['UUID']['input'];
+  favorite: Scalars['Boolean']['input'];
+};
+
+
+export type MutationSetInconnectMessagingConversationPendingArgs = {
+  conversationId: Scalars['UUID']['input'];
+  pending: Scalars['Boolean']['input'];
 };
 
 
@@ -5459,6 +5504,7 @@ export type QueryInconnectMessagingConversationArgs = {
 export type QueryInconnectMessagingConversationsArgs = {
   paging?: InputMaybe<InconnectMessagingPaging>;
   search?: InputMaybe<Scalars['String']['input']>;
+  workState?: InputMaybe<InconnectMessagingConversationWorkStateFilter>;
 };
 
 
@@ -8124,18 +8170,19 @@ export type GetAddressDetailsQuery = { __typename?: 'Query', getAddressDetails: 
 
 export type InconnectMessagingConversationsQueryVariables = Exact<{
   search?: InputMaybe<Scalars['String']['input']>;
+  workState?: InputMaybe<InconnectMessagingConversationWorkStateFilter>;
   paging?: InputMaybe<InconnectMessagingPaging>;
 }>;
 
 
-export type InconnectMessagingConversationsQuery = { __typename?: 'Query', inconnectMessagingConversations: { __typename?: 'InconnectMessagingConversationConnection', edges: Array<{ __typename?: 'InconnectMessagingConversationEdge', cursor: string, node: { __typename?: 'InconnectMessagingConversation', id: string, externalAddress: string, isLinked: boolean, lastInboundAt?: string | null, createdAt: string } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage?: boolean | null, endCursor?: any | null } } };
+export type InconnectMessagingConversationsQuery = { __typename?: 'Query', inconnectMessagingConversations: { __typename?: 'InconnectMessagingConversationConnection', edges: Array<{ __typename?: 'InconnectMessagingConversationEdge', cursor: string, node: { __typename?: 'InconnectMessagingConversation', id: string, externalAddress: string, isLinked: boolean, isFavorite: boolean, isUnread: boolean, isPending: boolean, lastInboundAt?: string | null, createdAt: string } }>, pageInfo: { __typename?: 'PageInfo', hasNextPage?: boolean | null, endCursor?: any | null } } };
 
 export type InconnectMessagingConversationQueryVariables = Exact<{
   id: Scalars['UUID']['input'];
 }>;
 
 
-export type InconnectMessagingConversationQuery = { __typename?: 'Query', inconnectMessagingConversation?: { __typename?: 'InconnectMessagingConversation', id: string, externalAddress: string, isLinked: boolean, lastInboundAt?: string | null, createdAt: string } | null };
+export type InconnectMessagingConversationQuery = { __typename?: 'Query', inconnectMessagingConversation?: { __typename?: 'InconnectMessagingConversation', id: string, externalAddress: string, isLinked: boolean, isFavorite: boolean, isUnread: boolean, isPending: boolean, lastInboundAt?: string | null, createdAt: string } | null };
 
 export type InconnectMessagingMessagesQueryVariables = Exact<{
   conversationId: Scalars['UUID']['input'];
@@ -10171,8 +10218,8 @@ export const FindOneFrontComponentDocument = {"kind":"Document","definitions":[{
 export const GetApplicationSdkClientChecksumsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetApplicationSdkClientChecksums"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"applicationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"applicationSdkClientChecksums"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"applicationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"applicationId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"core"}},{"kind":"Field","name":{"kind":"Name","value":"metadata"}}]}}]}}]} as unknown as DocumentNode<GetApplicationSdkClientChecksumsQuery, GetApplicationSdkClientChecksumsQueryVariables>;
 export const GetAutoCompleteAddressDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetAutoCompleteAddress"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"address"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"token"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"country"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"isFieldCity"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getAutoCompleteAddress"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"address"},"value":{"kind":"Variable","name":{"kind":"Name","value":"address"}}},{"kind":"Argument","name":{"kind":"Name","value":"token"},"value":{"kind":"Variable","name":{"kind":"Name","value":"token"}}},{"kind":"Argument","name":{"kind":"Name","value":"country"},"value":{"kind":"Variable","name":{"kind":"Name","value":"country"}}},{"kind":"Argument","name":{"kind":"Name","value":"isFieldCity"},"value":{"kind":"Variable","name":{"kind":"Name","value":"isFieldCity"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"text"}},{"kind":"Field","name":{"kind":"Name","value":"placeId"}}]}}]}}]} as unknown as DocumentNode<GetAutoCompleteAddressQuery, GetAutoCompleteAddressQueryVariables>;
 export const GetAddressDetailsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetAddressDetails"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"placeId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"token"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"getAddressDetails"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"placeId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"placeId"}}},{"kind":"Argument","name":{"kind":"Name","value":"token"},"value":{"kind":"Variable","name":{"kind":"Name","value":"token"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"street"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"postcode"}},{"kind":"Field","name":{"kind":"Name","value":"city"}},{"kind":"Field","name":{"kind":"Name","value":"country"}},{"kind":"Field","name":{"kind":"Name","value":"location"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"lat"}},{"kind":"Field","name":{"kind":"Name","value":"lng"}}]}}]}}]}}]} as unknown as DocumentNode<GetAddressDetailsQuery, GetAddressDetailsQueryVariables>;
-export const InconnectMessagingConversationsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingConversations"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"search"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paging"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingPaging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingConversations"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"search"},"value":{"kind":"Variable","name":{"kind":"Name","value":"search"}}},{"kind":"Argument","name":{"kind":"Name","value":"paging"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"node"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"externalAddress"}},{"kind":"Field","name":{"kind":"Name","value":"isLinked"}},{"kind":"Field","name":{"kind":"Name","value":"lastInboundAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"pageInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"endCursor"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingConversationsQuery, InconnectMessagingConversationsQueryVariables>;
-export const InconnectMessagingConversationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingConversation"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingConversation"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"externalAddress"}},{"kind":"Field","name":{"kind":"Name","value":"isLinked"}},{"kind":"Field","name":{"kind":"Name","value":"lastInboundAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingConversationQuery, InconnectMessagingConversationQueryVariables>;
+export const InconnectMessagingConversationsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingConversations"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"search"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"workState"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingConversationWorkStateFilter"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paging"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingPaging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingConversations"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"search"},"value":{"kind":"Variable","name":{"kind":"Name","value":"search"}}},{"kind":"Argument","name":{"kind":"Name","value":"workState"},"value":{"kind":"Variable","name":{"kind":"Name","value":"workState"}}},{"kind":"Argument","name":{"kind":"Name","value":"paging"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"node"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"externalAddress"}},{"kind":"Field","name":{"kind":"Name","value":"isLinked"}},{"kind":"Field","name":{"kind":"Name","value":"isFavorite"}},{"kind":"Field","name":{"kind":"Name","value":"isUnread"}},{"kind":"Field","name":{"kind":"Name","value":"isPending"}},{"kind":"Field","name":{"kind":"Name","value":"lastInboundAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"pageInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"endCursor"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingConversationsQuery, InconnectMessagingConversationsQueryVariables>;
+export const InconnectMessagingConversationDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingConversation"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingConversation"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"externalAddress"}},{"kind":"Field","name":{"kind":"Name","value":"isLinked"}},{"kind":"Field","name":{"kind":"Name","value":"isFavorite"}},{"kind":"Field","name":{"kind":"Name","value":"isUnread"}},{"kind":"Field","name":{"kind":"Name","value":"isPending"}},{"kind":"Field","name":{"kind":"Name","value":"lastInboundAt"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingConversationQuery, InconnectMessagingConversationQueryVariables>;
 export const InconnectMessagingMessagesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingMessages"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"paging"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"InconnectMessagingPaging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingMessages"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"conversationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}}},{"kind":"Argument","name":{"kind":"Name","value":"paging"},"value":{"kind":"Variable","name":{"kind":"Name","value":"paging"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"edges"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cursor"}},{"kind":"Field","name":{"kind":"Name","value":"node"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"direction"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"sendMode"}},{"kind":"Field","name":{"kind":"Name","value":"outboundState"}},{"kind":"Field","name":{"kind":"Name","value":"displayAt"}},{"kind":"Field","name":{"kind":"Name","value":"location"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"latitude"}},{"kind":"Field","name":{"kind":"Name","value":"longitude"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"address"}}]}},{"kind":"Field","name":{"kind":"Name","value":"media"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"filename"}},{"kind":"Field","name":{"kind":"Name","value":"contentType"}},{"kind":"Field","name":{"kind":"Name","value":"size"}},{"kind":"Field","name":{"kind":"Name","value":"availabilityState"}},{"kind":"Field","name":{"kind":"Name","value":"accessUrl"}}]}},{"kind":"Field","name":{"kind":"Name","value":"template"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"displayName"}},{"kind":"Field","name":{"kind":"Name","value":"language"}},{"kind":"Field","name":{"kind":"Name","value":"variables"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"key"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}}]}}]}}]}},{"kind":"Field","name":{"kind":"Name","value":"pageInfo"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"hasNextPage"}},{"kind":"Field","name":{"kind":"Name","value":"endCursor"}}]}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingMessagesQuery, InconnectMessagingMessagesQueryVariables>;
 export const InconnectMessagingSendCapabilitiesDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"InconnectMessagingSendCapabilities"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"UUID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"inconnectMessagingSendCapabilities"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"conversationId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"conversationId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"canSend"}},{"kind":"Field","name":{"kind":"Name","value":"canSendFreeform"}},{"kind":"Field","name":{"kind":"Name","value":"canSendTemplate"}},{"kind":"Field","name":{"kind":"Name","value":"canSendMedia"}},{"kind":"Field","name":{"kind":"Name","value":"maxMediaItems"}},{"kind":"Field","name":{"kind":"Name","value":"mediaTypes"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"mimeTypes"}},{"kind":"Field","name":{"kind":"Name","value":"maxBytes"}},{"kind":"Field","name":{"kind":"Name","value":"captionSupported"}}]}},{"kind":"Field","name":{"kind":"Name","value":"sessionWindowState"}},{"kind":"Field","name":{"kind":"Name","value":"freeformWindowExpiresAt"}},{"kind":"Field","name":{"kind":"Name","value":"freeformUnavailableReason"}},{"kind":"Field","name":{"kind":"Name","value":"templateUnavailableReason"}}]}}]}}]} as unknown as DocumentNode<InconnectMessagingSendCapabilitiesQuery, InconnectMessagingSendCapabilitiesQueryVariables>;
 export const CreateInconnectMessagingOutboundUploadDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateInconnectMessagingOutboundUpload"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"CreateInconnectMessagingOutboundUploadInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createInconnectMessagingOutboundUpload"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"uploadId"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"filename"}},{"kind":"Field","name":{"kind":"Name","value":"size"}},{"kind":"Field","name":{"kind":"Name","value":"contentType"}},{"kind":"Field","name":{"kind":"Name","value":"uploadUrl"}},{"kind":"Field","name":{"kind":"Name","value":"uploadContentType"}},{"kind":"Field","name":{"kind":"Name","value":"expiresAt"}}]}}]}}]} as unknown as DocumentNode<CreateInconnectMessagingOutboundUploadMutation, CreateInconnectMessagingOutboundUploadMutationVariables>;

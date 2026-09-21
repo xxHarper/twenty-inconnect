@@ -148,8 +148,12 @@ import { EncryptEmptyApplicationVariablesSlowInstanceCommand } from 'src/databas
 import { CreateInconnectCommercialTeamsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786578553730-create-inconnect-commercial-teams';
 import { CreateInconnectRecordAccessPersistenceFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1786740000000-create-inconnect-record-access-persistence';
 import { CreateInconnectMessagingTransportSpineFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1788982508902-create-inconnect-messaging-transport-spine';
+import { AddInconnectMessagingWebhookProjectionFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789040000000-add-inconnect-messaging-webhook-projection';
 import { AddInconnectMessagingTemplateIntentFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789473600000-add-inconnect-messaging-template-intent';
 import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments';
+import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads';
+import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
+import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 
 export const INSTANCE_COMMANDS = [
   AddViewFieldGroupIdIndexOnViewFieldFastInstanceCommand,
@@ -300,6 +304,10 @@ export const INSTANCE_COMMANDS = [
   CreateInconnectCommercialTeamsFastInstanceCommand,
   CreateInconnectRecordAccessPersistenceFastInstanceCommand,
   CreateInconnectMessagingTransportSpineFastInstanceCommand,
+  AddInconnectMessagingWebhookProjectionFastInstanceCommand,
   AddInconnectMessagingTemplateIntentFastInstanceCommand,
   AddInconnectMessagingInboundAttachmentsFastInstanceCommand,
+  AddInconnectMessagingOutboundUploadsFastInstanceCommand,
+  AddInconnectMessagingConversationWorkStateFastInstanceCommand,
+  BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand,
 ];

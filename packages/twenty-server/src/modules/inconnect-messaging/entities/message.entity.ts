@@ -82,6 +82,13 @@ import {
   'conversationId',
   'createdAt',
 ])
+@Index('IDX_INCONNECT_MSG_MESSAGE_UNREAD_LOOKUP', [
+  'workspaceId',
+  'conversationId',
+  'direction',
+  'createdAt',
+  'id',
+])
 export class InconnectMessagingMessageEntity {
   @PrimaryGeneratedColumn('uuid', {
     primaryKeyConstraintName: 'PK_INCONNECT_MSG_MESSAGE',

@@ -10,6 +10,7 @@ import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queu
 import { MessageQueueService } from 'src/engine/core-modules/message-queue/services/message-queue.service';
 import { INCONNECT_MESSAGING_OUTBOX_PUBLISHING_JOB_NAME } from 'src/modules/inconnect-messaging/constants/inconnect-messaging-outbox-publishing-job-name.constant';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
+import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingRealtimePublisherService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-realtime-publisher.service';
@@ -183,7 +184,36 @@ export class InconnectMessagingOutboxService {
   ): Promise<InconnectMessagingRealtimeHint | null> {
     const realtimeEventType = this.toRealtimeEventType(event);
 
-    if (realtimeEventType === null || event.aggregateType !== 'MESSAGE') {
+    if (realtimeEventType === null) {
+      return null;
+    }
+
+    if (
+      realtimeEventType === 'CONVERSATION_UPDATED' &&
+      event.aggregateType === 'CONVERSATION'
+    ) {
+      const conversation = await this.dataSource
+        .getRepository(InconnectMessagingConversationEntity)
+        .findOne({
+          select: ['id', 'workspaceId'],
+          where: { id: event.aggregateId, workspaceId: event.workspaceId },
+        });
+
+      return conversation === null
+        ? null
+        : {
+            eventId: event.id,
+            eventType: realtimeEventType,
+            conversationId: conversation.id,
+            messageId: null,
+            occurredAt: event.createdAt,
+          };
+    }
+
+    if (
+      realtimeEventType === 'CONVERSATION_UPDATED' ||
+      event.aggregateType !== 'MESSAGE'
+    ) {
       return null;
     }
 
@@ -226,6 +256,10 @@ export class InconnectMessagingOutboxService {
 
     if (event.eventType === 'MEDIA_ATTACHMENT_UPDATED') {
       return 'MESSAGE_UPDATED';
+    }
+
+    if (event.eventType === 'CONVERSATION_PENDING_CHANGED') {
+      return 'CONVERSATION_UPDATED';
     }
 
     return null;

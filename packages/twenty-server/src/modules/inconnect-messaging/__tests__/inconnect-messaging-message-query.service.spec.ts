@@ -114,7 +114,7 @@ describe('InconnectMessagingMessageQueryService', () => {
     expect(result?.totalCount).toBe(1);
   });
 
-  it('uses display timestamp plus Message ID as the cursor tie breaker', async () => {
+  it('keeps provider/effective display chronology independent from arrival-based unread', async () => {
     const queryBuilder = new MessageQueryBuilder();
     const service = new InconnectMessagingMessageQueryService(
       { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) } as never,

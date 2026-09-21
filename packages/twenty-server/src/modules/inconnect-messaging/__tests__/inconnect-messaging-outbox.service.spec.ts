@@ -285,6 +285,41 @@ describe('InconnectMessagingOutboxService', () => {
     );
   });
 
+  it('maps a shared Pending change to a minimal authorized Conversation hint', async () => {
+    const { service, authorizationService, realtimePublisherService } =
+      buildService({
+        initialEvent: {
+          ...event,
+          aggregateType: 'CONVERSATION',
+          eventType: 'CONVERSATION_PENDING_CHANGED',
+        },
+      });
+
+    await service.publishEvent(event.id);
+
+    expect(
+      authorizationService.findAuthorizedConversation,
+    ).toHaveBeenCalledTimes(2);
+    expect(realtimePublisherService.publishToMember).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceMemberId: 'member-one',
+        hint: {
+          eventId: event.id,
+          eventType: 'CONVERSATION_UPDATED',
+          conversationId: event.aggregateId,
+          messageId: null,
+          occurredAt: event.createdAt,
+        },
+      }),
+    );
+    expect(
+      JSON.stringify(realtimePublisherService.publishToMember.mock.calls),
+    ).not.toContain('workspaceMemberId":"member-two');
+    expect(
+      JSON.stringify(realtimePublisherService.publishToMember.mock.calls),
+    ).not.toContain('pendingAt');
+  });
+
   it('recovery enqueues persisted pending or expired events', async () => {
     const { service, messageQueueService } = buildService();
 

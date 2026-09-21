@@ -3,15 +3,23 @@ import { gql } from '@apollo/client';
 export const INCONNECT_MESSAGING_CONVERSATIONS = gql`
   query InconnectMessagingConversations(
     $search: String
+    $workState: InconnectMessagingConversationWorkStateFilter
     $paging: InconnectMessagingPaging
   ) {
-    inconnectMessagingConversations(search: $search, paging: $paging) {
+    inconnectMessagingConversations(
+      search: $search
+      workState: $workState
+      paging: $paging
+    ) {
       edges {
         cursor
         node {
           id
           externalAddress
           isLinked
+          isFavorite
+          isUnread
+          isPending
           lastInboundAt
           createdAt
         }
@@ -30,6 +38,9 @@ export const INCONNECT_MESSAGING_CONVERSATION = gql`
       id
       externalAddress
       isLinked
+      isFavorite
+      isUnread
+      isPending
       lastInboundAt
       createdAt
     }

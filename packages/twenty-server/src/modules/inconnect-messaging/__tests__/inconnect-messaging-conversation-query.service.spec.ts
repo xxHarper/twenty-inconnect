@@ -1,4 +1,5 @@
 import { type InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingConversationWorkStateFilter } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-work-state.dto';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 
 jest.mock(
@@ -18,10 +19,14 @@ const authContext = {
 const allowedConversation = {
   id: 'allowed-conversation',
   externalAddressNormalized: 'allowed-address',
+  pendingAt: null,
+  updatedAt: new Date('2026-09-18T10:00:00.000Z'),
 } as InconnectMessagingConversationEntity;
 const deniedConversation = {
   id: 'denied-conversation',
   externalAddressNormalized: 'secret-denied-address',
+  pendingAt: null,
+  updatedAt: new Date('2026-09-18T09:00:00.000Z'),
 } as InconnectMessagingConversationEntity;
 
 class ScopedConversationQueryBuilder {
@@ -60,6 +65,25 @@ class ScopedConversationQueryBuilder {
     return new ScopedConversationQueryBuilder([...this.rows], this.operations);
   }
 
+  leftJoin(
+    _entity: unknown,
+    _alias: string,
+    condition: string,
+    parameters?: Record<string, unknown>,
+  ) {
+    this.operations.push(
+      `${condition}:${String(parameters?.workStateWorkspaceMemberId ?? '')}`,
+    );
+
+    return this;
+  }
+
+  addSelect(selection: string) {
+    this.operations.push(selection);
+
+    return this;
+  }
+
   orderBy() {
     this.operations.push('ORDER');
 
@@ -86,8 +110,18 @@ class ScopedConversationQueryBuilder {
     return this;
   }
 
-  async getMany() {
-    return this.rows.slice(this.offset, this.offset + this.limit);
+  async getRawAndEntities() {
+    const entities = this.rows.slice(this.offset, this.offset + this.limit);
+
+    return {
+      entities,
+      raw: entities.map(({ id }) => ({
+        workStateConversationId: id,
+        workStateIsFavorite: false,
+        workStateIsUnread: false,
+        workStateIsPending: false,
+      })),
+    };
   }
 
   async getCount() {
@@ -134,7 +168,9 @@ describe('InconnectMessagingConversationQueryService', () => {
       limit: 1,
     });
 
-    expect(result.items).toEqual([allowedConversation]);
+    expect(result.items.map(({ conversation }) => conversation)).toEqual([
+      allowedConversation,
+    ]);
     expect(result.total).toBe(1);
     expect(operations.indexOf('AUTHORIZED_CONVERSATION_SCOPE')).toBeLessThan(
       operations.indexOf('ORDER'),
@@ -160,8 +196,54 @@ describe('InconnectMessagingConversationQueryService', () => {
       limit: 1,
     });
 
-    expect(result.items.map(({ id }) => id)).toEqual([allowedConversation.id]);
-    expect(result.items).not.toContainEqual(deniedConversation);
+    expect(result.items.map(({ conversation }) => conversation.id)).toEqual([
+      allowedConversation.id,
+    ]);
+    expect(
+      result.items.map(({ conversation }) => conversation),
+    ).not.toContainEqual(deniedConversation);
+  });
+
+  it.each([
+    InconnectMessagingConversationWorkStateFilter.UNREAD,
+    InconnectMessagingConversationWorkStateFilter.FAVORITES,
+    InconnectMessagingConversationWorkStateFilter.PENDING,
+  ])('applies %s in SQL before count and pagination', async (workState) => {
+    const { service, operations } = buildService();
+
+    await service.listAuthorizedConversations({
+      authContext,
+      workState,
+      offset: 0,
+      limit: 1,
+    });
+
+    const statePredicateIndex = operations.findIndex(
+      (operation) =>
+        operation.includes('manualUnread') ||
+        operation.includes('memberState.favorite') ||
+        operation.includes('pendingAt'),
+    );
+
+    expect(statePredicateIndex).toBeGreaterThan(-1);
+    expect(statePredicateIndex).toBeLessThan(
+      operations.indexOf('PAGINATION_LIMIT'),
+    );
+  });
+
+  it('derives unread from inbound insertion order and the rollout baseline for the current member', async () => {
+    const { service, operations } = buildService();
+
+    await service.listAuthorizedConversations({ authContext });
+
+    const sql = operations.join('\n');
+
+    expect(sql).toContain("unreadMessage.direction = 'INBOUND'");
+    expect(sql).toContain('unreadMessage."createdAt"');
+    expect(sql).toContain('unreadMessage.id > memberState."lastReadMessageId"');
+    expect(sql).toContain('workStateTrackingBaselineAt');
+    expect(sql).toContain('workspace-member-id');
+    expect(sql).not.toContain('effectiveInboundAt');
   });
 
   it('applies search after authorization so data unique to a denied row returns empty', async () => {
