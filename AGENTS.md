@@ -235,7 +235,9 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-18 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer and template picker, secure outbound media backend preparation, actor/workspace-scoped upload staging, deterministic and idempotent server-owned file identities, `FileStorage`/`FileEntity` outbound preparation, transactional outbound `Message` + `Attachment` consumption, provider-neutral media dispatch, Twilio outbound media delivery, an expiring provider-media capability, metadata GraphQL upload mutations, and the user-facing attachment composer. The composer provides a file picker, secure outbound upload UX, honest selection/upload/finalization states, retry and remove, local previews, capability-driven captions, and media send through opaque `outboundUploadIds`. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical.
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-21 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer and template picker, secure outbound media backend preparation, actor/workspace-scoped upload staging, deterministic and idempotent server-owned file identities, `FileStorage`/`FileEntity` outbound preparation, transactional outbound `Message` + `Attachment` consumption, provider-neutral media dispatch, Twilio outbound media delivery, an expiring provider-media capability, metadata GraphQL upload mutations, and the user-facing attachment composer. The composer provides a file picker, secure outbound upload UX, honest selection/upload/finalization states, retry and remove, local previews, capability-driven captions, and media send through opaque `outboundUploadIds`.
+
+The current backend also implements durable Conversation work state: personal Favorite, personal derived Unread, shared manual Pending, `ConversationMemberState`, a PostgreSQL-owned unread rollout baseline, authorized server-side `ALL | UNREAD | FAVORITES | PENDING` filtering, Favorite/Mark Read/Mark Unread/Pending mutations, and a durable shared-Pending event published as the provider-neutral `CONVERSATION_UPDATED` realtime hint. The dedicated visible inbox controls and views for this work state are not implemented yet. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical, and no local migration validation implies production execution.
 
 ## Purpose and Licensing Boundary
 
@@ -546,6 +548,7 @@ The following TypeORM entities and dedicated `core` tables are implemented:
 - `InconnectMessagingOutboxEventEntity` / `core.inconnectMessagingOutboxEvent`
 - `InconnectMessagingAttachmentEntity` / `core.inconnectMessagingAttachment`
 - `InconnectMessagingOutboundUploadEntity` / `core.inconnectMessagingOutboundUpload`
+- `InconnectMessagingConversationMemberStateEntity` / `core.inconnectMessagingConversationMemberState`
 
 These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies durable-inbox and transactional-outbox records, idempotency keys, leases, `DispatchAttempt` audit, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery, inbound media ingestion and recovery, outbound WhatsApp dispatch, realtime outbox publishing, and their BullMQ workers are implemented. BullMQ is at-least-once transport and must never become authority.
 
@@ -562,6 +565,53 @@ An Outbound Upload is actor/workspace-scoped staging with states `CREATING`, `PE
 The linked tuple is either fully null or fully present, and a composite FK requires its ObjectMetadata to match the configured workspace anchor. Runtime authority must not come from physical names, schema names, a hardcoded `lead`, an owner column, or a universal identifier. Dynamic table and owner details come from live metadata.
 
 `Message.providerConnectionId` is persisted because provider message identity is connection-scoped. Its composite FK `(conversationId, providerConnectionId, workspaceId)` to `Conversation` prevents the Message connection or workspace from diverging from its Conversation. Retry lineage is also connection/workspace constrained.
+
+### Implemented Conversation Work State
+
+`ConversationMemberState` is durable personal state with `id`, `workspaceId`, `conversationId`, `workspaceMemberId`, `favorite`, the tuple `lastReadMessageCreatedAt + lastReadMessageId`, `manualUnread`, `createdAt`, and `updatedAt`. Its logical identity is unique by workspace + Conversation + Workspace Member. Favorite and Unread are personal; they are never global Conversation fields. `Conversation.pendingAt` is shared Conversation state: null means not pending and non-null means pending.
+
+Pending is currently manual. It is not activated automatically by inbound activity, cleared automatically by a reply, or derived from unread, owner, Record Access, or Commercial Teams. `setInconnectMessagingConversationPending(conversationId, pending)` locks and updates the Conversation and, only for a real state transition, persists `CONVERSATION_PENDING_CHANGED` in the durable Outbox in the same transaction. Publication is requested after commit. A same-value mutation is a no-op, and changing Pending does not require `SEND_INCONNECT_MESSAGING`.
+
+`MessagingConfiguration.workStateTrackingBaselineAt` is a PostgreSQL/server-owned rollout timestamp. When a Workspace Member has no personal read cursor, it is the effective read baseline: historical inbound before the baseline is read by default, while inbound persisted after the baseline is unread. There is no Conversation × Workspace Member backfill, and listing Conversations never creates `ConversationMemberState` rows.
+
+Unread is derived, not a persisted simple boolean:
+
+    isUnread = manualUnread
+      OR EXISTS INBOUND Message newer than the effective arrival cursor/baseline
+
+Only `INBOUND` Messages participate. `OUTBOUND` Messages never create unread, PostgreSQL Message history remains authority, and new inbound processing does not fan out writes to a personal-state row for every possible recipient. This avoids NxM writes, stale authorization snapshots, and coupling inbound persistence to personal-state fanout.
+
+The normal new-inbound path is `persist inbound Message -> existing MESSAGE_CREATED hint -> authorized client refetch -> server compares the current member's arrival cursor/baseline -> isUnread may become true`. The realtime hint triggers a safe refetch; it is not personal-state authority.
+
+Message display chronology and personal unread arrival order are deliberately independent:
+
+- Message history/display uses `COALESCE(effectiveInboundAt, createdAt), id` to represent the effective/provider-facing chat chronology.
+- Read/unread uses the server-owned arrival tuple `Message.createdAt, Message.id` to represent when the Message reached and was persisted by this server.
+
+Never unify these orders. A delayed inbound may have `createdAt` after the current read cursor but an older `effectiveInboundAt`, so it may appear earlier in visual history while still becoming unread. For example, after reading through M10, a later-arriving M11 with `M11.createdAt > M10.createdAt` and `M11.effectiveInboundAt < M10.effectiveInboundAt` is unread; mark-all-read then advances to M11 by arrival order. This is intentional behavior.
+
+The durable personal cursor is `(lastReadMessageCreatedAt, lastReadMessageId)` and represents exactly `(Message.createdAt, Message.id)`. The UUID is only a deterministic tie-break when two Messages have equal `createdAt`; it carries no chronological meaning. Cursor advancement is monotonic, so a stale Mark Read cannot move it backward.
+
+PostgreSQL `timestamptz` preserves microseconds while JavaScript `Date` preserves only milliseconds. The read cursor must therefore never perform `SELECT Message.createdAt -> JavaScript Date -> persist timestamp`. Mark Read selects and persists the exact `Message.createdAt + Message.id` tuple directly inside PostgreSQL. JavaScript does not transport the cursor timestamp, preventing an already-read Message from remaining newer than its own truncated cursor.
+
+`markInconnectMessagingConversationRead(conversationId, throughMessageId?)` has two modes:
+
+- With `throughMessageId`, the Message must belong to the same workspace and Conversation and be `INBOUND`; PostgreSQL supplies its exact arrival tuple, and the cursor can only advance.
+- Without `throughMessageId`, it means “mark all currently existing inbound Messages as read”; PostgreSQL selects `ORDER BY Message.createdAt DESC, Message.id DESC LIMIT 1` and persists that tuple exactly. If no inbound exists, it clears `manualUnread` without fabricating a cursor.
+
+`markInconnectMessagingConversationUnread(conversationId)` sets `manualUnread = true` without rewinding either cursor component. Mark Read advances the cursor monotonically and clears `manualUnread`. Thus a manual-unread cursor at M10 remains unread through a later M11, and Mark Read through M11 produces cursor M11 with `manualUnread = false`, read unless a newer inbound exists.
+
+Favorite is exclusively personal. Without `ConversationMemberState`, `isFavorite` is false. `setInconnectMessagingConversationFavorite` operates only on the authenticated Workspace Member; clients never submit `workspaceMemberId`, there is no global Favorite or admin override, and APIs never expose who else favorited a Conversation.
+
+Favorite, Mark Read, Mark Unread, and Pending require an authenticated human Workspace Member, `INCONNECT_MESSAGING`, and current Conversation authorization. The existing `TRIAGE_INCONNECT_MESSAGING` contract applies to unassigned Conversations. These work-state operations do not require `SEND_INCONNECT_MESSAGING`; personal identity always comes from the auth context, and system context is not a human shortcut.
+
+Physically, `ConversationMemberState` has a Workspace FK and a composite Conversation + workspace FK. It intentionally has no physical FK to Workspace Member because Workspace Members live in dynamic per-workspace schemas. Workspace Member validity is a runtime-only invariant enforced through centralized authorization. A removed member may leave an orphan personal-state row; it cannot become another member's state, block the Conversation, or be read through another actor. Explicit orphan-state GC may be added later.
+
+Conversation queries resolve authorization, current-member state, search, and the `ALL | UNREAD | FAVORITES | PENDING` predicate in SQL before count, ordering, and pagination. Favorite and Unread always use only the authenticated Workspace Member; filters accept no member ID. Never fetch a page and post-filter work state in memory or the frontend. The physical model supports this with unique workspace + Conversation + member identity, a current-member Favorite lookup index, a Message unread index on workspace + Conversation + direction + createdAt + id, and the direct `Conversation.pendingAt` predicate; there is no per-Conversation N+1 personal-state query.
+
+The Fast Instance Command `2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state.ts` adds the `ConversationMemberState` table, `Conversation.pendingAt`, `MessagingConfiguration.workStateTrackingBaselineAt`, and their work-state indexes and constraints. Real disposable-PostgreSQL validation established PRE-9 compatibility, rollout-baseline behavior, no NxM state backfill, entity/schema parity, Favorite uniqueness, workspace/Conversation FK enforcement, the read-cursor tuple check, Pending state, successful real `up` and `down`, valid PRE-9 restoration, and no required Slow Command. This does not assert execution in production.
+
+Architecturally, `down` removes `ConversationMemberState`, Pending schema, the work-state baseline, and only the Fase 9 indexes, while Messages and Conversations remain. Loss of Favorite, Unread, and Pending state on downgrade is intentional. Persisted `CONVERSATION_PENDING_CHANGED` Outbox rows may remain valid because Outbox `eventType` has no physical allowlist constraint; no downgrade migration defect was found.
 
 ### Implemented Secure Outbound Upload Staging
 
@@ -761,9 +811,11 @@ A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `
 
 ### Implemented Read API
 
-The metadata GraphQL schema exposes `inconnectMessagingConversation(id)`, `inconnectMessagingConversations(search, paging)`, and `inconnectMessagingMessages(conversationId, paging)`. The authorized list provides edges, total count, search, and cursor pagination; Message history has deterministic newest-first cursor pagination. Responses use safe DTOs, never TypeORM entities or provider metadata.
+The metadata GraphQL schema exposes `inconnectMessagingConversation(id)`, `inconnectMessagingConversations(search, workState, paging)`, and `inconnectMessagingMessages(conversationId, paging)`. Conversation work-state filtering supports `ALL`, `UNREAD`, `FAVORITES`, and `PENDING`. The authorized list provides edges, total count, search, and cursor pagination; Message history has deterministic newest-first cursor pagination. Responses use safe DTOs, never TypeORM entities or provider metadata.
 
-`InconnectMessagingAuthorizationService` remains the authority. Linked Conversations require Twenty standard permission on the configured CRM anchor **and** INCONNECT Record Access. Unassigned Conversations require `INCONNECT_MESSAGING` **and** `TRIAGE_INCONNECT_MESSAGING`. Direct unauthorized Conversation lookup returns null/not found without existence disclosure, and Message access first authorizes its Conversation. Backend SQL applies authorization scope before search, count, ordering, and pagination; the frontend does not reconstruct record access.
+`InconnectMessagingAuthorizationService` remains the authority. Linked Conversations require Twenty standard permission on the configured CRM anchor **and** INCONNECT Record Access. Unassigned Conversations require `INCONNECT_MESSAGING` **and** `TRIAGE_INCONNECT_MESSAGING`. Direct unauthorized Conversation lookup returns null/not found without existence disclosure, and Message access first authorizes its Conversation. Backend SQL applies authorization, current-member state, search, and work-state predicates before count, ordering, and pagination; the frontend does not reconstruct record access or post-filter results.
+
+Conversation DTOs expose `isFavorite` and `isUnread` for the current actor and shared `isPending`. They never expose raw `ConversationMemberState`, `workspaceMemberId`, `manualUnread`, the read cursor, the tracking baseline, or favorited-by/read-by lists.
 
 Safe Message DTOs can include media descriptors containing an opaque Attachment ID, provider-neutral logical type, safe filename, MIME, size, ingestion/availability state, and an authorized same-origin access path. They never expose a Twilio media locator, storage key/path, credentials, or provider secret.
 
@@ -826,13 +878,19 @@ Realtime publishing follows:
 
 The outbox publisher, BullMQ job, immediate enqueue after successful commit, member-scoped fanout, and at-least-once retry are implemented. Enqueue, processing, or publishing failure leaves durable PostgreSQL authority for retry by the one-minute recovery cron. That cron is a recovery fallback, not the normal publication path. An event with zero authorized recipients can complete without inventing recipients.
 
-The dedicated metadata GraphQL subscription is `onInconnectMessagingEvent` on `INCONNECT_MESSAGING:{workspaceId}:{workspaceMemberId}`. Inbound, outbound, and media-readiness activity reuse the provider-neutral `MESSAGE_CREATED`, `MESSAGE_STATUS_CHANGED`, and `MESSAGE_UPDATED` hints with `eventId`, `eventType`, `conversationId`, optional `messageId`, and `occurredAt`; `MESSAGE_UPDATED` covers changes such as media ingestion completion or failure. There is no parallel outbound or file realtime channel. Hints contain no body, template details, address, location, file URL, bytes, MIME details, provider locator, CRM data, provider metadata, credentials, or raw webhook payload. The server enumerates candidate members and reauthorizes each recipient against current Conversation access before publishing; clients cannot choose workspace/member IDs and there is no system bypass. Revocation before publication prevents delivery.
+The dedicated metadata GraphQL subscription is `onInconnectMessagingEvent` on `INCONNECT_MESSAGING:{workspaceId}:{workspaceMemberId}`. Inbound, outbound, media-readiness, and shared Conversation activity use the provider-neutral `MESSAGE_CREATED`, `MESSAGE_STATUS_CHANGED`, `MESSAGE_UPDATED`, and `CONVERSATION_UPDATED` hints with `eventId`, `eventType`, `conversationId`, optional `messageId`, and `occurredAt`; `MESSAGE_UPDATED` covers changes such as media ingestion completion or failure.
+
+Shared Pending follows `Conversation.pendingAt transition -> CONVERSATION_PENDING_CHANGED OutboxEvent -> durable outbox -> current authorized recipients -> member-scoped Redis channel -> CONVERSATION_UPDATED -> authorized refetch`. Its hint identifies the event and Conversation, with `messageId` null or absent. It never contains Workspace Member identity, Favorite, `manualUnread`, or a read cursor. There is no workspace-wide publication or parallel outbound/file realtime channel. Hints contain no body, template details, address, location, file URL, bytes, MIME details, provider locator, CRM data, provider metadata, credentials, or raw webhook payload. The server enumerates candidate members and reauthorizes each recipient against current Conversation access before publishing; clients cannot choose workspace/member IDs and there is no system bypass. Revocation before publication prevents delivery.
 
 PostgreSQL and the authorized Read API remain authority. Redis realtime is not a data store; duplicate hints are harmless, and reconnect triggers authorized API refetch rather than client-side historical replay. Never use generic object SSE or a workspace-wide stream as a Messaging authorization shortcut.
+
+Immediate cross-tab/device synchronization for personal Favorite and direct read/unread mutations is not implemented. This is distinct from a new inbound `MESSAGE_CREATED` hint causing an authorized refetch whose server-derived result may become unread. Never invent a shared personal-state broadcast.
 
 ### Implemented Native Messaging Frontend
 
 Twenty has a native Messaging navigation entry and route. Navigation visibility uses `INCONNECT_MESSAGING`, while backend authorization still decides which Conversations and Messages are returned. The inbox has a Conversation list, backend-authorized search, cursor pagination, selection, and Message history with older-message loading. It renders inbound and outbound bubbles, text, structured locations, authorized lazy image previews, visual stickers, authorized audio and supported video playback, document filename/type/size with authorized open/download, and safe vCard/contact presentation with download. `PENDING` media shows processing state; `FAILED`, `EXPIRED`, unavailable, and legacy media without an Attachment show a safe unavailable state. It also renders persisted outbound states and durable template audit details, handles desktop and narrow screens, loading/empty/error states, and lost access by clearing previously visible Conversation content. `MESSAGE_UPDATED` and other realtime hints, plus reconnect, cause localized authorized refetches.
+
+The Conversation work-state backend and DTO fields exist, but the dedicated All/Unread/Favorites/Pending views, Favorite control, unread treatment, Mark Read/Mark Unread actions, and Pending control/badge are not yet visible in the inbox.
 
 The functional composer supports text free-form sends, a Send button, server-driven 24-hour-window UX, a template picker, dynamic variable inputs, a safe template preview, an attachment button, and a hidden accessible file picker. It supports one current attachment under the resolved provider capability, with `SELECTED`, `UPLOADING`, `FINALIZING`, `READY`, and `FAILED` lifecycle states, Retry, Remove/cancel, and explicit replacement by removing and selecting a new file. Uploading is an honest indeterminate state; no real percentage progress is claimed. Drag/drop and clipboard image paste are not implemented.
 
@@ -870,20 +928,39 @@ The UI never controls Content SID, sender, Provider Connection, credentials, out
 Relevant queries are:
 
 - `inconnectMessagingConversation`
-- `inconnectMessagingConversations`
+- `inconnectMessagingConversations` with `ALL | UNREAD | FAVORITES | PENDING` work-state filtering
 - `inconnectMessagingMessages`
 - `inconnectMessagingTemplates`
 - `inconnectMessagingSendCapabilities`
+
+Conversation read/list DTOs expose `isFavorite`, `isUnread`, and `isPending`. The first two are personal to the current actor; Pending is shared.
 
 Mutations are:
 
 - `createInconnectMessagingOutboundUpload`
 - `completeInconnectMessagingOutboundUpload`
 - `sendInconnectMessagingMessage`
+- `setInconnectMessagingConversationFavorite`
+- `markInconnectMessagingConversationRead`
+- `markInconnectMessagingConversationUnread`
+- `setInconnectMessagingConversationPending`
 
-`sendInconnectMessagingMessage` accepts opaque `outboundUploadIds`. Public GraphQL does not expose or accept `FileEntity` IDs, storage paths, provider URLs/tokens, sender, Provider Connection, or authoritative MIME. The subscription remains `onInconnectMessagingEvent`. Metadata GraphQL codegen was regenerated and validated successfully, and the frontend continues to consume generated metadata types rather than a parallel handwritten contract.
+`sendInconnectMessagingMessage` accepts opaque `outboundUploadIds`. Public GraphQL does not expose or accept `FileEntity` IDs, storage paths, provider URLs/tokens, sender, Provider Connection, authoritative MIME, raw personal-state rows, member IDs for work-state operations, `manualUnread`, read cursors, or the tracking baseline. The subscription remains `onInconnectMessagingEvent`. Metadata GraphQL codegen, including Fase 9A work-state operations and DTO fields, was regenerated and validated successfully, and the frontend continues to consume generated metadata types rather than a parallel handwritten contract.
 
 Send capabilities expose the safe provider-neutral media fields `canSendMedia`, `maxMediaItems`, `mediaTypes`, `mimeTypes`, `maxBytes`, and `captionSupported`. The final capabilities/catalog separation introduced no new GraphQL contract; 8B2 metadata codegen was regenerated successfully.
+
+### Messaging Instance Command Registration
+
+The required Messaging upgrade chain is registered and discoverable by the normal upgrade runner, not merely present in the filesystem. Registered Fast commands are:
+
+- Transport Spine — `1788982508902`
+- Webhook Projection — `1789040000000`
+- Template Intent — `1789473600000`
+- Inbound Attachments — `1789682400000`
+- Outbound Uploads — `1789768800000`
+- Conversation Work State — `1790006024000`
+
+The registered Slow command is Webhook Backfill — `1789040000001`. The real upgrade mechanism groups and orders all Fast commands in the Fast sequence, then all Slow commands in the Slow sequence, then workspace commands; Slow is not interleaved globally with Fast by timestamp. The missing registrations previously identified for Webhook Projection Fast, Webhook Backfill Slow, and Outbound Upload Fast were corrected before this checkpoint. Permanent rule: every new Messaging Instance Command must be registered so that the normal upgrade runner can discover it.
 
 ### Validation Checkpoint
 
@@ -895,15 +972,19 @@ The inbound-attachment Fast Instance Command was exercised against real disposab
 
 The outbound-staging Fast Instance Command is `2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads.ts`. Its real `up` was executed against disposable PostgreSQL and accepted PRE-outbound-staging data. Validation confirmed physical parity with `InconnectMessagingOutboundUploadEntity`, actor-scoped uniqueness, workspace-isolated File and consumed-Message references, and no need for a Slow Command. Its real `down` succeeded with `CREATING`, `PENDING`, `AVAILABLE`, and `CONSUMED` rows: the staging table was removed while Message, Attachment, and File rows remained. The disposable database was removed. This does not assert that the command ran in production.
 
+Conversation work-state validation established a green full Messaging backend regression plus server typecheck, typed lint, format, diff checks, and successful metadata GraphQL codegen. The real Fase 9A Fast Command completed `up` and `down` against disposable PostgreSQL, restored a valid PRE-9 schema, and physically verified the historical baseline, new inbound unread without MemberState fanout, outbound-not-unread behavior, Favorite member isolation, shared Pending + Outbox, SQL `ALL | UNREAD | FAVORITES | PENDING` filtering, monotonic cursor advancement, and deterministic UUID tie-breaking for equal `createdAt`. The disposable database was removed; this does not assert execution in production.
+
+The PostgreSQL microsecond regression used a Message `createdAt` ending in `.123456`, which JavaScript `Date` cannot represent exactly. After the real Mark Read path, the persisted cursor equaled the exact PostgreSQL Message timestamp and `isUnread` was false, confirming the permanent direct-SQL propagation invariant. Physical delayed-inbound validation also proved that an M11 arriving after M10 becomes unread even when its effective/provider timestamp places it earlier in visual history; mark-all-read then clears it using the latest arrival cursor. The Messaging Instance Command chain was audited against actual provider discovery and upgrade-runner sequencing.
+
 ### Planned Boundaries
 
-Personal/shared state is approved but **NOT IMPLEMENTED**: Favorite and Unread are personal per Workspace Member; Pending is shared Conversation state. `ConversationMemberState` does not exist yet.
+The Conversation work-state backend **IS IMPLEMENTED**: durable `ConversationMemberState`, personal Favorite, personal derived Unread, shared manual Pending, rollout baseline, authorized SQL work-state filters, GraphQL work-state mutations, and the shared Pending `CONVERSATION_UPDATED` realtime hint.
 
 The outbound media backend **IS IMPLEMENTED**: secure actor/workspace-scoped staging, upload completion and validation, deterministic `FileStorage`/`FileEntity` preparation, transactional outbound Message + Attachment consumption, Twilio free-form media dispatch, and provider-media capability delivery.
 
 The user-facing outbound attachment composer **IS IMPLEMENTED**: attachment button, accessible file picker, indeterminate upload/finalization state UX, Retry, Remove, local previews, and send-media UX for one capability-supported attachment. Replacement is explicit Remove plus a new selection; there is no separate multi-file replacement workflow.
 
-Still **NOT IMPLEMENTED**: drag/drop, clipboard image paste, microphone/voice recording, outbound `LOCATION`, rich/media templates, multi-attachment composer UX, reactions, Favorite, Unread, operational Pending, `ConversationMemberState`, a CRM Lead context panel, Lead matching, auto-link, automatic Lead creation, CRM owner changes from Messaging, historical media backfill, automatic `FileEntity`/FileStorage garbage collection or reconciliation, a dedicated provider-media TTL, template administration/editor, or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates. No next product phase is selected by this handoff.
+Still **NOT IMPLEMENTED**: visible inbox tabs/views for All, Unread, Favorites, and Pending; a Favorite star; unread dot/bold treatment; visible Mark Read/Mark Unread actions; a visible Pending action/badge; immediate cross-device realtime for personal Favorite/read mutations; automatic Pending business rules; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; a CRM Lead context panel; Lead matching/linking; auto-link; automatic Lead creation; CRM owner changes from Messaging; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates. The next intended boundary is frontend Conversation work-state UX using the existing backend; its detailed design is not part of this checkpoint.
 
 ### Local Development Runtime
 
@@ -1030,6 +1111,13 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Human operations must go through `InconnectMessagingAuthorizationService`; do not add resolver/controller/repository shortcuts.
 - Consume Record Access only through `InconnectRecordAccessAuthorizationService`; Messaging must not consume raw policies, cache payloads, Team maps, owner parsing, source-mode internals, or generation fencing.
 - Preserve fail-closed behavior and enforce list/count/search/pagination scope in backend SQL, never in memory or the frontend.
+- Favorite and Unread are personal to the authenticated Workspace Member; Pending is shared Conversation state. Never accept a client-selected Workspace Member for Favorite/read state or expose another member's personal state.
+- Unread uses server arrival order `(Message.createdAt, Message.id)` while display chronology independently uses effective/provider time. Never unify those orders, and never round-trip a read-cursor `timestamptz` through JavaScript `Date`.
+- Read cursor advancement is monotonic. Manual Unread sets `manualUnread` without rewinding the cursor, and Mark Read clears it while advancing only to an equal-or-newer arrival tuple.
+- Historical inbound before `workStateTrackingBaselineAt` is read by default. New inbound derives unread from PostgreSQL without fanout-writing MemberState rows; outbound Messages never create unread.
+- Work-state predicates must execute with authorization and current-member identity in SQL before count, ordering, and pagination; never post-filter them in memory or the frontend.
+- Shared Pending realtime may publish only the shared Conversation hint and must never include Workspace Member identity, Favorite, manual-unread, or cursor data.
+- Every Messaging Instance Command must be registered and discoverable by the normal upgrade runner; a command existing only in the filesystem is not part of the upgrade chain.
 - Never hardcode Lead, schema, physical table, owner field, workspace, ObjectMetadata, Role, or Workspace Member identifiers.
 - Keep the domain provider-neutral and do not couple it to Twilio.
 - PostgreSQL is operational authority. BullMQ may provide at-least-once transport but is never authority.
