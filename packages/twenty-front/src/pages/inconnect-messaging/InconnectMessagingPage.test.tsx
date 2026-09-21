@@ -1,6 +1,6 @@
 import { i18n } from '@lingui/core';
 import { I18nProvider } from '@lingui/react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { SOURCE_LOCALE } from 'twenty-shared/translations';
 
 import { InconnectMessagingPage } from '~/pages/inconnect-messaging/InconnectMessagingPage';
@@ -66,6 +66,9 @@ const conversation = {
   id: 'conversation-1',
   externalAddress: '+15550001111',
   isLinked: false,
+  isFavorite: false,
+  isUnread: false,
+  isPending: false,
   lastInboundAt: '2026-09-14T12:00:00.000Z',
   createdAt: '2026-09-14T12:00:00.000Z',
 };
@@ -127,11 +130,15 @@ describe('InconnectMessagingPage', () => {
     expect(mockUseQuery).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.objectContaining({
-        variables: { search: 'Alex', paging: { first: 30 } },
+        variables: {
+          search: 'Alex',
+          workState: 'ALL',
+          paging: { first: 30 },
+        },
       }),
     );
     expect(
-      screen.getByText('No conversations match your search.'),
+      screen.getByText('No conversations match your search in this view.'),
     ).toBeInTheDocument();
   });
 
@@ -145,7 +152,11 @@ describe('InconnectMessagingPage', () => {
     });
     expect(mockFetchMore).toHaveBeenCalledWith(
       expect.objectContaining({
-        variables: { search: null, paging: { first: 30, after: 'cursor-1' } },
+        variables: {
+          search: null,
+          workState: 'ALL',
+          paging: { first: 30, after: 'cursor-1' },
+        },
       }),
     );
   });
@@ -219,6 +230,48 @@ describe('InconnectMessagingPage', () => {
     jest.useRealTimers();
   });
 
+  it('refetches the list and selected Conversation for a shared update hint', () => {
+    jest.useFakeTimers();
+    let next:
+      | ((result: {
+          data: {
+            onInconnectMessagingEvent: {
+              eventId: string;
+              eventType: string;
+              conversationId: string;
+            };
+          };
+        }) => void)
+      | undefined;
+    mockSseClient = {
+      subscribe: jest.fn((_query, handlers) => {
+        next = handlers.next;
+        return jest.fn();
+      }),
+    };
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+
+    act(() => {
+      next?.({
+        data: {
+          onInconnectMessagingEvent: {
+            eventId: 'shared-update',
+            eventType: 'CONVERSATION_UPDATED',
+            conversationId: 'conversation-1',
+          },
+        },
+      });
+      jest.advanceTimersByTime(150);
+    });
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText('Selected conversation-1 refresh 1'),
+    ).toBeInTheDocument();
+    jest.useRealTimers();
+  });
+
   it.each(['MESSAGE_STATUS_CHANGED', 'MESSAGE_UPDATED'])(
     'refreshes only the selected conversation for a %s hint',
     (eventType) => {
@@ -262,14 +315,213 @@ describe('InconnectMessagingPage', () => {
     },
   );
 
-  it('refetches on reconnect', () => {
+  it('refetches on reconnect without replacing the active search or filter', () => {
     jest.useFakeTimers();
     renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Pending' }));
+    fireEvent.change(screen.getByRole('searchbox'), {
+      target: { value: 'alice' },
+    });
     act(() => {
       window.dispatchEvent(new Event('sse-client-reconnected'));
       jest.advanceTimersByTime(150);
     });
-    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).toHaveBeenCalledWith();
+    expect(mockUseQuery).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variables: {
+          search: 'alice',
+          workState: 'PENDING',
+          paging: { first: 30 },
+        },
+      }),
+    );
     jest.useRealTimers();
   });
+
+  it('defaults to ALL and sends each selected work-state filter to GraphQL', () => {
+    renderPage();
+
+    expect(mockUseQuery).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variables: {
+          search: null,
+          workState: 'ALL',
+          paging: { first: 30 },
+        },
+      }),
+    );
+
+    for (const [label, workState] of [
+      ['Unread', 'UNREAD'],
+      ['Favorites', 'FAVORITES'],
+      ['Pending', 'PENDING'],
+      ['All', 'ALL'],
+    ]) {
+      fireEvent.click(screen.getByRole('tab', { name: label }));
+      expect(mockUseQuery).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          variables: {
+            search: null,
+            workState,
+            paging: { first: 30 },
+          },
+        }),
+      );
+    }
+  });
+
+  it('composes search with the active filter and resets pagination', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Unread' }));
+    fireEvent.change(screen.getByRole('searchbox'), {
+      target: { value: 'Maria' },
+    });
+
+    expect(mockUseQuery).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variables: {
+          search: 'Maria',
+          workState: 'UNREAD',
+          paging: { first: 30 },
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Favorites' }));
+    expect(mockUseQuery).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variables: {
+          search: 'Maria',
+          workState: 'FAVORITES',
+          paging: { first: 30 },
+        },
+      }),
+    );
+  });
+
+  it.each([
+    ['Unread', 'No unread conversations.'],
+    ['Favorites', 'No favorite conversations.'],
+    ['Pending', 'No pending conversations.'],
+  ])('shows the %s-specific empty state', (filter, emptyState) => {
+    setConversations([]);
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: filter }));
+    expect(screen.getByText(emptyState)).toBeInTheDocument();
+  });
+
+  it('renders server-returned rows without client-side work-state filtering', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Unread' }));
+    expect(screen.getByText('+15550001111')).toBeInTheDocument();
+  });
+
+  it('renders unread, favorite, and pending row indicators together', () => {
+    setConversations([
+      {
+        cursor: 'cursor-1',
+        node: {
+          ...conversation,
+          isUnread: true,
+          isFavorite: true,
+          isPending: true,
+        },
+      },
+    ]);
+    renderPage();
+    const row = screen.getByRole('button', { name: /\+15550001111/ });
+
+    expect(within(row).getByLabelText('Unread')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Favorite')).toBeInTheDocument();
+    expect(within(row).getByText('Pending')).toBeInTheDocument();
+  });
+
+  it('does not render unread, favorite, or pending indicators for a read row', () => {
+    renderPage();
+    const row = screen.getByRole('button', { name: /\+15550001111/ });
+
+    expect(within(row).queryByLabelText('Unread')).not.toBeInTheDocument();
+    expect(within(row).queryByLabelText('Favorite')).not.toBeInTheDocument();
+    expect(within(row).queryByText('Pending')).not.toBeInTheDocument();
+  });
+
+  it.each(['Unread', 'Favorites', 'Pending'])(
+    'preserves the selected detail when its row leaves the %s list',
+    (filterLabel) => {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+      setConversations([]);
+      fireEvent.click(screen.getByRole('tab', { name: filterLabel }));
+
+      expect(
+        screen.getByText('Selected conversation-1 refresh 0'),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('+15550001111')).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    ['Unread', 'UNREAD', 'MESSAGE_CREATED'],
+    ['Pending', 'PENDING', 'CONVERSATION_UPDATED'],
+  ])(
+    'refetches the current searched %s list for a %s hint even when its row is absent',
+    (filterLabel, workState, eventType) => {
+      jest.useFakeTimers();
+      let next:
+        | ((result: {
+            data: {
+              onInconnectMessagingEvent: {
+                eventId: string;
+                eventType: string;
+                conversationId: string;
+              };
+            };
+          }) => void)
+        | undefined;
+      mockSseClient = {
+        subscribe: jest.fn((_query, handlers) => {
+          next = handlers.next;
+          return jest.fn();
+        }),
+      };
+      setConversations([]);
+      renderPage();
+      fireEvent.click(screen.getByRole('tab', { name: filterLabel }));
+      fireEvent.change(screen.getByRole('searchbox'), {
+        target: { value: 'alice' },
+      });
+
+      act(() => {
+        next?.({
+          data: {
+            onInconnectMessagingEvent: {
+              eventId: 'membership-event',
+              eventType,
+              conversationId: 'conversation-not-in-page',
+            },
+          },
+        });
+        jest.advanceTimersByTime(150);
+      });
+
+      expect(mockRefetch).toHaveBeenCalledWith();
+      expect(mockUseQuery).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          variables: {
+            search: 'alice',
+            workState,
+            paging: { first: 30 },
+          },
+        }),
+      );
+      jest.useRealTimers();
+    },
+  );
 });

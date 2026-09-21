@@ -19,6 +19,7 @@ export type InconnectMessagingMessageCursorPage = {
     sortAt: Date;
   }>;
   hasNextPage: boolean;
+  readThroughMessageId: string | null;
   totalCount: number;
 };
 
@@ -26,6 +27,15 @@ export type InconnectMessagingMessageCursorPage = {
 // read state independently follows server arrival (Message.createdAt + id).
 const MESSAGE_DISPLAY_AT_SQL =
   'COALESCE(message.effectiveInboundAt, message.createdAt)';
+const MESSAGE_READ_THROUGH_TARGET_SQL = `(
+  SELECT "readTarget"."id"
+  FROM "core"."inconnectMessagingMessage" "readTarget"
+  WHERE "readTarget"."workspaceId" = message."workspaceId"
+    AND "readTarget"."conversationId" = message."conversationId"
+    AND "readTarget"."direction" = 'INBOUND'
+  ORDER BY "readTarget"."createdAt" DESC, "readTarget"."id" DESC
+  LIMIT 1
+)`;
 
 @Injectable()
 export class InconnectMessagingMessageQueryService {
@@ -93,6 +103,7 @@ export class InconnectMessagingMessageQueryService {
     const rows = await queryBuilder
       .addSelect(MESSAGE_DISPLAY_AT_SQL, 'messageDisplayAt')
       .addSelect('message.id', 'messageCursorId')
+      .addSelect(MESSAGE_READ_THROUGH_TARGET_SQL, 'messageReadThroughTargetId')
       .orderBy(MESSAGE_DISPLAY_AT_SQL, 'DESC')
       .addOrderBy('message.id', 'DESC')
       .addOrderBy('attachment.ordinal', 'ASC')
@@ -108,6 +119,12 @@ export class InconnectMessagingMessageQueryService {
         row.messageDisplayAt,
       ]),
     );
+    const readThroughTargetId = rows.raw[0]?.messageReadThroughTargetId;
+    const readThroughMessageId =
+      typeof readThroughTargetId === 'string' &&
+      entities.some(({ id }) => id === readThroughTargetId)
+        ? readThroughTargetId
+        : null;
 
     return {
       edges: entities.map((node) => {
@@ -127,6 +144,7 @@ export class InconnectMessagingMessageQueryService {
         };
       }),
       hasNextPage,
+      readThroughMessageId,
       totalCount,
     };
   }

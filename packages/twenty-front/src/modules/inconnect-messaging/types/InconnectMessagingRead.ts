@@ -1,5 +1,6 @@
 import type {
   InconnectMessagingConversationQuery,
+  InconnectMessagingConversationsQuery,
   InconnectMessagingMessagesQuery,
   InconnectMessagingTemplatesQuery,
 } from '~/generated-metadata/graphql';
@@ -7,6 +8,10 @@ import type {
 export type InconnectMessagingConversation = NonNullable<
   InconnectMessagingConversationQuery['inconnectMessagingConversation']
 >;
+
+export type InconnectMessagingConversationListItem = NonNullable<
+  InconnectMessagingConversationsQuery['inconnectMessagingConversations']
+>['edges'][number]['node'];
 
 export type InconnectMessagingMessage = NonNullable<
   InconnectMessagingMessagesQuery['inconnectMessagingMessages']

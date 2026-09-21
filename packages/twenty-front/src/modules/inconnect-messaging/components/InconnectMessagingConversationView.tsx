@@ -1,11 +1,20 @@
 import { useLingui } from '@lingui/react/macro';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@apollo/client/react';
-import { IconArrowLeft } from 'twenty-ui/icon';
+import { Pill } from 'twenty-ui/data-display';
+import {
+  IconArrowLeft,
+  IconClock,
+  IconEye,
+  IconEyeOff,
+  IconStar,
+} from 'twenty-ui/icon';
+import { IconButton } from 'twenty-ui/input';
 
 import { InconnectMessagingMessageBubble } from '@/inconnect-messaging/components/InconnectMessagingMessageBubble';
 import { InconnectMessagingComposer } from '@/inconnect-messaging/components/InconnectMessagingComposer';
-import { mergeInconnectMessagingEdges } from '@/inconnect-messaging/utils/mergeInconnectMessagingEdges';
+import { useInconnectMessagingConversationWorkState } from '@/inconnect-messaging/hooks/useInconnectMessagingConversationWorkState';
+import { mergeInconnectMessagingMessageConnections } from '@/inconnect-messaging/utils/mergeInconnectMessagingEdges';
 import {
   InconnectMessagingConversationDocument,
   InconnectMessagingMessagesDocument,
@@ -15,12 +24,15 @@ import {
   StyledView,
   StyledHeader,
   StyledHeading,
+  StyledHeadingMetadata,
+  StyledHeaderActions,
   StyledSubtle,
   StyledScroll,
   StyledCenter,
   StyledDate,
   StyledFooter,
   StyledButton,
+  StyledWorkStateError,
 } from '@/inconnect-messaging/components/InconnectMessagingConversationView.styles';
 
 const PAGE_SIZE = 30;
@@ -33,6 +45,7 @@ type InconnectMessagingConversationViewProps = {
   showBack: boolean;
   realtimeUnavailable: boolean;
   onMessageAccepted: () => void;
+  onWorkStateChanged: () => void;
 };
 
 export const InconnectMessagingConversationView = ({
@@ -43,6 +56,7 @@ export const InconnectMessagingConversationView = ({
   showBack,
   realtimeUnavailable,
   onMessageAccepted,
+  onWorkStateChanged,
 }: InconnectMessagingConversationViewProps) => {
   const { t, i18n } = useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -99,6 +113,18 @@ export const InconnectMessagingConversationView = ({
 
   const connection = messageData?.inconnectMessagingMessages;
   const messages = connection?.edges.map(({ node }) => node).reverse() ?? [];
+  const conversation = conversationData?.inconnectMessagingConversation;
+  const workState = useInconnectMessagingConversationWorkState({
+    conversationId,
+    isFavorite: conversation?.isFavorite ?? false,
+    isPending: conversation?.isPending ?? false,
+    isUnread: conversation?.isUnread ?? false,
+    messagesReady: !messagesLoading && connection !== undefined,
+    readThroughMessageId: connection?.readThroughMessageId ?? null,
+    refetchConversation,
+    onUnavailable,
+    onWorkStateChanged,
+  });
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -149,7 +175,7 @@ export const InconnectMessagingConversationView = ({
           inconnectMessagingMessages:
             previous.inconnectMessagingMessages &&
             fetchMoreResult?.inconnectMessagingMessages
-              ? mergeInconnectMessagingEdges(
+              ? mergeInconnectMessagingMessageConnections(
                   previous.inconnectMessagingMessages,
                   fetchMoreResult.inconnectMessagingMessages,
                 )
@@ -173,7 +199,6 @@ export const InconnectMessagingConversationView = ({
     }
   };
 
-  const conversation = conversationData?.inconnectMessagingConversation;
   const isUnavailable =
     Boolean(conversationError) ||
     Boolean(messagesError) ||
@@ -195,12 +220,61 @@ export const InconnectMessagingConversationView = ({
         {conversation && (
           <StyledHeading>
             <strong>{conversation.externalAddress}</strong>
-            <StyledSubtle>
-              {conversation.isLinked ? t`Linked conversation` : t`Unassigned`}
-            </StyledSubtle>
+            <StyledHeadingMetadata>
+              <StyledSubtle>
+                {conversation.isLinked ? t`Linked conversation` : t`Unassigned`}
+              </StyledSubtle>
+              {conversation.isPending && (
+                <Pill label={t`Pending`} Icon={IconClock} />
+              )}
+            </StyledHeadingMetadata>
           </StyledHeading>
         )}
+        {conversation && (
+          <StyledHeaderActions
+            aria-label={t`Conversation actions`}
+            aria-busy={workState.isMutationPending || workState.isReadPending}
+          >
+            <IconButton
+              Icon={IconStar}
+              accent={conversation.isFavorite ? 'blue' : 'default'}
+              ariaLabel={
+                conversation.isFavorite
+                  ? t`Remove from favorites`
+                  : t`Add to favorites`
+              }
+              disabled={workState.isMutationPending}
+              onClick={workState.toggleFavorite}
+            />
+            <IconButton
+              Icon={IconClock}
+              accent={conversation.isPending ? 'blue' : 'default'}
+              ariaLabel={
+                conversation.isPending ? t`Clear pending` : t`Mark pending`
+              }
+              disabled={workState.isMutationPending}
+              onClick={workState.togglePending}
+            />
+            <IconButton
+              Icon={conversation.isUnread ? IconEye : IconEyeOff}
+              ariaLabel={
+                conversation.isUnread ? t`Mark as read` : t`Mark as unread`
+              }
+              disabled={workState.isReadPending}
+              onClick={
+                conversation.isUnread
+                  ? workState.markConversationRead
+                  : workState.markConversationUnread
+              }
+            />
+          </StyledHeaderActions>
+        )}
       </StyledHeader>
+      {workState.errorMessage && (
+        <StyledWorkStateError role="alert">
+          {workState.errorMessage}
+        </StyledWorkStateError>
+      )}
       {isUnavailable ? (
         <StyledCenter role="alert">{t`Conversation is unavailable or you no longer have access.`}</StyledCenter>
       ) : conversationLoading || (messagesLoading && !connection) ? (

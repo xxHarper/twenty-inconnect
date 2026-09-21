@@ -17,6 +17,13 @@ const message = {
   createdAt: displayAt,
 };
 
+const delayedInboundMessage = {
+  ...message,
+  id: '30303030-4444-4444-8444-444444444444',
+  createdAt: new Date('2026-09-11T11:00:00.000Z'),
+  effectiveInboundAt: new Date('2026-09-10T09:00:00.000Z'),
+};
+
 class MessageQueryBuilder {
   operations: string[] = [];
 
@@ -40,7 +47,9 @@ class MessageQueryBuilder {
     return { getCount: jest.fn().mockResolvedValue(1) };
   }
 
-  addSelect() {
+  addSelect(sql: string) {
+    this.operations.push(sql);
+
     return this;
   }
 
@@ -63,7 +72,13 @@ class MessageQueryBuilder {
   getRawAndEntities() {
     return Promise.resolve({
       entities: [message],
-      raw: [{ messageCursorId: message.id, messageDisplayAt: displayAt }],
+      raw: [
+        {
+          messageCursorId: message.id,
+          messageDisplayAt: displayAt,
+          messageReadThroughTargetId: message.id,
+        },
+      ],
     });
   }
 }
@@ -112,6 +127,7 @@ describe('InconnectMessagingMessageQueryService', () => {
     expect(queryBuilder.operations[0]).toContain('workspaceId');
     expect(queryBuilder.operations[1]).toContain('conversationId');
     expect(result?.totalCount).toBe(1);
+    expect(result?.readThroughMessageId).toBe(message.id);
   });
 
   it('keeps provider/effective display chronology independent from arrival-based unread', async () => {
@@ -143,5 +159,130 @@ describe('InconnectMessagingMessageQueryService', () => {
       'COALESCE(message.effectiveInboundAt, message.createdAt)',
     );
     expect(queryBuilder.operations).toContain('message.id');
+  });
+
+  it('does not expose the arrival target until that inbound Message is in the authorized page', async () => {
+    const queryBuilder = new MessageQueryBuilder();
+
+    queryBuilder.getRawAndEntities = () =>
+      Promise.resolve({
+        entities: [message],
+        raw: [
+          {
+            messageCursorId: message.id,
+            messageDisplayAt: displayAt,
+            messageReadThroughTargetId: delayedInboundMessage.id,
+          },
+        ],
+      });
+
+    const service = new InconnectMessagingMessageQueryService(
+      { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) } as never,
+      {
+        findAuthorizedConversation: jest
+          .fn()
+          .mockResolvedValue({ id: conversationId }),
+      } as never,
+    );
+
+    await expect(
+      service.getAuthorizedMessagePage({
+        authContext,
+        conversationId,
+        first: 20,
+      }),
+    ).resolves.toMatchObject({ readThroughMessageId: null });
+
+    expect(queryBuilder.operations.join(' ')).not.toContain(
+      'effectiveInboundAt DESC',
+    );
+    expect(queryBuilder.operations.join(' ')).toContain(
+      '"readTarget"."createdAt" DESC',
+    );
+    expect(queryBuilder.operations.join(' ')).toContain(
+      '"readTarget"."id" DESC',
+    );
+    expect(queryBuilder.operations.join(' ')).toContain(
+      '"readTarget"."direction" = \'INBOUND\'',
+    );
+  });
+
+  it('does not expose an arrival target that is only the pagination lookahead row', async () => {
+    const queryBuilder = new MessageQueryBuilder();
+
+    queryBuilder.getRawAndEntities = () =>
+      Promise.resolve({
+        entities: [message, delayedInboundMessage],
+        raw: [
+          {
+            messageCursorId: message.id,
+            messageDisplayAt: displayAt,
+            messageReadThroughTargetId: delayedInboundMessage.id,
+          },
+          {
+            messageCursorId: delayedInboundMessage.id,
+            messageDisplayAt: delayedInboundMessage.effectiveInboundAt,
+            messageReadThroughTargetId: delayedInboundMessage.id,
+          },
+        ],
+      });
+
+    const service = new InconnectMessagingMessageQueryService(
+      { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) } as never,
+      {
+        findAuthorizedConversation: jest
+          .fn()
+          .mockResolvedValue({ id: conversationId }),
+      } as never,
+    );
+
+    const result = await service.getAuthorizedMessagePage({
+      authContext,
+      conversationId,
+      first: 1,
+    });
+
+    expect(result?.edges.map(({ node }) => node.id)).toEqual([message.id]);
+    expect(result?.readThroughMessageId).toBeNull();
+  });
+
+  it('uses the server arrival target when a delayed inbound is present in the page', async () => {
+    const queryBuilder = new MessageQueryBuilder();
+
+    queryBuilder.getRawAndEntities = () =>
+      Promise.resolve({
+        entities: [message, delayedInboundMessage],
+        raw: [
+          {
+            messageCursorId: message.id,
+            messageDisplayAt: displayAt,
+            messageReadThroughTargetId: delayedInboundMessage.id,
+          },
+          {
+            messageCursorId: delayedInboundMessage.id,
+            messageDisplayAt: delayedInboundMessage.effectiveInboundAt,
+            messageReadThroughTargetId: delayedInboundMessage.id,
+          },
+        ],
+      });
+
+    const service = new InconnectMessagingMessageQueryService(
+      { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) } as never,
+      {
+        findAuthorizedConversation: jest
+          .fn()
+          .mockResolvedValue({ id: conversationId }),
+      } as never,
+    );
+
+    await expect(
+      service.getAuthorizedMessagePage({
+        authContext,
+        conversationId,
+        first: 20,
+      }),
+    ).resolves.toMatchObject({
+      readThroughMessageId: delayedInboundMessage.id,
+    });
   });
 });

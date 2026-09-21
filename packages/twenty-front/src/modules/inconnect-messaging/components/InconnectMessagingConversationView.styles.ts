@@ -21,11 +21,32 @@ export const StyledHeader = styled.header`
 
 export const StyledHeading = styled.div`
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`;
+
+export const StyledHeadingMetadata = styled.div`
+  align-items: center;
+  display: flex;
+  gap: ${themeCssVariables.spacing[2]};
+`;
+
+export const StyledHeaderActions = styled.div`
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: ${themeCssVariables.spacing[1]};
+`;
+
+export const StyledWorkStateError = styled.div`
+  background: ${themeCssVariables.background.transparent.danger};
+  color: ${themeCssVariables.font.color.danger};
+  font-size: ${themeCssVariables.font.size.sm};
+  padding: ${themeCssVariables.spacing[2]} ${themeCssVariables.spacing[4]};
 `;
 
 export const StyledSubtle = styled.span`

@@ -84,6 +84,7 @@ const buildService = ({ authorized = true } = {}) => {
               },
             ],
             hasNextPage: false,
+            readThroughMessageId: message.id,
             totalCount: 1,
           }
         : null,
@@ -166,6 +167,7 @@ describe('InconnectMessagingReadService', () => {
       },
       template: null,
     });
+    expect(result?.readThroughMessageId).toBe(message.id);
     expect(JSON.stringify(result)).not.toContain('providerLocator');
     expect(JSON.stringify(result)).not.toContain('TWILIO');
   });

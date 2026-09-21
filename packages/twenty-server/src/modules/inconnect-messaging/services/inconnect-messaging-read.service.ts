@@ -117,6 +117,7 @@ export class InconnectMessagingReadService {
 
     return {
       edges,
+      readThroughMessageId: page.readThroughMessageId,
       totalCount: page.totalCount,
       pageInfo: {
         hasNextPage: page.hasNextPage,

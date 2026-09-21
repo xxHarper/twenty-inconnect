@@ -40,6 +40,12 @@ export const StyledListHeader = styled.div`
   padding: ${themeCssVariables.spacing[4]};
 `;
 
+export const StyledFilterScroll = styled.div`
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: ${themeCssVariables.spacing[1]};
+`;
+
 export const StyledSearch = styled.input`
   background: ${themeCssVariables.background.secondary};
   border: 1px solid ${themeCssVariables.border.color.medium};
@@ -57,7 +63,10 @@ export const StyledListScroll = styled.div`
   overflow-y: auto;
 `;
 
-export const StyledItem = styled.button<{ isSelected: boolean }>`
+export const StyledItem = styled.button<{
+  isSelected: boolean;
+  isUnread: boolean;
+}>`
   background: ${({ isSelected }) =>
     isSelected
       ? themeCssVariables.background.transparent.light
@@ -86,10 +95,34 @@ export const StyledItemTop = styled.span`
   width: 100%;
 `;
 
-export const StyledAddress = styled.strong`
+export const StyledItemState = styled.span`
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: ${themeCssVariables.spacing[1]};
+`;
+
+export const StyledItemMetadata = styled.span`
+  align-items: center;
+  display: flex;
+  gap: ${themeCssVariables.spacing[2]};
+  justify-content: space-between;
+  min-width: 0;
+`;
+
+export const StyledAddress = styled.span<{ isUnread: boolean }>`
+  font-weight: ${({ isUnread }) => (isUnread ? 700 : 500)};
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`;
+
+export const StyledUnreadIndicator = styled.span`
+  background: ${themeCssVariables.color.blue};
+  border-radius: 50%;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
 `;
 
 export const StyledSecondary = styled.span`

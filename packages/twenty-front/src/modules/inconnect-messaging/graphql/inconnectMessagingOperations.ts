@@ -56,6 +56,7 @@ export const INCONNECT_MESSAGING_MESSAGES = gql`
       conversationId: $conversationId
       paging: $paging
     ) {
+      readThroughMessageId
       edges {
         cursor
         node {
@@ -178,6 +179,68 @@ export const SEND_INCONNECT_MESSAGING_MESSAGE = gql`
     sendInconnectMessagingMessage(input: $input) {
       messageId
       outboundState
+    }
+  }
+`;
+
+export const SET_INCONNECT_MESSAGING_CONVERSATION_FAVORITE = gql`
+  mutation SetInconnectMessagingConversationFavorite(
+    $conversationId: UUID!
+    $favorite: Boolean!
+  ) {
+    setInconnectMessagingConversationFavorite(
+      conversationId: $conversationId
+      favorite: $favorite
+    ) {
+      conversationId
+      isFavorite
+      isUnread
+      isPending
+    }
+  }
+`;
+
+export const MARK_INCONNECT_MESSAGING_CONVERSATION_READ = gql`
+  mutation MarkInconnectMessagingConversationRead(
+    $conversationId: UUID!
+    $throughMessageId: UUID
+  ) {
+    markInconnectMessagingConversationRead(
+      conversationId: $conversationId
+      throughMessageId: $throughMessageId
+    ) {
+      conversationId
+      isFavorite
+      isUnread
+      isPending
+    }
+  }
+`;
+
+export const MARK_INCONNECT_MESSAGING_CONVERSATION_UNREAD = gql`
+  mutation MarkInconnectMessagingConversationUnread($conversationId: UUID!) {
+    markInconnectMessagingConversationUnread(conversationId: $conversationId) {
+      conversationId
+      isFavorite
+      isUnread
+      isPending
+    }
+  }
+`;
+
+export const SET_INCONNECT_MESSAGING_CONVERSATION_PENDING = gql`
+  mutation SetInconnectMessagingConversationPending(
+    $conversationId: UUID!
+    $pending: Boolean!
+  ) {
+    setInconnectMessagingConversationPending(
+      conversationId: $conversationId
+      pending: $pending
+    ) {
+      conversationId
+      isFavorite
+      isUnread
+      isPending
     }
   }
 `;

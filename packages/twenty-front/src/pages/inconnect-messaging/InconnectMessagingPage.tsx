@@ -3,8 +3,10 @@ import { useQuery } from '@apollo/client/react';
 import { print, type ExecutionResult } from 'graphql';
 import { useCallback, useEffect, useState } from 'react';
 import { IconMessageCircle } from 'twenty-ui/icon';
+import { SegmentedControl, type SegmentedControlOption } from 'twenty-ui/input';
 import { useDebounce, useDebouncedCallback } from 'use-debounce';
 
+import { InconnectMessagingConversationListItem } from '@/inconnect-messaging/components/InconnectMessagingConversationListItem';
 import { useListenToBrowserEvent } from '@/browser-event/hooks/useListenToBrowserEvent';
 import { InconnectMessagingConversationView } from '@/inconnect-messaging/components/InconnectMessagingConversationView';
 import { mergeInconnectMessagingEdges } from '@/inconnect-messaging/utils/mergeInconnectMessagingEdges';
@@ -16,6 +18,7 @@ import { useIsMobile } from '@/ui/utilities/responsive/hooks/useIsMobile';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 import {
   InconnectMessagingConversationsDocument,
+  InconnectMessagingConversationWorkStateFilter,
   OnInconnectMessagingEventDocument,
   PermissionFlagType,
   type OnInconnectMessagingEventSubscription,
@@ -26,11 +29,9 @@ import {
   StyledBody,
   StyledList,
   StyledListHeader,
+  StyledFilterScroll,
   StyledSearch,
   StyledListScroll,
-  StyledItem,
-  StyledItemTop,
-  StyledAddress,
   StyledSecondary,
   StyledCenter,
   StyledButton,
@@ -39,7 +40,7 @@ import {
 const PAGE_SIZE = 30;
 
 export const InconnectMessagingPage = () => {
-  const { t, i18n } = useLingui();
+  const { t } = useLingui();
   const isMobile = useIsMobile();
   const hasMessagingPermission = useHasPermissionFlag(
     PermissionFlagType.INCONNECT_MESSAGING,
@@ -47,6 +48,10 @@ export const InconnectMessagingPage = () => {
   const sseClient = useAtomStateValue(sseClientState);
   const [searchInput, setSearchInput] = useState('');
   const [search] = useDebounce(searchInput, 300);
+  const [workState, setWorkState] =
+    useState<InconnectMessagingConversationWorkStateFilter>(
+      InconnectMessagingConversationWorkStateFilter.ALL,
+    );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectionUnavailable, setSelectionUnavailable] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -56,7 +61,11 @@ export const InconnectMessagingPage = () => {
   const { data, loading, error, fetchMore, refetch } = useQuery(
     InconnectMessagingConversationsDocument,
     {
-      variables: { search: search || null, paging: { first: PAGE_SIZE } },
+      variables: {
+        search: search || null,
+        workState,
+        paging: { first: PAGE_SIZE },
+      },
       skip: !hasMessagingPermission,
       fetchPolicy: 'network-only',
       notifyOnNetworkStatusChange: true,
@@ -90,6 +99,8 @@ export const InconnectMessagingPage = () => {
           const hint = result.data?.onInconnectMessagingEvent;
           if (!hint) return;
           if (hint.eventType === 'MESSAGE_CREATED') {
+            scheduleRefresh(true, hint.conversationId === selectedId);
+          } else if (hint.eventType === 'CONVERSATION_UPDATED') {
             scheduleRefresh(true, hint.conversationId === selectedId);
           } else if (
             (hint.eventType === 'MESSAGE_STATUS_CHANGED' ||
@@ -138,6 +149,7 @@ export const InconnectMessagingPage = () => {
       await fetchMore({
         variables: {
           search: search || null,
+          workState,
           paging: { first: PAGE_SIZE, after: connection.pageInfo.endCursor },
         },
         updateQuery: (previous, { fetchMoreResult }) => ({
@@ -163,6 +175,39 @@ export const InconnectMessagingPage = () => {
     () => scheduleRefresh(true, true),
     [scheduleRefresh],
   );
+  const handleWorkStateChanged = useCallback(
+    () => scheduleRefresh(true, false),
+    [scheduleRefresh],
+  );
+
+  const workStateOptions = [
+    {
+      label: t`All`,
+      value: InconnectMessagingConversationWorkStateFilter.ALL,
+    },
+    {
+      label: t`Unread`,
+      value: InconnectMessagingConversationWorkStateFilter.UNREAD,
+    },
+    {
+      label: t`Favorites`,
+      value: InconnectMessagingConversationWorkStateFilter.FAVORITES,
+    },
+    {
+      label: t`Pending`,
+      value: InconnectMessagingConversationWorkStateFilter.PENDING,
+    },
+  ] satisfies SegmentedControlOption<InconnectMessagingConversationWorkStateFilter>[];
+
+  const emptyState = search
+    ? t`No conversations match your search in this view.`
+    : workState === InconnectMessagingConversationWorkStateFilter.UNREAD
+      ? t`No unread conversations.`
+      : workState === InconnectMessagingConversationWorkStateFilter.FAVORITES
+        ? t`No favorite conversations.`
+        : workState === InconnectMessagingConversationWorkStateFilter.PENDING
+          ? t`No pending conversations.`
+          : t`No conversations yet.`;
 
   if (!hasMessagingPermission) {
     return (
@@ -178,6 +223,19 @@ export const InconnectMessagingPage = () => {
           <StyledList aria-label={t`Conversations`}>
             <StyledListHeader>
               <strong>{t`Conversations`}</strong>
+              <StyledFilterScroll>
+                <SegmentedControl
+                  ariaLabel={t`Conversation view`}
+                  itemWidth="content"
+                  onChange={(nextWorkState) => {
+                    setMoreConversationsError(false);
+                    setWorkState(nextWorkState);
+                  }}
+                  options={workStateOptions}
+                  role="tablist"
+                  value={workState}
+                />
+              </StyledFilterScroll>
               <StyledSearch
                 type="search"
                 aria-label={t`Search conversations`}
@@ -198,36 +256,18 @@ export const InconnectMessagingPage = () => {
               ) : error ? (
                 <StyledCenter role="alert">{t`Could not load conversations.`}</StyledCenter>
               ) : connection?.edges.length === 0 ? (
-                <StyledCenter>
-                  {search
-                    ? t`No conversations match your search.`
-                    : t`No conversations yet.`}
-                </StyledCenter>
+                <StyledCenter>{emptyState}</StyledCenter>
               ) : (
                 connection?.edges.map(({ node }) => (
-                  <StyledItem
+                  <InconnectMessagingConversationListItem
                     key={node.id}
-                    type="button"
+                    conversation={node}
                     isSelected={selectedId === node.id}
-                    aria-pressed={selectedId === node.id}
-                    onClick={() => {
+                    onSelect={() => {
                       setSelectionUnavailable(false);
                       setSelectedId(node.id);
                     }}
-                  >
-                    <StyledItemTop>
-                      <StyledAddress>{node.externalAddress}</StyledAddress>
-                      <StyledSecondary>
-                        {node.lastInboundAt &&
-                          new Intl.DateTimeFormat(i18n.locale, {
-                            dateStyle: 'short',
-                          }).format(new Date(node.lastInboundAt))}
-                      </StyledSecondary>
-                    </StyledItemTop>
-                    <StyledSecondary>
-                      {node.isLinked ? t`Linked conversation` : t`Unassigned`}
-                    </StyledSecondary>
-                  </StyledItem>
+                  />
                 ))
               )}
               {connection?.pageInfo.hasNextPage && (
@@ -253,6 +293,7 @@ export const InconnectMessagingPage = () => {
             showBack={isMobile}
             realtimeUnavailable={!sseClient || subscriptionError}
             onMessageAccepted={handleMessageAccepted}
+            onWorkStateChanged={handleWorkStateChanged}
           />
         ) : (
           !isMobile && (

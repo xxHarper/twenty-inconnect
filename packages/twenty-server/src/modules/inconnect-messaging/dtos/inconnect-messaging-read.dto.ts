@@ -153,6 +153,9 @@ export class InconnectMessagingMessageConnectionDTO {
   @Field(() => [InconnectMessagingMessageEdgeDTO])
   edges: InconnectMessagingMessageEdgeDTO[];
 
+  @Field(() => UUIDScalarType, { nullable: true })
+  readThroughMessageId: string | null;
+
   @Field(() => PageInfoDTO)
   pageInfo: PageInfoDTO;
 
