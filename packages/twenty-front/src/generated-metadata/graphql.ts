@@ -2197,6 +2197,69 @@ export type InconnectCommercialTeamSettingsTeam = {
   name: Scalars['String']['output'];
 };
 
+export type InconnectMessagingContextCandidateField = {
+  __typename?: 'InconnectMessagingContextCandidateField';
+  fieldMetadataId: Scalars['UUID']['output'];
+  isLabelIdentifier: Scalars['Boolean']['output'];
+  label: Scalars['String']['output'];
+  valueKind: InconnectMessagingContextValueKind;
+};
+
+export type InconnectMessagingContextConfiguration = {
+  __typename?: 'InconnectMessagingContextConfiguration';
+  anchorObject: InconnectMessagingContextObject;
+  availableFields: Array<InconnectMessagingContextCandidateField>;
+  fields: Array<InconnectMessagingContextConfiguredField>;
+  maximumFieldCount: Scalars['Int']['output'];
+};
+
+export type InconnectMessagingContextConfiguredField = {
+  __typename?: 'InconnectMessagingContextConfiguredField';
+  fieldMetadataId: Scalars['UUID']['output'];
+  label: Scalars['String']['output'];
+  ordinal: Scalars['Int']['output'];
+  valueKind: InconnectMessagingContextValueKind;
+};
+
+export type InconnectMessagingContextField = {
+  __typename?: 'InconnectMessagingContextField';
+  displayValue?: Maybe<Scalars['String']['output']>;
+  fieldMetadataId: Scalars['UUID']['output'];
+  label: Scalars['String']['output'];
+  ordinal: Scalars['Int']['output'];
+  valueKind: InconnectMessagingContextValueKind;
+};
+
+export type InconnectMessagingContextObject = {
+  __typename?: 'InconnectMessagingContextObject';
+  label: Scalars['String']['output'];
+  objectMetadataId: Scalars['UUID']['output'];
+};
+
+export type InconnectMessagingContextRecord = {
+  __typename?: 'InconnectMessagingContextRecord';
+  recordId: Scalars['UUID']['output'];
+  recordLabel?: Maybe<Scalars['String']['output']>;
+};
+
+export enum InconnectMessagingContextState {
+  LINKED = 'LINKED',
+  UNASSIGNED = 'UNASSIGNED'
+}
+
+export enum InconnectMessagingContextValueKind {
+  BOOLEAN = 'BOOLEAN',
+  DATE = 'DATE',
+  DATE_TIME = 'DATE_TIME',
+  EMAIL = 'EMAIL',
+  MULTI_SELECT = 'MULTI_SELECT',
+  NUMBER = 'NUMBER',
+  PHONE = 'PHONE',
+  SELECT = 'SELECT',
+  TEXT = 'TEXT',
+  URL = 'URL'
+}
+
 export type InconnectMessagingConversation = {
   __typename?: 'InconnectMessagingConversation';
   createdAt: Scalars['DateTime']['output'];
@@ -2217,6 +2280,14 @@ export type InconnectMessagingConversationConnection = {
   edges: Array<InconnectMessagingConversationEdge>;
   pageInfo: PageInfo;
   totalCount: Scalars['Int']['output'];
+};
+
+export type InconnectMessagingConversationContext = {
+  __typename?: 'InconnectMessagingConversationContext';
+  fields: Array<InconnectMessagingContextField>;
+  object?: Maybe<InconnectMessagingContextObject>;
+  record?: Maybe<InconnectMessagingContextRecord>;
+  state: InconnectMessagingContextState;
 };
 
 export type InconnectMessagingConversationEdge = {
@@ -3134,6 +3205,7 @@ export type Mutation = {
   renameInconnectCommercialTeam: InconnectCommercialTeamSettingsMutationResult;
   renewApplicationToken: ApplicationTokenPair;
   renewToken: AuthTokens;
+  replaceInconnectMessagingContextConfiguration: InconnectMessagingContextConfiguration;
   replaceInconnectRecordAccessConfiguration: ReplaceInconnectRecordAccessConfigurationResult;
   resendEmailVerificationToken: ResendEmailVerificationToken;
   resendWorkspaceInvitation: SendInvitations;
@@ -3943,6 +4015,11 @@ export type MutationRenewApplicationTokenArgs = {
 
 export type MutationRenewTokenArgs = {
   appToken: Scalars['String']['input'];
+};
+
+
+export type MutationReplaceInconnectMessagingContextConfigurationArgs = {
+  fieldMetadataIds: Array<Scalars['UUID']['input']>;
 };
 
 
@@ -5127,7 +5204,9 @@ export type Query = {
   getViews: Array<View>;
   getWorkspaceCreationDefaults: WorkspaceCreationDefaultsDto;
   githubClaimAuthorizationUrl: Scalars['String']['output'];
+  inconnectMessagingContextConfiguration: InconnectMessagingContextConfiguration;
   inconnectMessagingConversation?: Maybe<InconnectMessagingConversation>;
+  inconnectMessagingConversationContext?: Maybe<InconnectMessagingConversationContext>;
   inconnectMessagingConversations: InconnectMessagingConversationConnection;
   inconnectMessagingMessages?: Maybe<InconnectMessagingMessageConnection>;
   inconnectMessagingSendCapabilities?: Maybe<InconnectMessagingSendCapabilities>;
@@ -5499,6 +5578,11 @@ export type QueryGithubClaimAuthorizationUrlArgs = {
 
 export type QueryInconnectMessagingConversationArgs = {
   id: Scalars['UUID']['input'];
+};
+
+
+export type QueryInconnectMessagingConversationContextArgs = {
+  conversationId: Scalars['UUID']['input'];
 };
 
 

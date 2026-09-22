@@ -7,9 +7,11 @@ import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from '
 import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments';
 import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads';
 import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
+import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
+import { InconnectMessagingContextFieldEntity } from 'src/modules/inconnect-messaging/entities/context-field.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
@@ -31,6 +33,7 @@ const MESSAGING_ENTITIES: EntityTarget<object>[] = [
   InconnectMessagingAttachmentEntity,
   InconnectMessagingOutboundUploadEntity,
   InconnectMessagingConversationMemberStateEntity,
+  InconnectMessagingContextFieldEntity,
 ];
 
 const buildMetadataDataSource = async (): Promise<DataSource> => {
@@ -74,6 +77,9 @@ describe('INCONNECT Messaging persistence model', () => {
     await new AddInconnectMessagingConversationWorkStateFastInstanceCommand().up(
       { query } as never,
     );
+    await new AddInconnectMessagingContextFieldsFastInstanceCommand().up({
+      query,
+    } as never);
 
     const sql = query.mock.calls.map(([statement]) => statement).join('\n');
 
@@ -147,6 +153,7 @@ describe('INCONNECT Messaging persistence model', () => {
       'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_FILE',
       'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_CONSUMED_MESSAGE',
       'FK_INCONNECT_MSG_MEMBER_STATE_CONVERSATION',
+      'FK_INCONNECT_MSG_CONTEXT_FIELD_METADATA',
     ];
     const foreignKeys = MESSAGING_ENTITIES.flatMap(
       (entity) => dataSource.getMetadata(entity).foreignKeys,
@@ -160,6 +167,65 @@ describe('INCONNECT Messaging persistence model', () => {
       expect(foreignKey?.columnNames).toContain('workspaceId');
       expect(foreignKey?.referencedColumnNames).toContain('workspaceId');
     }
+  });
+
+  it('physically binds context fields to one configuration anchor and metadata workspace', async () => {
+    const dataSource = await buildMetadataDataSource();
+    const metadata = dataSource.getMetadata(
+      InconnectMessagingContextFieldEntity,
+    );
+    const configurationForeignKey = metadata.foreignKeys.find(
+      ({ name }) => name === 'FK_INCONNECT_MSG_CONTEXT_FIELD_CONFIG_ANCHOR',
+    );
+    const fieldForeignKey = metadata.foreignKeys.find(
+      ({ name }) => name === 'FK_INCONNECT_MSG_CONTEXT_FIELD_METADATA',
+    );
+
+    expect(configurationForeignKey?.columnNames).toEqual([
+      'workspaceId',
+      'objectMetadataId',
+    ]);
+    expect(configurationForeignKey?.referencedColumnNames).toEqual([
+      'workspaceId',
+      'anchorObjectMetadataId',
+    ]);
+    expect(fieldForeignKey?.columnNames).toEqual([
+      'fieldMetadataId',
+      'objectMetadataId',
+      'workspaceId',
+    ]);
+    expect(fieldForeignKey?.referencedColumnNames).toEqual([
+      'id',
+      'objectMetadataId',
+      'workspaceId',
+    ]);
+    expect(fieldForeignKey?.onDelete).toBe('CASCADE');
+    expect(
+      metadata.findColumnWithPropertyName('messagingConfigurationId'),
+    ).toBeUndefined();
+    expect(
+      metadata.findColumnWithDatabaseName('messagingConfigurationId'),
+    ).toBeUndefined();
+    expect(metadata.indices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'IDX_INCONNECT_MSG_CONTEXT_FIELD_WORKSPACE_FIELD_UNIQUE',
+          columns: expect.arrayContaining([
+            expect.objectContaining({ databaseName: 'workspaceId' }),
+            expect.objectContaining({ databaseName: 'fieldMetadataId' }),
+          ]),
+          isUnique: true,
+        }),
+        expect.objectContaining({
+          name: 'IDX_INCONNECT_MSG_CONTEXT_FIELD_WORKSPACE_ORDINAL_UNIQUE',
+          columns: expect.arrayContaining([
+            expect.objectContaining({ databaseName: 'workspaceId' }),
+            expect.objectContaining({ databaseName: 'ordinal' }),
+          ]),
+          isUnique: true,
+        }),
+      ]),
+    );
   });
 
   it.each([

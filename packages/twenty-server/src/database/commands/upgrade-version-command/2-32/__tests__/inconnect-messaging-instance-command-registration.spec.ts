@@ -8,6 +8,7 @@ import { AddInconnectMessagingTemplateIntentFastInstanceCommand } from 'src/data
 import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789682400000-add-inconnect-messaging-inbound-attachments';
 import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads';
 import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
+import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields';
 import { CreateInconnectMessagingTransportSpineFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1788982508902-create-inconnect-messaging-transport-spine';
 import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 import { InstanceCommandProviderModule } from 'src/database/commands/upgrade-version-command/instance-command-provider.module';
@@ -23,6 +24,7 @@ const messagingCommandTypes = [
   AddInconnectMessagingInboundAttachmentsFastInstanceCommand,
   AddInconnectMessagingOutboundUploadsFastInstanceCommand,
   AddInconnectMessagingConversationWorkStateFastInstanceCommand,
+  AddInconnectMessagingContextFieldsFastInstanceCommand,
   BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand,
 ] as const;
 
@@ -73,6 +75,7 @@ describe('INCONNECT Messaging instance command registration', () => {
       'AddInconnectMessagingInboundAttachmentsFastInstanceCommand',
       'AddInconnectMessagingOutboundUploadsFastInstanceCommand',
       'AddInconnectMessagingConversationWorkStateFastInstanceCommand',
+      'AddInconnectMessagingContextFieldsFastInstanceCommand',
     ]);
     expect(
       bundle.slowInstanceCommands.map(
@@ -87,6 +90,7 @@ describe('INCONNECT Messaging instance command registration', () => {
       .filter(({ version }) => version === '2.32.0');
 
     expect(sequence.map(({ kind }) => kind)).toEqual([
+      'fast-instance',
       'fast-instance',
       'fast-instance',
       'fast-instance',

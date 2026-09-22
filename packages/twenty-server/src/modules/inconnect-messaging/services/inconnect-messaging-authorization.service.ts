@@ -152,6 +152,39 @@ export class InconnectMessagingAuthorizationService {
     );
   }
 
+  async filterReadableFieldMetadataIds({
+    authContext,
+    objectMetadataId,
+    fieldMetadataIds,
+  }: {
+    authContext: WorkspaceAuthContext;
+    objectMetadataId: string;
+    fieldMetadataIds: string[];
+  }): Promise<Set<string> | null> {
+    const authorization = await this.resolveHumanAuthorization(authContext);
+
+    if (
+      authorization === null ||
+      !this.hasStandardObjectReadPermission({
+        authorization,
+        objectMetadataId,
+      })
+    ) {
+      return null;
+    }
+
+    const restrictedFields =
+      authorization.objectsPermissions[objectMetadataId]?.restrictedFields ??
+      {};
+
+    return new Set(
+      fieldMetadataIds.filter(
+        (fieldMetadataId) =>
+          restrictedFields[fieldMetadataId]?.canRead !== false,
+      ),
+    );
+  }
+
   async applyConversationReadScope({
     authContext,
     queryBuilder,

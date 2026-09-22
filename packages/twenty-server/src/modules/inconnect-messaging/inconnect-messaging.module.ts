@@ -20,6 +20,7 @@ import { InconnectMessagingAttachmentController } from 'src/modules/inconnect-me
 import { InconnectMessagingProviderMediaController } from 'src/modules/inconnect-messaging/controllers/inconnect-messaging-provider-media.controller';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
+import { InconnectMessagingContextFieldEntity } from 'src/modules/inconnect-messaging/entities/context-field.entity';
 import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
@@ -44,6 +45,7 @@ import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-me
 import { InconnectMessagingTemplateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-template.resolver';
 import { InconnectMessagingOutboundUploadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-outbound-upload.resolver';
 import { InconnectMessagingWorkStateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-work-state.resolver';
+import { InconnectMessagingContextResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-context.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
@@ -68,6 +70,8 @@ import { InconnectMessagingMediaIngestionJob } from 'src/modules/inconnect-messa
 import { InconnectMessagingMediaRecoveryCronJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-media-recovery.cron.job';
 import { InconnectMessagingMediaRecoveryCronCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-media-recovery.cron.command';
 import { InconnectMessagingWorkStateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-work-state.service';
+import { InconnectMessagingContextConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context-configuration.service';
+import { InconnectMessagingContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -81,6 +85,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingAttachmentEntity,
   InconnectMessagingOutboundUploadEntity,
   InconnectMessagingConversationMemberStateEntity,
+  InconnectMessagingContextFieldEntity,
 ];
 
 @Module({
@@ -109,6 +114,9 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingMessageQueryService,
     InconnectMessagingReadService,
     InconnectMessagingReadResolver,
+    InconnectMessagingContextService,
+    InconnectMessagingContextConfigurationService,
+    InconnectMessagingContextResolver,
     InconnectMessagingWorkStateService,
     InconnectMessagingWorkStateResolver,
     InconnectMessagingSendService,

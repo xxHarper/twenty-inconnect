@@ -42,6 +42,7 @@ const buildService = ({
   recordReadable = true,
   workspaceMemberValid = true,
   cacheFailure = false,
+  restrictedFields = {},
 }: {
   conversation?:
     | typeof linkedConversation
@@ -56,6 +57,7 @@ const buildService = ({
   recordReadable?: boolean;
   workspaceMemberValid?: boolean;
   cacheFailure?: boolean;
+  restrictedFields?: Record<string, { canRead?: boolean }>;
 } = {}) => {
   const allowedFlagSet = new Set(allowedFlags);
   const conversationRepository = {
@@ -88,7 +90,7 @@ const buildService = ({
                 canUpdateObjectRecords: false,
                 canSoftDeleteObjectRecords: false,
                 canDestroyObjectRecords: false,
-                restrictedFields: {},
+                restrictedFields,
                 rowLevelPermissionPredicates: [],
                 rowLevelPermissionPredicateGroups: [],
               },
@@ -407,6 +409,36 @@ describe('InconnectMessagingAuthorizationService', () => {
         conversationId: CONVERSATION_ID,
       }),
     ).resolves.toBe(false);
+  });
+
+  it('filters configured context fields with current standard field permissions', async () => {
+    const readableFieldId = 'field-readable';
+    const restrictedFieldId = 'field-restricted';
+    const { service } = buildService({
+      restrictedFields: {
+        [restrictedFieldId]: { canRead: false },
+      },
+    });
+
+    await expect(
+      service.filterReadableFieldMetadataIds({
+        authContext,
+        objectMetadataId: ANCHOR_OBJECT_METADATA_ID,
+        fieldMetadataIds: [readableFieldId, restrictedFieldId],
+      }),
+    ).resolves.toEqual(new Set([readableFieldId]));
+  });
+
+  it('returns no field authorization without standard object read permission', async () => {
+    const { service } = buildService({ canReadAnchor: false });
+
+    await expect(
+      service.filterReadableFieldMetadataIds({
+        authContext,
+        objectMetadataId: ANCHOR_OBJECT_METADATA_ID,
+        fieldMetadataIds: ['field-readable'],
+      }),
+    ).resolves.toBeNull();
   });
 
   it('denies human operations when role/cache authority is unavailable', async () => {
