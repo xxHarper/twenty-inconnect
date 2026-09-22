@@ -235,7 +235,7 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-21 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer and template picker, secure outbound media backend preparation, actor/workspace-scoped upload staging, deterministic and idempotent server-owned file identities, `FileStorage`/`FileEntity` outbound preparation, transactional outbound `Message` + `Attachment` consumption, provider-neutral media dispatch, Twilio outbound media delivery, an expiring provider-media capability, metadata GraphQL upload mutations, and the user-facing attachment composer. The composer provides a file picker, secure outbound upload UX, honest selection/upload/finalization states, retry and remove, local previews, capability-driven captions, and media send through opaque `outboundUploadIds`. The native inbox also provides server-backed `ALL | UNREAD | FAVORITES | PENDING` views, unread visual treatment, personal Favorite controls, shared Pending controls, manual Mark Read/Mark Unread, and conservative automatic read through a server-derived snapshot target.
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-22 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer and template picker, secure outbound media backend preparation, actor/workspace-scoped upload staging, deterministic and idempotent server-owned file identities, `FileStorage`/`FileEntity` outbound preparation, transactional outbound `Message` + `Attachment` consumption, provider-neutral media dispatch, Twilio outbound media delivery, an expiring provider-media capability, metadata GraphQL upload mutations, the user-facing attachment composer, and the secure dynamic CRM Conversation context backend. CRM context now includes ordered context-field presentation configuration, an authorized CRM record context query, standard object and field permission enforcement, INCONNECT Record Access on the final CRM `SELECT`, safe normalized field DTOs, and management APIs for context-field configuration. The visible dynamic CRM Conversation context panel is not implemented; that is the intended Fase 10B boundary. The composer provides a file picker, secure outbound upload UX, honest selection/upload/finalization states, retry and remove, local previews, capability-driven captions, and media send through opaque `outboundUploadIds`. The native inbox also provides server-backed `ALL | UNREAD | FAVORITES | PENDING` views, unread visual treatment, personal Favorite controls, shared Pending controls, manual Mark Read/Mark Unread, and conservative automatic read through a server-derived snapshot target.
 
 Conversation work state is implemented end to end: personal Favorite, personal derived Unread, shared manual Pending, `ConversationMemberState`, a PostgreSQL-owned unread rollout baseline, authorized SQL filtering, visible inbox controls, work-state mutations, and the durable shared-Pending `CONVERSATION_UPDATED` hint. Immediate personal Favorite/read cross-device realtime is not implemented; personal state in other tabs or devices converges through normal refetch or reconnect. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical, and local validation never implies that a migration or command ran in production.
 
@@ -532,7 +532,7 @@ Administrative visibility is controlled by `PermissionFlagType.SECURITY` in both
 
 Backend: `packages/twenty-server/src/modules/inconnect-messaging/`. Frontend: `packages/twenty-front/src/modules/inconnect-messaging/` and `packages/twenty-front/src/pages/inconnect-messaging/`.
 
-INCONNECT Messaging is a provider-neutral native Twenty feature with durable inbound processing, secure rich-media ingestion, authorized reads and file access, secure realtime, a secure outbound media backend, and a functional Messaging frontend. The native inbox supports inbound and outbound Messaging, text free-form, templates, attachments/media, a secure composer, server-backed All/Unread/Favorites/Pending views, personal Favorite and Unread, shared Pending, manual Read/Unread, and safe automatic read. Immediate personal cross-device realtime is not part of this capability. It is not a Twenty App and must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio remains behind the provider port; provider-specific concepts must not become domain authority.
+INCONNECT Messaging is a provider-neutral native Twenty feature with durable inbound processing, secure rich-media ingestion, authorized reads and file access, secure realtime, a secure outbound media backend, a secure dynamic CRM Conversation context backend, and a functional Messaging frontend. The native inbox supports inbound and outbound Messaging, text free-form, templates, attachments/media, a secure composer, server-backed All/Unread/Favorites/Pending views, personal Favorite and Unread, shared Pending, manual Read/Unread, and safe automatic read. The CRM context backend is implemented, but its visible frontend panel is not. Immediate personal cross-device realtime is not part of this capability. It is not a Twenty App and must not reuse `modules/messaging` email functionality as the WhatsApp domain. Twilio remains behind the provider port; provider-specific concepts must not become domain authority.
 
 ### Implemented Persistence Foundation
 
@@ -549,8 +549,9 @@ The following TypeORM entities and dedicated `core` tables are implemented:
 - `InconnectMessagingAttachmentEntity` / `core.inconnectMessagingAttachment`
 - `InconnectMessagingOutboundUploadEntity` / `core.inconnectMessagingOutboundUpload`
 - `InconnectMessagingConversationMemberStateEntity` / `core.inconnectMessagingConversationMemberState`
+- `InconnectMessagingContextFieldEntity` / `core.inconnectMessagingContextField`
 
-These are core operational tables, not workspace objects. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies durable-inbox and transactional-outbox records, idempotency keys, leases, `DispatchAttempt` audit, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery, inbound media ingestion and recovery, outbound WhatsApp dispatch, realtime outbox publishing, and their BullMQ workers are implemented. BullMQ is at-least-once transport and must never become authority.
+These are core operational or operational-configuration tables, not workspace objects. `ContextField` is ordered presentation configuration: it is not syncable metadata, a Record Access policy, or a copy of CRM data. PostgreSQL is the operational authority: do not introduce dual-write authority. The persistence spine supplies durable-inbox and transactional-outbox records, idempotency keys, leases, `DispatchAttempt` audit, checks, and workspace-isolated composite foreign keys. Twilio webhook receipt processing and inbox recovery, inbound media ingestion and recovery, outbound WhatsApp dispatch, realtime outbox publishing, and their BullMQ workers are implemented. BullMQ is at-least-once transport and must never become authority.
 
 An Attachment has the durable logical identity `Message + ordinal`, a provider-neutral attachment type, and one of the ingestion states `PENDING`, `PROCESSING`, `AVAILABLE`, `FAILED`, or `EXPIRED`. It stores an opaque server-only provider media locator only while needed for ingestion, an optional workspace-isolated `FileEntity` reference, lease and attempt data, and safe presentation metadata. Composite foreign keys prevent its Message, workspace, and Provider Connection from diverging and require a referenced File to belong to the same workspace. A File cannot be deleted while an Attachment references it; Message deletion cascades its Attachments.
 
@@ -565,6 +566,65 @@ An Outbound Upload is actor/workspace-scoped staging with states `CREATING`, `PE
 The linked tuple is either fully null or fully present, and a composite FK requires its ObjectMetadata to match the configured workspace anchor. Runtime authority must not come from physical names, schema names, a hardcoded `lead`, an owner column, or a universal identifier. Dynamic table and owner details come from live metadata.
 
 `Message.providerConnectionId` is persisted because provider message identity is connection-scoped. Its composite FK `(conversationId, providerConnectionId, workspaceId)` to `Conversation` prevents the Message connection or workspace from diverging from its Conversation. Retry lineage is also connection/workspace constrained.
+
+`MessagingConfiguration` is a singleton per workspace. Its real identity is `workspaceId`; it has no independent `id`. `ContextField` must never introduce or persist an artificial `messagingConfigurationId`. Its persisted fields are `id`, `workspaceId`, `objectMetadataId`, `fieldMetadataId`, `ordinal`, `createdAt`, and `updatedAt`, and the workspace singleton is the logical configuration identity.
+
+The physical configuration/anchor FK is `(ContextField.workspaceId, ContextField.objectMetadataId) -> (MessagingConfiguration.workspaceId, MessagingConfiguration.anchorObjectMetadataId)`. It guarantees that every configured field belongs to the same workspace and the exact configured Messaging anchor; another object in the same workspace is not valid. The physical metadata FK is `(ContextField.fieldMetadataId, ContextField.objectMetadataId, ContextField.workspaceId) -> (FieldMetadata.id, FieldMetadata.objectMetadataId, FieldMetadata.workspaceId)`, so a configured Field must belong to that exact object and workspace. Uniqueness is `(workspaceId, fieldMetadataId)` and `(workspaceId, ordinal)`, with `ordinal >= 0`; ordering is deterministic. The application maximum is 20 configured fields and is intentionally not a PostgreSQL maximum check.
+
+`ContextField` cascades from Workspace, the MessagingConfiguration anchor relation, and FieldMetadata. Presentation rows cannot remain as cross-workspace or cross-object orphans. Removing presentation configuration never deletes or rewrites CRM record data.
+
+### Implemented Dynamic CRM Conversation Context
+
+The secure runtime flow is:
+
+    conversationId
+    -> authorize Conversation
+    -> derive configured anchor
+    -> linkedRecordObjectMetadataId + linkedRecordId
+    -> live metadata
+    -> Twenty standard object and field permissions
+    -> INCONNECT Record Access
+    -> configured readable fields
+    -> safe normalized context DTO
+
+The context system is generic and anchor-driven. Never hardcode Lead, Folio ISO, phone, email, stage, phase, owner, or physical schema/table/column names. Lead and Folio ISO may be locally configured objects, but they are never product authority.
+
+The public query is `inconnectMessagingConversationContext(conversationId)`. The client supplies only `conversationId`; workspace, record ID, ObjectMetadata, FieldMetadata, schema, table, and physical columns are derived server-side. Unauthorized or cross-workspace Conversation IDs retain the existing non-disclosing null/not-found behavior. A linked Conversation also returns that safe behavior if current Conversation authorization fails, Record Access is revoked, the anchor record disappears, or the final scoped query returns no row; never disclose that a forbidden record exists.
+
+Public context states are `UNASSIGNED` and `LINKED`. An authorized `UNASSIGNED` Conversation has both linked-record fields null and returns null object/record data with an empty field list. It performs no CRM query, matching, auto-link, or record creation.
+
+Runtime context requires an authenticated Workspace, a valid human Workspace Member, `INCONNECT_MESSAGING`, current Conversation authorization, Twenty standard object read permission, current Twenty field read permission, and INCONNECT Record Access. `ContextField` is only a presentation allowlist and never grants record or field access. Configured fields are filtered for the current actor on every request; unreadable fields are neither selected nor returned and have no revealing placeholder. Actor-specific readable fields are never persisted in ContextField.
+
+Authorization is retained on the actual dynamic CRM record query through `applyReadScopeToQueryBuilder`; a prior Conversation check is not a substitute. The workspace schema is derived server-side, the table comes from validated ObjectMetadata through Twenty helpers, columns come from live configured and readable FieldMetadata, and the record UUID is parameterized. Client-controlled strings never become SQL identifiers. One record-value query retrieves all readable configured values; there is no per-field value query.
+
+`recordLabel` uses only `ObjectMetadata.labelIdentifierFieldMetadataId` when that Field is supported and readable by the current actor. It may be selected for this purpose even when it is not configured as a ContextField. If it is absent, unsupported, or unreadable, `recordLabel` is null; there is no fallback to another text field, phone, email, record ID, or arbitrary configured Field.
+
+Safe runtime field DTOs expose only `fieldMetadataId`, label, `valueKind`, `displayValue`, and ordinal. The context summary may expose state, `objectMetadataId`, a safe object label, `recordId`, and `recordLabel`. It never exposes a raw entity or record JSON, physical schema/table/column identifiers, Record Access decisions or owner scopes, provider metadata, or private metadata internals.
+
+Supported mappings are centralized:
+
+- `TEXT`, `UUID`, `FULL_NAME` -> `TEXT`
+- `NUMBER`, `NUMERIC` -> `NUMBER`
+- `BOOLEAN` -> `BOOLEAN`
+- `DATE` -> `DATE`
+- `DATE_TIME` -> `DATE_TIME`
+- `EMAILS` -> `EMAIL`
+- `PHONES` -> `PHONE`
+- `LINKS` -> `URL`
+- `SELECT`, `RATING` -> `SELECT`
+- `MULTI_SELECT` -> `MULTI_SELECT`
+
+Normalization uses Twenty's actual composite shapes. `FULL_NAME` becomes deterministic safe text and never `String(object)`; EMAILS exposes only the primary safe email; PHONES only the primary calling code plus number; LINKS only the primary URL; SELECT and RATING use safe configured option labels; MULTI_SELECT uses deterministic ordered labels. Null and empty inputs have safe null behavior, and HTML is never presentation authority.
+
+`RELATION` and `MORPH_RELATION` are unsupported ContextFields. They are absent from candidates, rejected by replacement validation, never dynamically joined, and never expose related IDs. There is not yet a generic OSS relation resolver that preserves standard permissions, target-object Record Access, and workspace isolation simultaneously; owner relations are not special-cased. Related Folio ISO or child lists, Activities, Tasks, and arbitrary relations are not implemented, and no Lead-specific related query exists.
+
+Context values are live reads. Messaging stores neither a CRM value snapshot nor actor-specific field-access results. PostgreSQL CRM records, live metadata, and current permissions remain authority. Fase 10A is read-only for CRM records: editing fields, owner/stage/phase changes, link/unlink, matching, auto-link, and record creation are not implemented. Configuration mutations change presentation configuration only. No generic CRM-object realtime/SSE was introduced; existing Messaging realtime is unchanged, and live CRM-context realtime requires separate design.
+
+Context configuration management exposes `inconnectMessagingContextConfiguration` and `replaceInconnectMessagingContextConfiguration(fieldMetadataIds)`. The management query returns the current ordered configuration, safe supported candidates, and a minimal safe anchor summary, never CRM values or physical metadata. Candidates belong to the same workspace and exact configured anchor, use a supported type, and have deterministic ordering without product-specific priority.
+
+Replacement input is only an ordered list of FieldMetadata IDs. The server derives workspace, object, ordinal, and physical identity; an empty list is valid and no default fields are auto-selected. Management requires an authenticated Workspace, a valid human Workspace Member, `MANAGE_INCONNECT_MESSAGING`, the existing settings/permission guard, and service-level revalidation. Manage permission does not imply Conversation access, send, or CRM record read.
+
+Replacement locks the workspace-singleton MessagingConfiguration with `pessimistic_write`, validates the complete input before persistence, then deletes and inserts transactionally with server-generated ordinals. Concurrent valid writers serialize on the singleton row; the last valid serialized replacement wins. This is not optimistic revision control.
 
 ### Implemented Conversation Work State
 
@@ -954,6 +1014,8 @@ Relevant queries are:
 - `inconnectMessagingMessages`
 - `inconnectMessagingTemplates`
 - `inconnectMessagingSendCapabilities`
+- `inconnectMessagingConversationContext`
+- `inconnectMessagingContextConfiguration`
 
 Conversation read/list DTOs expose `isFavorite`, `isUnread`, and `isPending`. The first two are personal to the current actor; Pending is shared. The Message connection additionally exposes nullable `readThroughMessageId`, an opaque, server-derived, snapshot-safe automatic-read target.
 
@@ -966,8 +1028,11 @@ Mutations are:
 - `markInconnectMessagingConversationRead`
 - `markInconnectMessagingConversationUnread`
 - `setInconnectMessagingConversationPending`
+- `replaceInconnectMessagingContextConfiguration`
 
 `sendInconnectMessagingMessage` accepts opaque `outboundUploadIds`. Public GraphQL does not expose or accept `FileEntity` IDs, storage paths, provider URLs/tokens, sender, Provider Connection, authoritative MIME, raw personal-state rows, member IDs for work-state operations, `manualUnread`, read cursors, or the tracking baseline. The subscription remains `onInconnectMessagingEvent`. Fase 9B metadata GraphQL codegen, including the work-state operations, DTO fields, and snapshot-safe `readThroughMessageId`, was regenerated and validated successfully, and the frontend continues to consume generated metadata types rather than a parallel handwritten contract.
+
+Context GraphQL DTOs expose only safe presentation concepts: state, ObjectMetadata ID and safe label, record ID and canonical readable label, and ordered fields containing FieldMetadata ID, label, value kind, and display value. They expose no physical schema/table/column names, raw CRM JSON, Record Access decisions, owner scopes, provider data, or private metadata internals. Context management exposes safe candidate metadata and no CRM record values. Fase 10A metadata GraphQL codegen completed successfully.
 
 Send capabilities expose the safe provider-neutral media fields `canSendMedia`, `maxMediaItems`, `mediaTypes`, `mimeTypes`, `maxBytes`, and `captionSupported`. The final capabilities/catalog separation introduced no new GraphQL contract; 8B2 metadata codegen was regenerated successfully.
 
@@ -981,8 +1046,11 @@ The required Messaging upgrade chain is registered and discoverable by the norma
 - Inbound Attachments — `1789682400000`
 - Outbound Uploads — `1789768800000`
 - Conversation Work State — `1790006024000`
+- CRM Context Fields — `1790010000000`
 
-The registered Slow command is Webhook Backfill — `1789040000001`. The real upgrade mechanism groups and orders all Fast commands in the Fast sequence, then all Slow commands in the Slow sequence, then workspace commands; Slow is not interleaved globally with Fast by timestamp. The missing registrations previously identified for Webhook Projection Fast, Webhook Backfill Slow, and Outbound Upload Fast were corrected before this checkpoint. Permanent rule: every new Messaging Instance Command must be registered so that the normal upgrade runner can discover it.
+The registered Slow command is Webhook Backfill — `1789040000001`. Normal runner validation found seven Fast Instance Commands, the one existing Slow Instance Command, and one Workspace Command. The real upgrade mechanism groups and orders all Fast commands in the Fast sequence, then all Slow commands in the Slow sequence, then workspace commands; Slow is not interleaved globally with Fast by timestamp. The missing registrations previously identified for Webhook Projection Fast, Webhook Backfill Slow, and Outbound Upload Fast were corrected before this checkpoint. Permanent rule: every new Messaging Instance Command must be registered so that the normal upgrade runner can discover it.
+
+The CRM Context Fields command is `2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields.ts`. It adds `core.inconnectMessagingContextField` with seven columns, a UUID primary key, Workspace FK, configuration/anchor composite FK, FieldMetadata/object/workspace composite FK, unique workspace + field, unique workspace + ordinal, `ordinal >= 0`, and cascading presentation-row lifecycle. It has no `messagingConfigurationId` column and requires no Slow Command. Its `down` removes only the ContextField table and its owned constraints/indexes; MessagingConfiguration, Conversations, Messages, ConversationMemberState, ObjectMetadata, FieldMetadata, and CRM record data remain. Loss of presentation configuration on downgrade is acceptable.
 
 ### Validation Checkpoint
 
@@ -1000,6 +1068,12 @@ The PostgreSQL microsecond regression used a Message `createdAt` ending in `.123
 
 The current Conversation work-state inbox UX has green focused frontend coverage and green backend `readThroughMessageId` coverage. Frontend and backend typechecks, touched-file typed lint, project diff lint, format, diff checks, and metadata GraphQL codegen passed. Validation covers server-backed All/Unread/Favorites/Pending views, search plus work state, pagination reset and variable preservation, unread/favorite/pending row state, Favorite/Pending actions, manual Mark Read/Mark Unread, manual-unread suppression, hidden-tab behavior, realtime list membership, selected-detail preservation, delayed inbound outside and inside the returned page, realtime hints never acting as read authority, Conversation-switch races, and safe accumulated targets across Message `fetchMore`. The inbox UX and `readThroughMessageId` required no database change or migration, and validation made no real Twilio, WhatsApp, provider, upload, or storage call.
 
+Fase 10A has green focused coverage: nine suites and 97 tests. The Messaging backend regression passed 32 suites and 329 tests, with the existing omissions still omitted. Server tsgo/typecheck, touched-file typed lint, `lint:diff-with-main twenty-server`, `git diff --check`, and metadata GraphQL codegen were green. Validation made no real Twilio, WhatsApp, provider, FileStorage, or external CRM calls.
+
+The real CRM Context Fields Fast Command was validated `up` and `down` against an isolated disposable PostgreSQL database after applying the real PRE-10A Messaging command chain. The normal database remained `default` and was not migrated or modified. `up` succeeded; existing MessagingConfigurations remained valid with zero ContextField rows and no backfill or CRM scan. The physical seven-column schema matched the entity and `messagingConfigurationId` was absent. The configuration/anchor FK rejected wrong-anchor and cross-workspace rows with SQLSTATE `23503`; the FieldMetadata composite FK rejected wrong-object and wrong-workspace rows with `23503`; duplicate workspace + field and workspace + ordinal rows were rejected with `23505`; ordinal `-1` was rejected with `23514`; and delete cascades were verified. Real `down` succeeded with POST-10A data, removed only the ContextField table and its owned artifacts, and restored the relevant PRE-10A schema without touching CRM or Messaging authority data. The disposable database was removed. This local validation does not assert execution in production.
+
+Fase 10A intentionally has no Slow Command. Zero ContextField rows is valid, so there is no backfill, CRM scan, NxM operation, or network operation; existing installations remain valid immediately after Fast `up`.
+
 ### Planned Boundaries
 
 The complete Conversation work-state backend and visible inbox UX **ARE IMPLEMENTED**: durable `ConversationMemberState`, personal Favorite, personal derived Unread, shared manual Pending, rollout baseline, authorized SQL work-state filters, GraphQL work-state mutations, the shared Pending `CONVERSATION_UPDATED` hint, server-backed All/Unread/Favorites/Pending views, row indicators, visible Favorite/Pending/Read/Unread actions, manual-unread suppression, and snapshot-safe automatic read.
@@ -1008,7 +1082,9 @@ The outbound media backend **IS IMPLEMENTED**: secure actor/workspace-scoped sta
 
 The user-facing outbound attachment composer **IS IMPLEMENTED**: attachment button, accessible file picker, indeterminate upload/finalization state UX, Retry, Remove, local previews, and send-media UX for one capability-supported attachment. Replacement is explicit Remove plus a new selection; there is no separate multi-file replacement workflow.
 
-Still **NOT IMPLEMENTED**: immediate cross-device realtime for personal Favorite/read mutations; automatic Pending business rules; per-filter numeric counts; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; a CRM Lead context panel; Lead matching/linking; auto-link; automatic Lead creation; CRM owner changes from Messaging; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates. No next product phase is selected by this checkpoint.
+The secure dynamic CRM Conversation context backend **IS IMPLEMENTED**: ContextField persistence, ordered configuration management, an authorized context query, safe normalized values, standard object/field permission enforcement, and a Record Access-scoped final CRM `SELECT`.
+
+Still **NOT IMPLEMENTED**: the Fase 10B visible dynamic CRM Conversation context panel; CRM field editing; owner, stage, or phase changes; linking or unlinking; matching, auto-link, or automatic record creation; related lists or Folio ISO context; relation/morph-relation ContextFields; generic CRM realtime; immediate cross-device realtime for personal Favorite/read mutations; automatic Pending business rules; per-filter numeric counts; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates. The next intended boundary is the visible frontend CRM Conversation context panel using the existing secure Fase 10A backend; its detailed design remains future work.
 
 ### Local Development Runtime
 
@@ -1147,6 +1223,15 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Shared Pending realtime may publish only the shared Conversation hint and must never include Workspace Member identity, Favorite, manual-unread, or cursor data.
 - Personal Favorite/read state must never be broadcast through shared `CONVERSATION_UPDATED`; other tabs or devices converge through normal authorized refetch or reconnect.
 - Every Messaging Instance Command must be registered and discoverable by the normal upgrade runner; a command existing only in the filesystem is not part of the upgrade chain.
+- CRM context is derived from the Conversation's configured dynamic anchor; never hardcode Lead or another CRM object as context authority.
+- `MessagingConfiguration` is workspace-singleton by `workspaceId`; never invent a second configuration identity or persist `messagingConfigurationId` on ContextField.
+- ContextField stores only workspace/object/field/ordinal presentation configuration, never CRM values. Configuration is a presentation allowlist and grants no record or field access.
+- Runtime context must apply current Twenty object permission, current field permission, and INCONNECT Record Access. The final CRM record `SELECT` must retain `applyReadScopeToQueryBuilder`; prior Conversation authorization alone is insufficient.
+- Runtime context clients supply only `conversationId`. Object, record, schema, table, and selected columns must derive server-side from validated live metadata, and only readable configured fields may be selected or returned.
+- Canonical `recordLabel` uses only readable `labelIdentifierFieldMetadataId`; never fall back to an arbitrary field or record ID.
+- `RELATION` and `MORPH_RELATION` remain unsupported until a generic resolver can preserve target-object standard permissions, Record Access, and workspace isolation.
+- An `UNASSIGNED` Conversation performs no CRM lookup, matching, auto-link, or record creation.
+- Context values are live read-only CRM reads. Never duplicate/cache record values or durable actor-specific readable fields in Messaging, and never introduce CRM writes silently.
 - Never hardcode Lead, schema, physical table, owner field, workspace, ObjectMetadata, Role, or Workspace Member identifiers.
 - Keep the domain provider-neutral and do not couple it to Twilio.
 - PostgreSQL is operational authority. BullMQ may provide at-least-once transport but is never authority.
