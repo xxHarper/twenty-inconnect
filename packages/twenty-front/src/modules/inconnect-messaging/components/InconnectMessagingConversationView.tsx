@@ -7,6 +7,7 @@ import {
   IconClock,
   IconEye,
   IconEyeOff,
+  IconInfoCircle,
   IconStar,
 } from 'twenty-ui/icon';
 import { IconButton } from 'twenty-ui/input';
@@ -46,6 +47,7 @@ type InconnectMessagingConversationViewProps = {
   realtimeUnavailable: boolean;
   onMessageAccepted: () => void;
   onWorkStateChanged: () => void;
+  onShowContext?: () => void;
 };
 
 export const InconnectMessagingConversationView = ({
@@ -57,6 +59,7 @@ export const InconnectMessagingConversationView = ({
   realtimeUnavailable,
   onMessageAccepted,
   onWorkStateChanged,
+  onShowContext,
 }: InconnectMessagingConversationViewProps) => {
   const { t, i18n } = useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -235,6 +238,13 @@ export const InconnectMessagingConversationView = ({
             aria-label={t`Conversation actions`}
             aria-busy={workState.isMutationPending || workState.isReadPending}
           >
+            {onShowContext && (
+              <IconButton
+                Icon={IconInfoCircle}
+                ariaLabel={t`Show CRM context`}
+                onClick={onShowContext}
+              />
+            )}
             <IconButton
               Icon={IconStar}
               accent={conversation.isFavorite ? 'blue' : 'default'}

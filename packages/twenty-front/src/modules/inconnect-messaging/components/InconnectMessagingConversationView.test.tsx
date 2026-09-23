@@ -161,7 +161,7 @@ beforeEach(() => {
   i18n.activate(SOURCE_LOCALE);
 });
 
-const renderView = (refreshNonce = 0) =>
+const renderView = (refreshNonce = 0, onShowContext?: () => void) =>
   render(
     <I18nProvider i18n={i18n}>
       <InconnectMessagingConversationView
@@ -173,11 +173,22 @@ const renderView = (refreshNonce = 0) =>
         realtimeUnavailable={false}
         onMessageAccepted={jest.fn()}
         onWorkStateChanged={mockOnWorkStateChanged}
+        onShowContext={onShowContext}
       />
     </I18nProvider>,
   );
 
 describe('InconnectMessagingConversationView', () => {
+  it('exposes an accessible context action when the compact layout requests it', () => {
+    const onShowContext = jest.fn();
+    renderView(0, onShowContext);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show CRM context' }));
+
+    expect(onShowContext).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Composer')).toBeInTheDocument();
+  });
+
   it('renders authorized text and uses the older-message cursor', async () => {
     renderView();
     expect(screen.getByText('Authorized text')).toBeInTheDocument();

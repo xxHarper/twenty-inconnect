@@ -47,6 +47,29 @@ export const INCONNECT_MESSAGING_CONVERSATION = gql`
   }
 `;
 
+export const INCONNECT_MESSAGING_CONVERSATION_CONTEXT = gql`
+  query InconnectMessagingConversationContext($conversationId: UUID!) {
+    inconnectMessagingConversationContext(conversationId: $conversationId) {
+      state
+      object {
+        objectMetadataId
+        label
+      }
+      record {
+        recordId
+        recordLabel
+      }
+      fields {
+        fieldMetadataId
+        label
+        valueKind
+        displayValue
+        ordinal
+      }
+    }
+  }
+`;
+
 export const INCONNECT_MESSAGING_MESSAGES = gql`
   query InconnectMessagingMessages(
     $conversationId: UUID!

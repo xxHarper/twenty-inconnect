@@ -11,7 +11,10 @@ const mockFetchMore = jest.fn();
 const mockRefetch = jest.fn();
 const mockUseHasPermissionFlag = jest.fn();
 let mockIsMobile = false;
+let mockIsContextCompact = false;
 let mockSseClient: { subscribe: jest.Mock } | null = null;
+const mockOpenModal = jest.fn();
+const mockCloseModal = jest.fn();
 
 jest.mock('@apollo/client/react', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
@@ -21,6 +24,12 @@ jest.mock('@/settings/roles/hooks/useHasPermissionFlag', () => ({
 }));
 jest.mock('@/ui/utilities/responsive/hooks/useIsMobile', () => ({
   useIsMobile: () => mockIsMobile,
+}));
+jest.mock('react-responsive', () => ({
+  useMediaQuery: () => mockIsContextCompact,
+}));
+jest.mock('@/ui/layout/modal/hooks/useModal', () => ({
+  useModal: () => ({ openModal: mockOpenModal, closeModal: mockCloseModal }),
 }));
 jest.mock('@/ui/utilities/state/jotai/hooks/useAtomStateValue', () => ({
   useAtomStateValue: () => mockSseClient,
@@ -35,14 +44,40 @@ jest.mock(
       conversationId,
       refreshNonce,
       onClose,
+      onShowContext,
     }: {
       conversationId: string;
       refreshNonce: number;
       onClose: () => void;
+      onShowContext?: () => void;
     }) => (
       <div>
         <span>{`Selected ${conversationId} refresh ${refreshNonce}`}</span>
         <button onClick={onClose}>Back to conversations</button>
+        {onShowContext && (
+          <button onClick={onShowContext}>Show CRM context</button>
+        )}
+      </div>
+    ),
+  }),
+);
+jest.mock(
+  '@/inconnect-messaging/components/InconnectMessagingConversationContextPanel',
+  () => ({
+    InconnectMessagingConversationContextPanel: ({
+      conversationId,
+      refreshNonce,
+      displayMode,
+      onUnavailable,
+    }: {
+      conversationId: string;
+      refreshNonce: number;
+      displayMode: string;
+      onUnavailable: () => void;
+    }) => (
+      <div>
+        <span>{`Context ${conversationId} refresh ${refreshNonce} mode ${displayMode}`}</span>
+        <button onClick={onUnavailable}>Lose context access</button>
       </div>
     ),
   }),
@@ -105,6 +140,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRefetch.mockResolvedValue({});
   mockIsMobile = false;
+  mockIsContextCompact = false;
   mockSseClient = null;
   mockUseHasPermissionFlag.mockReturnValue(true);
   setConversations();
@@ -113,11 +149,39 @@ beforeEach(() => {
 describe('InconnectMessagingPage', () => {
   it('shows authorized conversations and selects one', () => {
     renderPage();
+    expect(screen.queryByText(/Context conversation-/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
     expect(
       screen.getByText('Selected conversation-1 refresh 0'),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText('Context conversation-1 refresh 0 mode desktop'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Unassigned')).toBeInTheDocument();
+  });
+
+  it('replaces the selected context immediately when switching Conversations', () => {
+    setConversations([
+      { cursor: 'cursor-1', node: conversation },
+      {
+        cursor: 'cursor-2',
+        node: {
+          ...conversation,
+          id: 'conversation-2',
+          externalAddress: '+15550002222',
+        },
+      },
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+    expect(screen.getByText(/Context conversation-1/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /\+15550002222/ }));
+
+    expect(
+      screen.queryByText(/Context conversation-1/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Context conversation-2/)).toBeInTheDocument();
   });
 
   it('shows an empty state and searches through the query variables', () => {
@@ -181,6 +245,46 @@ describe('InconnectMessagingPage', () => {
     expect(screen.getByRole('searchbox')).toBeInTheDocument();
   });
 
+  it('opens CRM context in the compact interaction without replacing the chat', () => {
+    mockIsMobile = true;
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show CRM context' }));
+
+    expect(mockOpenModal).toHaveBeenCalledWith(
+      'inconnect-messaging-context-conversation-1',
+    );
+    expect(
+      screen.getByText('Selected conversation-1 refresh 0'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Context conversation-1 refresh 0 mode modal'),
+    ).toBeInTheDocument();
+  });
+
+  it('clears selection and context when context access is lost', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Lose context access' }),
+    );
+
+    expect(
+      screen.queryByText(/Selected conversation-/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Context conversation-/)).not.toBeInTheDocument();
+    expect(mockCloseModal).toHaveBeenCalledWith(
+      'inconnect-messaging-context-conversation-1',
+    );
+    expect(
+      screen.getAllByText(
+        'Conversation is unavailable or you no longer have access.',
+      ),
+    ).not.toHaveLength(0);
+  });
+
   it('coalesces duplicate creation hints and refetches the selected conversation', () => {
     jest.useFakeTimers();
     let next:
@@ -227,6 +331,9 @@ describe('InconnectMessagingPage', () => {
     expect(
       screen.getByText('Selected conversation-1 refresh 1'),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText('Context conversation-1 refresh 0 mode desktop'),
+    ).toBeInTheDocument();
     jest.useRealTimers();
   });
 
@@ -268,6 +375,9 @@ describe('InconnectMessagingPage', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
     expect(
       screen.getByText('Selected conversation-1 refresh 1'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Context conversation-1 refresh 0 mode desktop'),
     ).toBeInTheDocument();
     jest.useRealTimers();
   });
@@ -311,6 +421,9 @@ describe('InconnectMessagingPage', () => {
       expect(
         screen.getByText('Selected conversation-1 refresh 1'),
       ).toBeInTheDocument();
+      expect(
+        screen.getByText('Context conversation-1 refresh 0 mode desktop'),
+      ).toBeInTheDocument();
       jest.useRealTimers();
     },
   );
@@ -337,6 +450,22 @@ describe('InconnectMessagingPage', () => {
         },
       }),
     );
+    jest.useRealTimers();
+  });
+
+  it('refreshes only the selected CRM context on reconnect', () => {
+    jest.useFakeTimers();
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+
+    act(() => {
+      window.dispatchEvent(new Event('sse-client-reconnected'));
+      jest.advanceTimersByTime(150);
+    });
+
+    expect(
+      screen.getByText('Context conversation-1 refresh 1 mode desktop'),
+    ).toBeInTheDocument();
     jest.useRealTimers();
   });
 
@@ -461,6 +590,9 @@ describe('InconnectMessagingPage', () => {
 
       expect(
         screen.getByText('Selected conversation-1 refresh 0'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Context conversation-1 refresh 0 mode desktop'),
       ).toBeInTheDocument();
       expect(screen.queryByText('+15550001111')).not.toBeInTheDocument();
     },

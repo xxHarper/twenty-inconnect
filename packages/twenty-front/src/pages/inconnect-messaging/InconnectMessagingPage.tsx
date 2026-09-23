@@ -8,7 +8,7 @@ import { useDebounce, useDebouncedCallback } from 'use-debounce';
 
 import { InconnectMessagingConversationListItem } from '@/inconnect-messaging/components/InconnectMessagingConversationListItem';
 import { useListenToBrowserEvent } from '@/browser-event/hooks/useListenToBrowserEvent';
-import { InconnectMessagingConversationView } from '@/inconnect-messaging/components/InconnectMessagingConversationView';
+import { InconnectMessagingConversationWorkspace } from '@/inconnect-messaging/components/InconnectMessagingConversationWorkspace';
 import { mergeInconnectMessagingEdges } from '@/inconnect-messaging/utils/mergeInconnectMessagingEdges';
 import { useHasPermissionFlag } from '@/settings/roles/hooks/useHasPermissionFlag';
 import { SSE_CLIENT_RECONNECTED_EVENT_NAME } from '@/sse-db-event/constants/SseClientReconnectedEventName';
@@ -55,6 +55,7 @@ export const InconnectMessagingPage = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectionUnavailable, setSelectionUnavailable] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [contextRefreshNonce, setContextRefreshNonce] = useState(0);
   const [subscriptionError, setSubscriptionError] = useState(false);
   const [moreConversationsError, setMoreConversationsError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -120,6 +121,9 @@ export const InconnectMessagingPage = () => {
   const handleReconnect = useCallback(() => {
     setSubscriptionError(false);
     scheduleRefresh(true, selectedId !== null);
+    if (selectedId !== null) {
+      setContextRefreshNonce((current) => current + 1);
+    }
   }, [scheduleRefresh, selectedId]);
   useListenToBrowserEvent({
     eventName: SSE_CLIENT_RECONNECTED_EVENT_NAME,
@@ -284,13 +288,14 @@ export const InconnectMessagingPage = () => {
           </StyledList>
         )}
         {selectedId ? (
-          <InconnectMessagingConversationView
+          <InconnectMessagingConversationWorkspace
             key={selectedId}
             conversationId={selectedId}
             refreshNonce={refreshNonce}
+            contextRefreshNonce={contextRefreshNonce}
+            isMobile={isMobile}
             onClose={closeSelection}
             onUnavailable={handleUnavailable}
-            showBack={isMobile}
             realtimeUnavailable={!sseClient || subscriptionError}
             onMessageAccepted={handleMessageAccepted}
             onWorkStateChanged={handleWorkStateChanged}
