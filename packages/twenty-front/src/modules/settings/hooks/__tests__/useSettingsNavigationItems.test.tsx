@@ -52,7 +52,9 @@ const mockBilling: Billing = {
 const Wrapper = ({ children }: { children: ReactNode }) => (
   <MockedProvider>
     <JotaiProvider store={jotaiStore}>
-      <MemoryRouter>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
         <I18nProvider i18n={i18n}>
           <SnackBarComponentInstanceContext.Provider
             value={{ instanceId: 'test-scope-id' }}
@@ -205,5 +207,52 @@ describe('useSettingsNavigationItems', () => {
         .filter((item) => item.path !== SettingsPath.Accounts)
         .every((item) => !item.isHidden),
     ).toBe(true);
+  });
+
+  it('shows Messaging CRM context only with management permission', () => {
+    (usePermissionFlagMap as jest.Mock).mockImplementation(() => ({
+      [PermissionFlagType.INCONNECT_MESSAGING]: true,
+      [PermissionFlagType.MANAGE_INCONNECT_MESSAGING]: true,
+    }));
+
+    const { result } = renderHook(() => useSettingsNavigationItems(), {
+      wrapper: Wrapper,
+    });
+    const workspaceSection = result.current.find(
+      (section) => section.label === 'Workspace',
+    );
+    const messagingItem = workspaceSection?.items.find(
+      (item) => item.label === 'Messaging',
+    );
+
+    expect(messagingItem?.isHidden).toBe(false);
+    expect(messagingItem?.path).toBe(SettingsPath.Messaging);
+    expect(messagingItem?.subItems).toEqual([
+      expect.objectContaining({
+        label: 'CRM context',
+        path: SettingsPath.MessagingCrmContext,
+        isHidden: false,
+      }),
+    ]);
+  });
+
+  it('does not treat ordinary Messaging access as management authority', () => {
+    (usePermissionFlagMap as jest.Mock).mockImplementation(() => ({
+      [PermissionFlagType.INCONNECT_MESSAGING]: true,
+      [PermissionFlagType.MANAGE_INCONNECT_MESSAGING]: false,
+    }));
+
+    const { result } = renderHook(() => useSettingsNavigationItems(), {
+      wrapper: Wrapper,
+    });
+    const workspaceSection = result.current.find(
+      (section) => section.label === 'Workspace',
+    );
+    const messagingItem = workspaceSection?.items.find(
+      (item) => item.label === 'Messaging',
+    );
+
+    expect(messagingItem?.isHidden).toBe(true);
+    expect(messagingItem?.subItems?.[0]?.isHidden).toBe(true);
   });
 });

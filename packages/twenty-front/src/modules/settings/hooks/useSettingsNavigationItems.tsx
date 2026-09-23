@@ -181,6 +181,23 @@ const useSettingsNavigationItems = (): SettingsNavigationSection[] => {
             !isEmailGroupFeatureEnabled ||
             !permissionMap[PermissionFlagType.WORKSPACE],
         },
+        {
+          label: t`Messaging`,
+          path: SettingsPath.Messaging,
+          Icon: IconMessage,
+          isHidden:
+            !permissionMap[PermissionFlagType.MANAGE_INCONNECT_MESSAGING],
+          subItems: [
+            {
+              label: t`CRM context`,
+              path: SettingsPath.MessagingCrmContext,
+              Icon: IconHierarchy2,
+              indentationLevel: 2,
+              isHidden:
+                !permissionMap[PermissionFlagType.MANAGE_INCONNECT_MESSAGING],
+            },
+          ],
+        },
       ],
     },
     {

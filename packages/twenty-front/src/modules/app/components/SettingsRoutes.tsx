@@ -535,6 +535,14 @@ const SettingsSecurityCommercialTeams = lazy(() =>
   ),
 );
 
+const SettingsMessagingCrmContext = lazy(() =>
+  import('~/pages/settings/messaging/SettingsMessagingCrmContext').then(
+    (module) => ({
+      default: module.SettingsMessagingCrmContext,
+    }),
+  ),
+);
+
 const SettingsAdmin = lazy(() =>
   import('~/pages/settings/admin-panel/SettingsAdmin').then((module) => ({
     default: module.SettingsAdmin,
@@ -1056,6 +1064,28 @@ export const SettingsRoutes = ({ isAdminPageEnabled }: SettingsRoutesProps) => (
         <Route
           path={SettingsPath.SecurityCommercialTeams}
           element={<SettingsSecurityCommercialTeams />}
+        />
+      </Route>
+
+      <Route
+        element={
+          <SettingsProtectedRouteWrapper
+            settingsPermission={PermissionFlagType.MANAGE_INCONNECT_MESSAGING}
+          />
+        }
+      >
+        <Route
+          path={SettingsPath.Messaging}
+          element={
+            <Navigate
+              to={getSettingsPath(SettingsPath.MessagingCrmContext)}
+              replace
+            />
+          }
+        />
+        <Route
+          path={SettingsPath.MessagingCrmContext}
+          element={<SettingsMessagingCrmContext />}
         />
       </Route>
 

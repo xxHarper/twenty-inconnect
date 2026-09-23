@@ -70,6 +70,40 @@ export const INCONNECT_MESSAGING_CONVERSATION_CONTEXT = gql`
   }
 `;
 
+export const INCONNECT_MESSAGING_CONTEXT_CONFIGURATION = gql`
+  query InconnectMessagingContextConfiguration {
+    inconnectMessagingContextConfiguration {
+      anchorObject {
+        label
+      }
+      fields {
+        fieldMetadataId
+        label
+        valueKind
+      }
+      availableFields {
+        fieldMetadataId
+        label
+        valueKind
+        isLabelIdentifier
+      }
+      maximumFieldCount
+    }
+  }
+`;
+
+export const REPLACE_INCONNECT_MESSAGING_CONTEXT_CONFIGURATION = gql`
+  mutation ReplaceInconnectMessagingContextConfiguration(
+    $fieldMetadataIds: [UUID!]!
+  ) {
+    replaceInconnectMessagingContextConfiguration(
+      fieldMetadataIds: $fieldMetadataIds
+    ) {
+      maximumFieldCount
+    }
+  }
+`;
+
 export const INCONNECT_MESSAGING_MESSAGES = gql`
   query InconnectMessagingMessages(
     $conversationId: UUID!

@@ -70,6 +70,8 @@ export enum SettingsPath {
   Security = 'general#security',
   SecurityRecordAccess = 'security/record-access',
   SecurityCommercialTeams = 'security/commercial-teams',
+  Messaging = 'messaging',
+  MessagingCrmContext = 'messaging/crm-context',
   Logs = 'general#logs',
   NewSSOIdentityProvider = 'security/sso/new',
 
