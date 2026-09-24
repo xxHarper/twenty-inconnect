@@ -258,7 +258,10 @@ export class InconnectMessagingOutboxService {
       return 'MESSAGE_UPDATED';
     }
 
-    if (event.eventType === 'CONVERSATION_PENDING_CHANGED') {
+    if (
+      event.eventType === 'CONVERSATION_PENDING_CHANGED' ||
+      event.eventType === 'CONVERSATION_LINKED'
+    ) {
       return 'CONVERSATION_UPDATED';
     }
 

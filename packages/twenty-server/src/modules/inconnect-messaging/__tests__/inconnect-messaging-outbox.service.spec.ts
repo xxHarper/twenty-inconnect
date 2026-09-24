@@ -320,6 +320,33 @@ describe('InconnectMessagingOutboxService', () => {
     ).not.toContain('pendingAt');
   });
 
+  it('maps a shared link transition to the same authorized Conversation hint', async () => {
+    const { service, authorizationService, realtimePublisherService } =
+      buildService({
+        initialEvent: {
+          ...event,
+          aggregateType: 'CONVERSATION',
+          eventType: 'CONVERSATION_LINKED',
+        },
+      });
+
+    await service.publishEvent(event.id);
+
+    expect(
+      authorizationService.findAuthorizedConversation,
+    ).toHaveBeenCalledTimes(2);
+    expect(realtimePublisherService.publishToMember).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceMemberId: 'member-one',
+        hint: expect.objectContaining({
+          eventType: 'CONVERSATION_UPDATED',
+          conversationId: event.aggregateId,
+          messageId: null,
+        }),
+      }),
+    );
+  });
+
   it('recovery enqueues persisted pending or expired events', async () => {
     const { service, messageQueueService } = buildService();
 

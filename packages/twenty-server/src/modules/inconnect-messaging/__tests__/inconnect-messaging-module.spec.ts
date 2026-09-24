@@ -16,11 +16,14 @@ import { InconnectMessagingDispatchJob } from 'src/modules/inconnect-messaging/j
 import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-read.resolver';
 import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
 import { InconnectMessagingContextResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-context.resolver';
+import { InconnectMessagingLinkResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-link.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
 import { InconnectMessagingContextConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context-configuration.service';
 import { InconnectMessagingContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context.service';
+import { InconnectMessagingConversationLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-link.service';
+import { InconnectMessagingLinkCandidateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-link-candidate.service';
 import { ModulesModule } from 'src/modules/modules.module';
 
 describe('InconnectMessagingModule wiring', () => {
@@ -97,6 +100,11 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(InconnectMessagingSubscriptionResolver);
     expect(moduleProviders).toContain(InconnectMessagingContextResolver);
     expect(moduleProviders).toContain(InconnectMessagingContextService);
+    expect(moduleProviders).toContain(InconnectMessagingLinkResolver);
+    expect(moduleProviders).toContain(InconnectMessagingLinkCandidateService);
+    expect(moduleProviders).toContain(
+      InconnectMessagingConversationLinkService,
+    );
     expect(moduleProviders).toContain(
       InconnectMessagingContextConfigurationService,
     );

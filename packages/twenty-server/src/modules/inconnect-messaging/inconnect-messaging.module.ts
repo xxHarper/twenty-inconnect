@@ -46,6 +46,7 @@ import { InconnectMessagingTemplateResolver } from 'src/modules/inconnect-messag
 import { InconnectMessagingOutboundUploadResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-outbound-upload.resolver';
 import { InconnectMessagingWorkStateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-work-state.resolver';
 import { InconnectMessagingContextResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-context.resolver';
+import { InconnectMessagingLinkResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-link.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
@@ -72,6 +73,8 @@ import { InconnectMessagingMediaRecoveryCronCommand } from 'src/modules/inconnec
 import { InconnectMessagingWorkStateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-work-state.service';
 import { InconnectMessagingContextConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context-configuration.service';
 import { InconnectMessagingContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context.service';
+import { InconnectMessagingConversationLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-link.service';
+import { InconnectMessagingLinkCandidateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-link-candidate.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -117,6 +120,9 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingContextService,
     InconnectMessagingContextConfigurationService,
     InconnectMessagingContextResolver,
+    InconnectMessagingLinkCandidateService,
+    InconnectMessagingConversationLinkService,
+    InconnectMessagingLinkResolver,
     InconnectMessagingWorkStateService,
     InconnectMessagingWorkStateResolver,
     InconnectMessagingSendService,

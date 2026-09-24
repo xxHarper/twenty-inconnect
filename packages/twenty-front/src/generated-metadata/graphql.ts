@@ -2296,6 +2296,26 @@ export type InconnectMessagingConversationEdge = {
   node: InconnectMessagingConversation;
 };
 
+export type InconnectMessagingConversationLinkCandidate = {
+  __typename?: 'InconnectMessagingConversationLinkCandidate';
+  fields: Array<InconnectMessagingContextField>;
+  recordId: Scalars['UUID']['output'];
+  recordLabel?: Maybe<Scalars['String']['output']>;
+};
+
+export type InconnectMessagingConversationLinkCandidateConnection = {
+  __typename?: 'InconnectMessagingConversationLinkCandidateConnection';
+  edges: Array<InconnectMessagingConversationLinkCandidateEdge>;
+  pageInfo: PageInfo;
+  totalCount: Scalars['Int']['output'];
+};
+
+export type InconnectMessagingConversationLinkCandidateEdge = {
+  __typename?: 'InconnectMessagingConversationLinkCandidateEdge';
+  cursor: Scalars['String']['output'];
+  node: InconnectMessagingConversationLinkCandidate;
+};
+
 export type InconnectMessagingConversationWorkState = {
   __typename?: 'InconnectMessagingConversationWorkState';
   conversationId: Scalars['UUID']['output'];
@@ -3193,6 +3213,7 @@ export type Mutation = {
   installApplication: Application;
   /** @deprecated Use installApplication instead */
   installMarketplaceApp: Scalars['Boolean']['output'];
+  linkInconnectMessagingConversation?: Maybe<InconnectMessagingConversationContext>;
   markInconnectMessagingConversationRead: InconnectMessagingConversationWorkState;
   markInconnectMessagingConversationUnread: InconnectMessagingConversationWorkState;
   moveInconnectCommercialTeamMember: InconnectCommercialTeamSettingsMutationResult;
@@ -3963,6 +3984,12 @@ export type MutationInstallApplicationArgs = {
 export type MutationInstallMarketplaceAppArgs = {
   universalIdentifier: Scalars['String']['input'];
   version?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationLinkInconnectMessagingConversationArgs = {
+  conversationId: Scalars['UUID']['input'];
+  recordId: Scalars['UUID']['input'];
 };
 
 
@@ -5207,6 +5234,7 @@ export type Query = {
   inconnectMessagingContextConfiguration: InconnectMessagingContextConfiguration;
   inconnectMessagingConversation?: Maybe<InconnectMessagingConversation>;
   inconnectMessagingConversationContext?: Maybe<InconnectMessagingConversationContext>;
+  inconnectMessagingConversationLinkCandidates: InconnectMessagingConversationLinkCandidateConnection;
   inconnectMessagingConversations: InconnectMessagingConversationConnection;
   inconnectMessagingMessages?: Maybe<InconnectMessagingMessageConnection>;
   inconnectMessagingSendCapabilities?: Maybe<InconnectMessagingSendCapabilities>;
@@ -5583,6 +5611,13 @@ export type QueryInconnectMessagingConversationArgs = {
 
 export type QueryInconnectMessagingConversationContextArgs = {
   conversationId: Scalars['UUID']['input'];
+};
+
+
+export type QueryInconnectMessagingConversationLinkCandidatesArgs = {
+  conversationId: Scalars['UUID']['input'];
+  paging?: InputMaybe<InconnectMessagingPaging>;
+  search: Scalars['String']['input'];
 };
 
 

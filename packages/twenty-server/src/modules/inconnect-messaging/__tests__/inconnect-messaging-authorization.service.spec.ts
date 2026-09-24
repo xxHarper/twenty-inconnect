@@ -395,6 +395,71 @@ describe('InconnectMessagingAuthorizationService', () => {
         }),
       ).resolves.toBe(expected);
     });
+
+    it('allows manual linking with Messaging and Triage without Send or Manage', async () => {
+      const { service } = buildService({
+        conversation: unassignedConversation,
+        allowedFlags: [
+          PermissionFlagType.INCONNECT_MESSAGING,
+          PermissionFlagType.TRIAGE_INCONNECT_MESSAGING,
+        ],
+      });
+
+      await expect(service.canUseManualLinking(authContext)).resolves.toBe(
+        true,
+      );
+      await expect(
+        service.canManuallyLinkConversation({
+          authContext,
+          conversation: unassignedConversation as never,
+        }),
+      ).resolves.toBe(true);
+    });
+
+    it.each([
+      [PermissionFlagType.INCONNECT_MESSAGING],
+      [PermissionFlagType.TRIAGE_INCONNECT_MESSAGING],
+      [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.SEND_INCONNECT_MESSAGING,
+      ],
+      [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.MANAGE_INCONNECT_MESSAGING,
+      ],
+    ])(
+      'denies manual linking without the exact triage boundary',
+      async (...allowedFlags) => {
+        const { service } = buildService({
+          conversation: unassignedConversation,
+          allowedFlags,
+        });
+
+        await expect(
+          service.canManuallyLinkConversation({
+            authContext,
+            conversation: unassignedConversation as never,
+          }),
+        ).resolves.toBe(false);
+      },
+    );
+
+    it('requires current linked-record authorization for a same-target retry', async () => {
+      const { service } = buildService({
+        allowedFlags: [
+          PermissionFlagType.INCONNECT_MESSAGING,
+          PermissionFlagType.TRIAGE_INCONNECT_MESSAGING,
+        ],
+        recordReadable: false,
+      });
+
+      await expect(
+        service.canManuallyLinkConversation({
+          authContext,
+          conversation: linkedConversation as never,
+        }),
+      ).resolves.toBe(false);
+    });
   });
 
   it('keeps Manage independent from conversation read access', async () => {

@@ -131,11 +131,102 @@ export class InconnectMessagingAuthorizationService {
     conversationId: string;
   }): Promise<boolean> {
     return Boolean(
-      await this.findConversationAuthorizedForOperation({
+      await this.findConversationAuthorizedForTriage({
         authContext,
         conversationId,
-        operation: 'triage',
       }),
+    );
+  }
+
+  async canUseManualLinking(
+    authContext: WorkspaceAuthContext,
+  ): Promise<boolean> {
+    return Boolean(await this.resolveManualLinkingAuthorization(authContext));
+  }
+
+  async findConversationAuthorizedForTriage({
+    authContext,
+    conversationId,
+  }: {
+    authContext: WorkspaceAuthContext;
+    conversationId: string;
+  }): Promise<InconnectMessagingConversationEntity | null> {
+    return this.findConversationAuthorizedForOperation({
+      authContext,
+      conversationId,
+      operation: 'triage',
+    });
+  }
+
+  async canManuallyLinkConversation({
+    authContext,
+    conversation,
+  }: {
+    authContext: WorkspaceAuthContext;
+    conversation: InconnectMessagingConversationEntity;
+  }): Promise<boolean> {
+    if (conversation.workspaceId !== authContext.workspace.id) {
+      return false;
+    }
+
+    const authorization =
+      await this.resolveManualLinkingAuthorization(authContext);
+
+    if (authorization === null) {
+      return false;
+    }
+
+    if (
+      conversation.linkedRecordObjectMetadataId === null &&
+      conversation.linkedRecordId === null
+    ) {
+      return true;
+    }
+
+    if (
+      conversation.linkedRecordObjectMetadataId === null ||
+      conversation.linkedRecordId === null
+    ) {
+      return false;
+    }
+
+    const configuration = await this.getConfiguration(authContext.workspace.id);
+
+    if (
+      configuration === null ||
+      conversation.linkedRecordObjectMetadataId !==
+        configuration.anchorObjectMetadataId ||
+      !this.hasStandardObjectReadPermission({
+        authorization,
+        objectMetadataId: configuration.anchorObjectMetadataId,
+      })
+    ) {
+      return false;
+    }
+
+    return this.recordAccessAuthorizationService.isRecordReadable({
+      workspaceId: authContext.workspace.id,
+      objectMetadataId: configuration.anchorObjectMetadataId,
+      recordId: conversation.linkedRecordId,
+      authContext,
+    });
+  }
+
+  async canReadObjectRecords({
+    authContext,
+    objectMetadataId,
+  }: {
+    authContext: WorkspaceAuthContext;
+    objectMetadataId: string;
+  }): Promise<boolean> {
+    const authorization = await this.resolveHumanAuthorization(authContext);
+
+    return (
+      authorization !== null &&
+      this.hasStandardObjectReadPermission({
+        authorization,
+        objectMetadataId,
+      })
     );
   }
 
@@ -414,6 +505,24 @@ export class InconnectMessagingAuthorizationService {
     } catch {
       return null;
     }
+  }
+
+  private async resolveManualLinkingAuthorization(
+    authContext: WorkspaceAuthContext,
+  ): Promise<HumanAuthorization | null> {
+    const authorization = await this.resolveHumanAuthorization(authContext);
+
+    if (
+      authorization === null ||
+      !(await this.hasPermissionFlags(authorization, [
+        PermissionFlagType.INCONNECT_MESSAGING,
+        PermissionFlagType.TRIAGE_INCONNECT_MESSAGING,
+      ]))
+    ) {
+      return null;
+    }
+
+    return authorization;
   }
 
   private async hasPermissionFlags(
