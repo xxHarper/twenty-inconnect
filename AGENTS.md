@@ -1223,6 +1223,12 @@ Fase 12A manual-linking backend validation is green after the dynamic-count corr
 
 Fase 12A was also physically validated on a completely isolated ephemeral PostgreSQL cluster with a temporary data directory, non-default port, disposable database, synthetic fixture only, explicit current-database/port/data-directory guards, and real TypeORM/PostgreSQL transactions. Candidate search returned authorized targets, omitted inaccessible targets without inflating total, returned empty for blank search, preserved deterministic cursor order, and executed one authorized raw count plus one page query without N+1. Real Conversation `FOR UPDATE` blocked a competing different-target link; after the winner committed, the loser reevaluated and could not overwrite. Same-target retry performed no second row change or Outbox transition. Target `FOR SHARE` was physically acquired, and an incompatible concurrent target `UPDATE` waited until the link transaction completed. Forced rollback left the linked tuple null, persisted no transition, and released locks. Inaccessible, nonexistent, and wrong-object targets remained unlinked. Record Access predicates remained present on the real candidate count/page and target-lock SQL. Each real link transition produced exactly one durable `CONVERSATION_LINKED` event. The ephemeral cluster was destroyed, and the normal database received no writes during this validation.
 
+Environment Precedence Hardening validation is green: 5 focused/config suites and 33 tests passed. Coverage includes development `.env` fallback, development explicit-process override, test `.env.test` fallback, test explicit-process override, effective Core and Raw datasource URLs, explicit and fallback replica URLs, and both Core-then-Raw and Raw-then-Core import orders. The permanent incident regression supplies a disposable URL through the process and a different default-like URL through dotenv, then requires the process value to remain effective. The tests exercised real dotenv loading and effective TypeORM datasource options without initializing a PostgreSQL connection.
+
+The real `twenty-server:typecheck` Nx target passed for the hardening. Touched-file typed lint reported 0 errors and 0 warnings; `lint:diff-with-main twenty-server`, format, and `git diff --check` also passed. Full Nx dependency chains may still hang in existing build/dependency steps; that pre-existing tooling observation is not caused by the environment-precedence change and does not alter the successful real server typecheck result.
+
+No PostgreSQL smoke was required for Environment Precedence Hardening because the defect and correction occur during environment loading and TypeORM option construction, before connection initialization. Its validation opened no PostgreSQL connection and performed no database write, migration, Instance Command, setup/reset, fixture operation, or DML. The local `default` database was neither modified nor required. This was tooling/configuration hardening only: it changed no Messaging, Record Access, Commercial Teams, GraphQL, CRM Context, CRM Linking, frontend, entity, schema, Outbox, or Twilio behavior, and introduced no database change, migration, or Instance Command.
+
 ### Planned Boundaries
 
 The complete Conversation work-state backend and visible inbox UX **ARE IMPLEMENTED**: durable `ConversationMemberState`, personal Favorite, personal derived Unread, shared manual Pending, rollout baseline, authorized SQL work-state filters, GraphQL work-state mutations, the shared Pending `CONVERSATION_UPDATED` hint, server-backed All/Unread/Favorites/Pending views, row indicators, visible Favorite/Pending/Read/Unread actions, manual-unread suppression, and snapshot-safe automatic read.
@@ -1241,9 +1247,25 @@ Still **NOT IMPLEMENTED**: Fase 12B visible linking UI; unlink or relink; anchor
 
 This checkout expects WSL/Linux for local Codex work. Node Linux v24.16.0 and repository Yarn 4.13.0 were validated. Do not mix Windows-installed `node_modules` native bindings with WSL Node, Nx, or Jest. A WSL `yarn install --immutable` restored Linux bindings without changing `yarn.lock`.
 
-Known local tooling hazard: `core.datasource.ts` and `raw.datasource.ts` currently load dotenv with `override: true`, so a shell-provided `PG_DATABASE_URL` can be replaced by `packages/twenty-server/.env`. During Fase 12A validation this caused the local normal `default` database to receive the registered, valid Messaging upgrade chain before the target mismatch was detected. This was local development only, never production. The local `default` database was intentionally left at that valid current Messaging schema state: the Messaging tables were empty, the registered Messaging upgrades were marked complete, and the read-only forensic review found no evidence of application-data DML.
+#### PostgreSQL Environment Precedence
 
-Until that separate tooling follow-up is hardened, never rely solely on shell `PG_DATABASE_URL` to redirect a command that imports those datasource modules. Disposable write or destructive validation must use either a physically isolated PostgreSQL cluster or an explicitly constructed DataSource that does not import dotenv-overriding datasource modules, plus hard guards on `current_database()`, `inet_server_port()`, and `current_setting('data_directory')` before any write. This is a tooling constraint, not a Fase 12A product defect.
+All dotenv loaders owned by `twenty-server` use fallback-only semantics. The stable precedence contract is:
+
+1. An explicit value already present in `process.env`.
+2. `.env.test` when `NODE_ENV === 'test'`, or `.env` otherwise, for variables absent from the process environment.
+3. Existing undefined/default handling when neither source supplies a value.
+
+Dotenv files must never silently replace caller-provided configuration from a shell, CI, container, or script. If explicit `process.env.PG_DATABASE_URL` points to a disposable database while `.env` points to `default`, the disposable URL remains effective. The same precedence preserves an explicit `process.env.PG_DATABASE_REPLICA_URL`; `.env` or `.env.test` supplies either URL only when that variable is absent externally.
+
+`core.datasource.ts` and `raw.datasource.ts` intentionally retain their own dotenv loading because direct and CLI consumers outside Nest depend on the file fallback. Both obey the same safe precedence. Importing Core then Raw, or Raw then Core, cannot change an explicit database or replica URL. This invariant applies to later `twenty-server` dotenv loaders as well: never reintroduce `override: true` or equivalent behavior that silently replaces explicit process configuration.
+
+Normal local development retains its existing fallback. When `PG_DATABASE_URL` is absent from the external environment and the selected dotenv file contains it, the application and CLI receive that value; developers do not need to export it manually. Environment-file discovery itself was not redesigned, so fallback still depends on the existing working-directory assumptions, including `packages/twenty-server` for the relevant direct loaders. This is a non-blocking tooling limitation, not a product defect.
+
+For destructive or disposable database validation, explicit `PG_DATABASE_URL` is now reliable, but defense in depth still applies. When appropriate, verify `current_database()`, `inet_server_port()`, and `current_setting('data_directory')` before a write. A physically isolated PostgreSQL cluster remains a strong option for especially sensitive write or concurrency tests; it is not universally mandatory.
+
+#### Historical Fase 12A Tooling Incident
+
+This note is historical and does not describe current environment-precedence behavior. Before the hardening, the then-active `override: true` policy caused a Fase 12A run intended for a disposable database to use the local `default` database. The mismatch was detected and stopped; it was local development only and never production. Read-only forensic review found no evidence of application-data DML, the Messaging tables were empty, and the valid registered Messaging upgrade chain remained applied and marked complete locally. The local `default` database was intentionally left at the valid current Messaging schema state; no rollback is implied.
 
 ## Local Apple Baseline
 
@@ -1353,6 +1375,7 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Do not make commits, push, create/delete branches or tags, change branches, or rewrite history unless the user explicitly asks.
 - Preserve unrelated and pre-existing worktree changes.
 - Prefer focused tests plus relevant INCONNECT regressions over destructive suites.
+- In `twenty-server`, explicit process environment is authoritative over dotenv files; `.env` and `.env.test` are fallback only. Never reintroduce `override: true` or equivalent behavior that silently replaces caller-provided configuration.
 - Keep security predicates in SQL and fail closed at every unavailable/invalid authority boundary.
 - Do not broaden unsupported mutation/API paths or security scope silently.
 - Never hardcode demo workspace, user, Role, Object, Field, Lead, Folio, Team, or membership IDs in product code.
