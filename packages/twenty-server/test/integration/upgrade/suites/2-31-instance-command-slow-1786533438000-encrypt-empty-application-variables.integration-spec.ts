@@ -15,7 +15,7 @@ jest.useRealTimers();
 
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
 const TEST_REGISTRATION_NAME_PREFIX = 'encrypt-empty-app-var-test-';

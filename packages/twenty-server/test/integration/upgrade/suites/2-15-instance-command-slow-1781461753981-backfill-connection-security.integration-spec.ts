@@ -8,7 +8,7 @@ jest.useRealTimers();
 
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
 const TEST_ROW_HANDLE_PREFIX = 'backfill-connection-security-test-';

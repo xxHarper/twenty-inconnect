@@ -2,8 +2,8 @@ import * as fs from 'fs';
 
 import { generateFrontConfig } from 'src/utils/generate-front-config';
 
-// dotenv runs at import time with override: true, which would clobber the
-// per-test process.env we set below. Neutralize it so each test controls env.
+// dotenv runs at import time, so neutralize it to keep this test independent
+// from the developer's local environment files.
 jest.mock('dotenv', () => ({ config: jest.fn() }));
 jest.mock('fs');
 

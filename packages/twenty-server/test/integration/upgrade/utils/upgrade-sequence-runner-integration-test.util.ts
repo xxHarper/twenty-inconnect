@@ -37,7 +37,7 @@ jest.useRealTimers();
 
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
 export const WS_1 = SEED_APPLE_WORKSPACE_ID;

@@ -19,7 +19,7 @@ jest.useRealTimers();
 
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
 const CHECK_CONSTRAINT_NAME =
@@ -198,9 +198,12 @@ describe('2-5 slow instance command 1798000009000 - EncryptTotpSecretsSlowInstan
 
   it('leaves enc:v2 rows untouched and is idempotent across re-runs', async () => {
     const plaintext = 'already-v2-totp-secret';
-    const preexistingV2 = secretEncryptionService.encryptVersioned(plaintext as PlaintextString, {
-      workspaceId,
-    });
+    const preexistingV2 = secretEncryptionService.encryptVersioned(
+      plaintext as PlaintextString,
+      {
+        workspaceId,
+      },
+    );
     const id = await seedRow({ secret: preexistingV2 });
 
     await command.runDataMigration(dataSource);

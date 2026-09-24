@@ -4,7 +4,7 @@ import * as path from 'path';
 import { config } from 'dotenv';
 config({
   path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
-  override: true,
+  override: false,
 });
 
 export function generateFrontConfig(): void {
