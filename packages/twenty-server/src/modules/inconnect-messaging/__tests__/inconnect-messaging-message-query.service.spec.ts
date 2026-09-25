@@ -26,6 +26,8 @@ const delayedInboundMessage = {
 
 class MessageQueryBuilder {
   operations: string[] = [];
+  selections: Array<{ alias: string | undefined; sql: string }> = [];
+  orderings: string[] = [];
 
   leftJoinAndSelect() {
     return this;
@@ -47,20 +49,23 @@ class MessageQueryBuilder {
     return { getCount: jest.fn().mockResolvedValue(1) };
   }
 
-  addSelect(sql: string) {
+  addSelect(sql: string, alias?: string) {
     this.operations.push(sql);
+    this.selections.push({ alias, sql });
 
     return this;
   }
 
   orderBy(sql: string) {
     this.operations.push(sql);
+    this.orderings.push(sql);
 
     return this;
   }
 
   addOrderBy(sql: string) {
     this.operations.push(sql);
+    this.orderings.push(sql);
 
     return this;
   }
@@ -74,8 +79,8 @@ class MessageQueryBuilder {
       entities: [message],
       raw: [
         {
-          messageCursorId: message.id,
-          messageDisplayAt: displayAt,
+          message_id: message.id,
+          message_display_at: displayAt,
           messageReadThroughTargetId: message.id,
         },
       ],
@@ -155,10 +160,15 @@ describe('InconnectMessagingMessageQueryService', () => {
       kind: 'message',
       sortAt: displayAt,
     });
-    expect(queryBuilder.operations).toContain(
-      'COALESCE(message.effectiveInboundAt, message.createdAt)',
-    );
-    expect(queryBuilder.operations).toContain('message.id');
+    expect(queryBuilder.selections).toContainEqual({
+      alias: 'message_display_at',
+      sql: 'COALESCE("message"."effectiveInboundAt", "message"."createdAt")',
+    });
+    expect(queryBuilder.orderings).toEqual([
+      'message_display_at',
+      'message.id',
+      'attachment.ordinal',
+    ]);
   });
 
   it('does not expose the arrival target until that inbound Message is in the authorized page', async () => {
@@ -169,8 +179,8 @@ describe('InconnectMessagingMessageQueryService', () => {
         entities: [message],
         raw: [
           {
-            messageCursorId: message.id,
-            messageDisplayAt: displayAt,
+            message_id: message.id,
+            message_display_at: displayAt,
             messageReadThroughTargetId: delayedInboundMessage.id,
           },
         ],
@@ -215,13 +225,13 @@ describe('InconnectMessagingMessageQueryService', () => {
         entities: [message, delayedInboundMessage],
         raw: [
           {
-            messageCursorId: message.id,
-            messageDisplayAt: displayAt,
+            message_id: message.id,
+            message_display_at: displayAt,
             messageReadThroughTargetId: delayedInboundMessage.id,
           },
           {
-            messageCursorId: delayedInboundMessage.id,
-            messageDisplayAt: delayedInboundMessage.effectiveInboundAt,
+            message_id: delayedInboundMessage.id,
+            message_display_at: delayedInboundMessage.effectiveInboundAt,
             messageReadThroughTargetId: delayedInboundMessage.id,
           },
         ],
@@ -254,13 +264,13 @@ describe('InconnectMessagingMessageQueryService', () => {
         entities: [message, delayedInboundMessage],
         raw: [
           {
-            messageCursorId: message.id,
-            messageDisplayAt: displayAt,
+            message_id: message.id,
+            message_display_at: displayAt,
             messageReadThroughTargetId: delayedInboundMessage.id,
           },
           {
-            messageCursorId: delayedInboundMessage.id,
-            messageDisplayAt: delayedInboundMessage.effectiveInboundAt,
+            message_id: delayedInboundMessage.id,
+            message_display_at: delayedInboundMessage.effectiveInboundAt,
             messageReadThroughTargetId: delayedInboundMessage.id,
           },
         ],

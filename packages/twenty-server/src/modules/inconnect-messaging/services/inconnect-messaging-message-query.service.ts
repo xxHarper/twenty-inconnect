@@ -26,7 +26,8 @@ export type InconnectMessagingMessageCursorPage = {
 // Display chronology intentionally uses provider/effective time. Personal
 // read state independently follows server arrival (Message.createdAt + id).
 const MESSAGE_DISPLAY_AT_SQL =
-  'COALESCE(message.effectiveInboundAt, message.createdAt)';
+  'COALESCE("message"."effectiveInboundAt", "message"."createdAt")';
+const MESSAGE_DISPLAY_AT_ALIAS = 'message_display_at';
 const MESSAGE_READ_THROUGH_TARGET_SQL = `(
   SELECT "readTarget"."id"
   FROM "core"."inconnectMessagingMessage" "readTarget"
@@ -101,10 +102,9 @@ export class InconnectMessagingMessageQueryService {
     }
 
     const rows = await queryBuilder
-      .addSelect(MESSAGE_DISPLAY_AT_SQL, 'messageDisplayAt')
-      .addSelect('message.id', 'messageCursorId')
+      .addSelect(MESSAGE_DISPLAY_AT_SQL, MESSAGE_DISPLAY_AT_ALIAS)
       .addSelect(MESSAGE_READ_THROUGH_TARGET_SQL, 'messageReadThroughTargetId')
-      .orderBy(MESSAGE_DISPLAY_AT_SQL, 'DESC')
+      .orderBy(MESSAGE_DISPLAY_AT_ALIAS, 'DESC')
       .addOrderBy('message.id', 'DESC')
       .addOrderBy('attachment.ordinal', 'ASC')
       .take(first + 1)
@@ -114,10 +114,7 @@ export class InconnectMessagingMessageQueryService {
       ? rows.entities.slice(0, first)
       : rows.entities;
     const displayAtByMessageId = new Map(
-      rows.raw.map((row) => [
-        String(row.messageCursorId),
-        row.messageDisplayAt,
-      ]),
+      rows.raw.map((row) => [String(row.message_id), row.message_display_at]),
     );
     const readThroughTargetId = rows.raw[0]?.messageReadThroughTargetId;
     const readThroughMessageId =
