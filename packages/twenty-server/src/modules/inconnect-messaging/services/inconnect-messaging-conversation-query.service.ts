@@ -22,7 +22,7 @@ const IS_PENDING_SQL = 'conversation."pendingAt" IS NOT NULL';
 // Unread follows server arrival, deliberately independent from the
 // effective/provider timestamp used to order the visible message history.
 const IS_UNREAD_SQL = `(
-  COALESCE(memberState."manualUnread", false)
+  COALESCE("memberState"."manualUnread", false)
   OR EXISTS (
     SELECT 1
     FROM "core"."inconnectMessagingMessage" unreadMessage
@@ -31,19 +31,19 @@ const IS_UNREAD_SQL = `(
       AND unreadMessage.direction = 'INBOUND'
       AND (
         (
-          memberState."lastReadMessageCreatedAt" IS NOT NULL
+          "memberState"."lastReadMessageCreatedAt" IS NOT NULL
           AND (
-            unreadMessage."createdAt" > memberState."lastReadMessageCreatedAt"
+            unreadMessage."createdAt" > "memberState"."lastReadMessageCreatedAt"
             OR (
-              unreadMessage."createdAt" = memberState."lastReadMessageCreatedAt"
-              AND unreadMessage.id > memberState."lastReadMessageId"
+              unreadMessage."createdAt" = "memberState"."lastReadMessageCreatedAt"
+              AND unreadMessage.id > "memberState"."lastReadMessageId"
             )
           )
         )
         OR (
-          memberState."lastReadMessageCreatedAt" IS NULL
-          AND messagingConfiguration."workStateTrackingBaselineAt" IS NOT NULL
-          AND unreadMessage."createdAt" > messagingConfiguration."workStateTrackingBaselineAt"
+          "memberState"."lastReadMessageCreatedAt" IS NULL
+          AND "messagingConfiguration"."workStateTrackingBaselineAt" IS NOT NULL
+          AND unreadMessage."createdAt" > "messagingConfiguration"."workStateTrackingBaselineAt"
         )
       )
   )
@@ -284,7 +284,6 @@ export class InconnectMessagingConversationQueryService {
         'messagingConfiguration',
         'messagingConfiguration.workspaceId = conversation.workspaceId',
       )
-      .addSelect('conversation.id', 'workStateConversationId')
       .addSelect(IS_FAVORITE_SQL, 'workStateIsFavorite')
       .addSelect(IS_UNREAD_SQL, 'workStateIsUnread')
       .addSelect(IS_PENDING_SQL, 'workStateIsPending');
@@ -315,24 +314,26 @@ export class InconnectMessagingConversationQueryService {
     queryBuilder: SelectQueryBuilder<InconnectMessagingConversationEntity>,
   ): Promise<InconnectMessagingConversationWithWorkState[]> {
     const { entities, raw } = await queryBuilder.getRawAndEntities();
-    const workStateByConversationId = new Map(
-      raw.map((row: Record<string, unknown>) => [
-        String(row.workStateConversationId),
-        {
-          isFavorite: row.workStateIsFavorite === true,
-          isUnread: row.workStateIsUnread === true,
-          isPending: row.workStateIsPending === true,
-        },
-      ]),
-    );
 
-    return entities.map((conversation) => ({
-      conversation,
-      ...(workStateByConversationId.get(conversation.id) ?? {
-        isFavorite: false,
-        isUnread: false,
-        isPending: conversation.pendingAt !== null,
-      }),
-    }));
+    return entities.map((conversation, index) => {
+      // Both joins are workspace-unique, so each hydrated Conversation keeps
+      // the matching raw work-state projection at the same result index.
+      const workState = raw[index] as Record<string, unknown> | undefined;
+
+      return {
+        conversation,
+        ...(workState === undefined
+          ? {
+              isFavorite: false,
+              isUnread: false,
+              isPending: conversation.pendingAt !== null,
+            }
+          : {
+              isFavorite: workState.workStateIsFavorite === true,
+              isUnread: workState.workStateIsUnread === true,
+              isPending: workState.workStateIsPending === true,
+            }),
+      };
+    });
   }
 }
