@@ -12,9 +12,31 @@ import {
 import { messages } from '~/locales/generated/en';
 
 const mockCloseModal = jest.fn();
+const mockOnConversationLinked = jest.fn();
 
 jest.mock(
   '@/inconnect-messaging/hooks/useInconnectMessagingConversationContext',
+);
+jest.mock(
+  '@/inconnect-messaging/components/InconnectMessagingConversationLinking',
+  () => ({
+    InconnectMessagingConversationLinking: ({
+      onCancel,
+      onLinked,
+      onAlreadyLinked,
+    }: {
+      onCancel: () => void;
+      onLinked: () => void;
+      onAlreadyLinked: () => void;
+    }) => (
+      <div>
+        <span>Linking flow</span>
+        <button onClick={onCancel}>Cancel linking</button>
+        <button onClick={onLinked}>Complete link</button>
+        <button onClick={onAlreadyLinked}>Already linked</button>
+      </div>
+    ),
+  }),
 );
 jest.mock('@/ui/layout/modal/hooks/useModal', () => ({
   useModal: () => ({ closeModal: mockCloseModal }),
@@ -54,6 +76,7 @@ const renderPanel = (displayMode: 'desktop' | 'modal' = 'desktop') => {
         displayMode={displayMode}
         modalInstanceId="context-modal"
         onUnavailable={jest.fn()}
+        onConversationLinked={mockOnConversationLinked}
       />
     </I18nProvider>,
   );
@@ -122,7 +145,7 @@ describe('InconnectMessagingConversationContextPanel', () => {
     expect(screen.queryByText('private-record-id')).not.toBeInTheDocument();
   });
 
-  it('renders UNASSIGNED without fields or linking actions', () => {
+  it('renders the explicit UNASSIGNED linking entry and cancels back to context', () => {
     mockUseContext.mockReturnValue({
       conversationId: 'conversation-1',
       status: 'ready',
@@ -137,9 +160,45 @@ describe('InconnectMessagingConversationContextPanel', () => {
     renderPanel();
 
     expect(screen.getByText('No CRM record linked.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Link CRM record' }));
+    expect(screen.getByText('Linking flow')).toBeVisible();
+    expect(screen.queryByText('No CRM record linked.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel linking' }));
+    expect(screen.getByText('No CRM record linked.')).toBeVisible();
+  });
+
+  it('does not show linking for a LINKED context', () => {
+    renderPanel();
+
     expect(
-      screen.queryByRole('button', { name: /link|create|match/i }),
+      screen.queryByRole('button', { name: 'Link CRM record' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('explicitly refreshes context and reports a completed local link', () => {
+    mockUseContext.mockReturnValue({
+      conversationId: 'conversation-1',
+      status: 'ready',
+      context: {
+        state: InconnectMessagingContextState.UNASSIGNED,
+        object: null,
+        record: null,
+        fields: [],
+      },
+    });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link CRM record' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete link' }));
+
+    expect(mockOnConversationLinked).toHaveBeenCalledWith('conversation-1');
+    expect(mockUseContext).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        conversationId: 'conversation-1',
+        refreshNonce: 1,
+      }),
+    );
   });
 
   it('distinguishes loading and safe unavailable states without exposing errors', () => {
@@ -168,6 +227,7 @@ describe('InconnectMessagingConversationContextPanel', () => {
           displayMode="desktop"
           modalInstanceId="context-modal"
           onUnavailable={jest.fn()}
+          onConversationLinked={jest.fn()}
         />
       </I18nProvider>,
     );

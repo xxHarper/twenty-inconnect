@@ -10,6 +10,7 @@ const CONTEXT_PANEL_MINIMUM_VIEWPORT = 1100;
 type InconnectMessagingConversationWorkspaceProps = {
   conversationId: string;
   refreshNonce: number;
+  conversationRefreshNonce: number;
   contextRefreshNonce: number;
   isMobile: boolean;
   realtimeUnavailable: boolean;
@@ -17,11 +18,13 @@ type InconnectMessagingConversationWorkspaceProps = {
   onUnavailable: () => void;
   onMessageAccepted: () => void;
   onWorkStateChanged: () => void;
+  onConversationLinked: (conversationId: string) => void;
 };
 
 export const InconnectMessagingConversationWorkspace = ({
   conversationId,
   refreshNonce,
+  conversationRefreshNonce,
   contextRefreshNonce,
   isMobile,
   realtimeUnavailable,
@@ -29,6 +32,7 @@ export const InconnectMessagingConversationWorkspace = ({
   onUnavailable,
   onMessageAccepted,
   onWorkStateChanged,
+  onConversationLinked,
 }: InconnectMessagingConversationWorkspaceProps) => {
   const isCompactContextViewport = useMediaQuery({
     query: `(max-width: ${CONTEXT_PANEL_MINIMUM_VIEWPORT}px)`,
@@ -58,6 +62,7 @@ export const InconnectMessagingConversationWorkspace = ({
       <InconnectMessagingConversationView
         conversationId={conversationId}
         refreshNonce={refreshNonce}
+        conversationRefreshNonce={conversationRefreshNonce}
         onClose={handleClose}
         onUnavailable={handleUnavailable}
         showBack={isMobile}
@@ -74,6 +79,7 @@ export const InconnectMessagingConversationWorkspace = ({
         displayMode={usesContextModal ? 'modal' : 'desktop'}
         modalInstanceId={modalInstanceId}
         onUnavailable={handleUnavailable}
+        onConversationLinked={onConversationLinked}
       />
     </>
   );

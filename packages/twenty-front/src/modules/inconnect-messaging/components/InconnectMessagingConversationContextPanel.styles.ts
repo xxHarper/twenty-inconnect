@@ -107,3 +107,110 @@ export const StyledContextSkeleton = styled.div`
   flex-direction: column;
   gap: ${themeCssVariables.spacing[2]};
 `;
+
+export const StyledContextStateContent = styled.div`
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[3]};
+`;
+
+export const StyledLinkingContent = styled.div`
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[4]};
+  min-height: 0;
+  overflow-y: auto;
+  padding: ${themeCssVariables.spacing[4]};
+`;
+
+export const StyledLinkingHeading = styled.h3`
+  color: ${themeCssVariables.font.color.primary};
+  font-size: ${themeCssVariables.font.size.lg};
+  font-weight: ${themeCssVariables.font.weight.semiBold};
+  margin: 0;
+`;
+
+export const StyledLinkingDescription = styled.p`
+  color: ${themeCssVariables.font.color.secondary};
+  margin: 0;
+`;
+
+export const StyledLinkingForm = styled.form`
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[3]};
+`;
+
+export const StyledLinkingActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: ${themeCssVariables.spacing[2]};
+  justify-content: flex-end;
+`;
+
+export const StyledCandidateList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[2]};
+`;
+
+export const StyledCandidateOption = styled.label`
+  border: 1px solid ${themeCssVariables.border.color.medium};
+  border-radius: ${themeCssVariables.border.radius.md};
+  cursor: pointer;
+  display: grid;
+  gap: ${themeCssVariables.spacing[2]};
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: ${themeCssVariables.spacing[3]};
+
+  &:focus-within {
+    border-color: ${themeCssVariables.color.blue};
+  }
+`;
+
+export const StyledCandidateDetails = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[2]};
+  min-width: 0;
+`;
+
+export const StyledCandidateFields = styled.dl`
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[1]};
+  margin: 0;
+`;
+
+export const StyledCandidateField = styled.div`
+  display: grid;
+  gap: ${themeCssVariables.spacing[2]};
+  grid-template-columns: minmax(80px, 2fr) minmax(0, 3fr);
+`;
+
+export const StyledCandidateCount = styled.div`
+  color: ${themeCssVariables.font.color.tertiary};
+  font-size: ${themeCssVariables.font.size.sm};
+`;
+
+export const StyledLinkingStatus = styled.div`
+  color: ${themeCssVariables.font.color.tertiary};
+  font-size: ${themeCssVariables.font.size.sm};
+`;
+
+export const StyledLinkingError = styled.div`
+  color: ${themeCssVariables.font.color.danger};
+  font-size: ${themeCssVariables.font.size.sm};
+`;
+
+export const StyledConfirmationCard = styled.div`
+  background: ${themeCssVariables.background.secondary};
+  border: 1px solid ${themeCssVariables.border.color.medium};
+  border-radius: ${themeCssVariables.border.radius.md};
+  display: flex;
+  flex-direction: column;
+  gap: ${themeCssVariables.spacing[3]};
+  padding: ${themeCssVariables.spacing[3]};
+`;

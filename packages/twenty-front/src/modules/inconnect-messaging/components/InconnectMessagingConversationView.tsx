@@ -41,6 +41,7 @@ const PAGE_SIZE = 30;
 type InconnectMessagingConversationViewProps = {
   conversationId: string;
   refreshNonce: number;
+  conversationRefreshNonce?: number;
   onClose: () => void;
   onUnavailable: () => void;
   showBack: boolean;
@@ -53,6 +54,7 @@ type InconnectMessagingConversationViewProps = {
 export const InconnectMessagingConversationView = ({
   conversationId,
   refreshNonce,
+  conversationRefreshNonce = 0,
   onClose,
   onUnavailable,
   showBack,
@@ -73,6 +75,10 @@ export const InconnectMessagingConversationView = ({
   const [olderMessagesError, setOlderMessagesError] = useState(false);
   const [previousRefreshNonce, setPreviousRefreshNonce] =
     useState(refreshNonce);
+  const [
+    previousConversationRefreshNonce,
+    setPreviousConversationRefreshNonce,
+  ] = useState(conversationRefreshNonce);
   const {
     data: conversationData,
     loading: conversationLoading,
@@ -103,6 +109,16 @@ export const InconnectMessagingConversationView = ({
     previousRefreshNonce,
     refetchConversation,
     refetchMessages,
+  ]);
+
+  useEffect(() => {
+    if (previousConversationRefreshNonce === conversationRefreshNonce) return;
+    setPreviousConversationRefreshNonce(conversationRefreshNonce);
+    void refetchConversation().catch(() => undefined);
+  }, [
+    conversationRefreshNonce,
+    previousConversationRefreshNonce,
+    refetchConversation,
   ]);
 
   useEffect(() => {

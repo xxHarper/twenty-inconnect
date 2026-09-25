@@ -1,7 +1,7 @@
 import { useLingui } from '@lingui/react/macro';
 import { useQuery } from '@apollo/client/react';
 import { print, type ExecutionResult } from 'graphql';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { IconMessageCircle } from 'twenty-ui/icon';
 import { SegmentedControl, type SegmentedControlOption } from 'twenty-ui/input';
 import { useDebounce, useDebouncedCallback } from 'use-debounce';
@@ -55,10 +55,17 @@ export const InconnectMessagingPage = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectionUnavailable, setSelectionUnavailable] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [conversationRefreshNonce, setConversationRefreshNonce] = useState(0);
   const [contextRefreshNonce, setContextRefreshNonce] = useState(0);
   const [subscriptionError, setSubscriptionError] = useState(false);
   const [moreConversationsError, setMoreConversationsError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Late link completions must compare against the selection at completion time.
+  // oxlint-disable-next-line twenty/no-state-useref
+  const selectedIdRef = useRef(selectedId);
+
+  selectedIdRef.current = selectedId;
+
   const { data, loading, error, fetchMore, refetch } = useQuery(
     InconnectMessagingConversationsDocument,
     {
@@ -183,6 +190,16 @@ export const InconnectMessagingPage = () => {
     () => scheduleRefresh(true, false),
     [scheduleRefresh],
   );
+  const handleConversationLinked = useCallback(
+    (linkedConversationId: string) => {
+      void refetch().catch(() => undefined);
+
+      if (selectedIdRef.current === linkedConversationId) {
+        setConversationRefreshNonce((current) => current + 1);
+      }
+    },
+    [refetch],
+  );
 
   const workStateOptions = [
     {
@@ -292,6 +309,7 @@ export const InconnectMessagingPage = () => {
             key={selectedId}
             conversationId={selectedId}
             refreshNonce={refreshNonce}
+            conversationRefreshNonce={conversationRefreshNonce}
             contextRefreshNonce={contextRefreshNonce}
             isMobile={isMobile}
             onClose={closeSelection}
@@ -299,6 +317,7 @@ export const InconnectMessagingPage = () => {
             realtimeUnavailable={!sseClient || subscriptionError}
             onMessageAccepted={handleMessageAccepted}
             onWorkStateChanged={handleWorkStateChanged}
+            onConversationLinked={handleConversationLinked}
           />
         ) : (
           !isMobile && (

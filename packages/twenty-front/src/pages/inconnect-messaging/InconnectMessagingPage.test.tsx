@@ -15,6 +15,10 @@ let mockIsContextCompact = false;
 let mockSseClient: { subscribe: jest.Mock } | null = null;
 const mockOpenModal = jest.fn();
 const mockCloseModal = jest.fn();
+const mockContextLinkCallbacks = new Map<
+  string,
+  (conversationId: string) => void
+>();
 
 jest.mock('@apollo/client/react', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
@@ -43,16 +47,19 @@ jest.mock(
     InconnectMessagingConversationView: ({
       conversationId,
       refreshNonce,
+      conversationRefreshNonce,
       onClose,
       onShowContext,
     }: {
       conversationId: string;
       refreshNonce: number;
+      conversationRefreshNonce: number;
       onClose: () => void;
       onShowContext?: () => void;
     }) => (
       <div>
         <span>{`Selected ${conversationId} refresh ${refreshNonce}`}</span>
+        <span>{`Conversation detail refresh ${conversationRefreshNonce}`}</span>
         <button onClick={onClose}>Back to conversations</button>
         {onShowContext && (
           <button onClick={onShowContext}>Show CRM context</button>
@@ -69,17 +76,26 @@ jest.mock(
       refreshNonce,
       displayMode,
       onUnavailable,
+      onConversationLinked,
     }: {
       conversationId: string;
       refreshNonce: number;
       displayMode: string;
       onUnavailable: () => void;
-    }) => (
-      <div>
-        <span>{`Context ${conversationId} refresh ${refreshNonce} mode ${displayMode}`}</span>
-        <button onClick={onUnavailable}>Lose context access</button>
-      </div>
-    ),
+      onConversationLinked: (conversationId: string) => void;
+    }) => {
+      mockContextLinkCallbacks.set(conversationId, onConversationLinked);
+
+      return (
+        <div>
+          <span>{`Context ${conversationId} refresh ${refreshNonce} mode ${displayMode}`}</span>
+          <button onClick={onUnavailable}>Lose context access</button>
+          <button onClick={() => onConversationLinked(conversationId)}>
+            Complete CRM link
+          </button>
+        </div>
+      );
+    },
   }),
 );
 jest.mock('use-debounce', () => ({
@@ -138,6 +154,7 @@ const renderPage = () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockContextLinkCallbacks.clear();
   mockRefetch.mockResolvedValue({});
   mockIsMobile = false;
   mockIsContextCompact = false;
@@ -332,6 +349,9 @@ describe('InconnectMessagingPage', () => {
       screen.getByText('Selected conversation-1 refresh 1'),
     ).toBeInTheDocument();
     expect(
+      screen.getByText('Conversation detail refresh 0'),
+    ).toBeInTheDocument();
+    expect(
       screen.getByText('Context conversation-1 refresh 0 mode desktop'),
     ).toBeInTheDocument();
     jest.useRealTimers();
@@ -467,6 +487,66 @@ describe('InconnectMessagingPage', () => {
       screen.getByText('Context conversation-1 refresh 1 mode desktop'),
     ).toBeInTheDocument();
     jest.useRealTimers();
+  });
+
+  it('refetches the active list and selected detail after a local CRM link', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: 'Pending' }));
+    fireEvent.change(screen.getByRole('searchbox'), {
+      target: { value: 'alice' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete CRM link' }));
+
+    expect(mockRefetch).toHaveBeenCalledWith();
+    expect(
+      screen.getByText('Selected conversation-1 refresh 0'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Conversation detail refresh 1'),
+    ).toBeInTheDocument();
+    expect(mockUseQuery).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        variables: {
+          search: 'alice',
+          workState: 'PENDING',
+          paging: { first: 30 },
+        },
+      }),
+    );
+  });
+
+  it('does not refresh Conversation B detail for a late link completion from A', () => {
+    setConversations([
+      { cursor: 'cursor-1', node: conversation },
+      {
+        cursor: 'cursor-2',
+        node: {
+          ...conversation,
+          id: 'conversation-2',
+          externalAddress: '+15550002222',
+        },
+      },
+    ]);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /\+15550001111/ }));
+    const completeConversationALink =
+      mockContextLinkCallbacks.get('conversation-1');
+
+    fireEvent.click(screen.getByRole('button', { name: /\+15550002222/ }));
+    act(() => completeConversationALink?.('conversation-1'));
+
+    expect(mockRefetch).toHaveBeenCalledWith();
+    expect(
+      screen.getByText('Selected conversation-2 refresh 0'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Conversation detail refresh 0'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Context conversation-2 refresh 0/)).toBeVisible();
+    expect(screen.queryByText(/conversation-1/)).not.toBeInTheDocument();
   });
 
   it('defaults to ALL and sends each selected work-state filter to GraphQL', () => {

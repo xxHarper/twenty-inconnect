@@ -70,6 +70,54 @@ export const INCONNECT_MESSAGING_CONVERSATION_CONTEXT = gql`
   }
 `;
 
+export const INCONNECT_MESSAGING_CONVERSATION_LINK_CANDIDATES = gql`
+  query InconnectMessagingConversationLinkCandidates(
+    $conversationId: UUID!
+    $search: String!
+    $paging: InconnectMessagingPaging
+  ) {
+    inconnectMessagingConversationLinkCandidates(
+      conversationId: $conversationId
+      search: $search
+      paging: $paging
+    ) {
+      edges {
+        cursor
+        node {
+          recordId
+          recordLabel
+          fields {
+            fieldMetadataId
+            label
+            valueKind
+            displayValue
+            ordinal
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      totalCount
+    }
+  }
+`;
+
+export const LINK_INCONNECT_MESSAGING_CONVERSATION = gql`
+  mutation LinkInconnectMessagingConversation(
+    $conversationId: UUID!
+    $recordId: UUID!
+  ) {
+    linkInconnectMessagingConversation(
+      conversationId: $conversationId
+      recordId: $recordId
+    ) {
+      state
+    }
+  }
+`;
+
 export const INCONNECT_MESSAGING_CONTEXT_CONFIGURATION = gql`
   query InconnectMessagingContextConfiguration {
     inconnectMessagingContextConfiguration {

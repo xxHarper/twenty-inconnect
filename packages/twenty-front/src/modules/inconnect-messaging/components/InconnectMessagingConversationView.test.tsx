@@ -360,6 +360,32 @@ describe('InconnectMessagingConversationView', () => {
     expect(mockRefetchMessages).toHaveBeenCalled();
   });
 
+  it('refetches only Conversation detail for a local CRM link refresh', () => {
+    const view = renderView();
+    mockRefetchConversation.mockClear();
+    mockRefetchMessages.mockClear();
+
+    view.rerender(
+      <I18nProvider i18n={i18n}>
+        <InconnectMessagingConversationView
+          conversationId="conversation-1"
+          refreshNonce={0}
+          conversationRefreshNonce={1}
+          onClose={jest.fn()}
+          onUnavailable={mockOnUnavailable}
+          showBack={false}
+          realtimeUnavailable={false}
+          onMessageAccepted={jest.fn()}
+          onWorkStateChanged={mockOnWorkStateChanged}
+        />
+      </I18nProvider>,
+    );
+
+    expect(mockRefetchConversation).toHaveBeenCalledTimes(1);
+    expect(mockRefetchMessages).not.toHaveBeenCalled();
+    expect(screen.getByText('Composer')).toBeInTheDocument();
+  });
+
   it('toggles Favorite and Pending without sending a member identity', async () => {
     renderView();
 
