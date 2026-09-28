@@ -2414,6 +2414,49 @@ export type InconnectMessagingPaging = {
   first?: InputMaybe<Scalars['Int']['input']>;
 };
 
+export type InconnectMessagingPhoneIdentityAnchor = {
+  __typename?: 'InconnectMessagingPhoneIdentityAnchor';
+  label: Scalars['String']['output'];
+  objectMetadataId: Scalars['UUID']['output'];
+};
+
+export type InconnectMessagingPhoneIdentityCandidateField = {
+  __typename?: 'InconnectMessagingPhoneIdentityCandidateField';
+  eligibleRoles: Array<InconnectMessagingPhoneIdentityFieldRole>;
+  fieldMetadataId: Scalars['UUID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  label: Scalars['String']['output'];
+  type: Scalars['String']['output'];
+};
+
+export type InconnectMessagingPhoneIdentityConfiguration = {
+  __typename?: 'InconnectMessagingPhoneIdentityConfiguration';
+  anchorObject: InconnectMessagingPhoneIdentityAnchor;
+  availableFields: Array<InconnectMessagingPhoneIdentityCandidateField>;
+  fields: Array<InconnectMessagingPhoneIdentityConfiguredField>;
+  maximumFieldCount: Scalars['Int']['output'];
+};
+
+export type InconnectMessagingPhoneIdentityConfiguredField = {
+  __typename?: 'InconnectMessagingPhoneIdentityConfiguredField';
+  fieldMetadataId: Scalars['UUID']['output'];
+  isActive: Scalars['Boolean']['output'];
+  label: Scalars['String']['output'];
+  ordinal: Scalars['Int']['output'];
+  role: InconnectMessagingPhoneIdentityFieldRole;
+  type: Scalars['String']['output'];
+};
+
+export type InconnectMessagingPhoneIdentityFieldInput = {
+  fieldMetadataId: Scalars['UUID']['input'];
+  role: InconnectMessagingPhoneIdentityFieldRole;
+};
+
+export enum InconnectMessagingPhoneIdentityFieldRole {
+  MATCH_ONLY = 'MATCH_ONLY',
+  PRIMARY = 'PRIMARY'
+}
+
 export type InconnectMessagingRealtimeEvent = {
   __typename?: 'InconnectMessagingRealtimeEvent';
   conversationId: Scalars['UUID']['output'];
@@ -3227,6 +3270,7 @@ export type Mutation = {
   renewApplicationToken: ApplicationTokenPair;
   renewToken: AuthTokens;
   replaceInconnectMessagingContextConfiguration: InconnectMessagingContextConfiguration;
+  replaceInconnectMessagingPhoneIdentityConfiguration: InconnectMessagingPhoneIdentityConfiguration;
   replaceInconnectRecordAccessConfiguration: ReplaceInconnectRecordAccessConfigurationResult;
   resendEmailVerificationToken: ResendEmailVerificationToken;
   resendWorkspaceInvitation: SendInvitations;
@@ -4047,6 +4091,11 @@ export type MutationRenewTokenArgs = {
 
 export type MutationReplaceInconnectMessagingContextConfigurationArgs = {
   fieldMetadataIds: Array<Scalars['UUID']['input']>;
+};
+
+
+export type MutationReplaceInconnectMessagingPhoneIdentityConfigurationArgs = {
+  fields: Array<InconnectMessagingPhoneIdentityFieldInput>;
 };
 
 
@@ -5237,6 +5286,7 @@ export type Query = {
   inconnectMessagingConversationLinkCandidates: InconnectMessagingConversationLinkCandidateConnection;
   inconnectMessagingConversations: InconnectMessagingConversationConnection;
   inconnectMessagingMessages?: Maybe<InconnectMessagingMessageConnection>;
+  inconnectMessagingPhoneIdentityConfiguration: InconnectMessagingPhoneIdentityConfiguration;
   inconnectMessagingSendCapabilities?: Maybe<InconnectMessagingSendCapabilities>;
   inconnectMessagingTemplates?: Maybe<Array<InconnectMessagingTemplate>>;
   isApplicationStopped: Scalars['Boolean']['output'];

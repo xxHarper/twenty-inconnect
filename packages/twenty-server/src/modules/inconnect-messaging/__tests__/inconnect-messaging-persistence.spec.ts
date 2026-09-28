@@ -8,10 +8,12 @@ import { AddInconnectMessagingInboundAttachmentsFastInstanceCommand } from 'src/
 import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1789768800000-add-inconnect-messaging-outbound-uploads';
 import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
 import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields';
+import { AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790550000000-add-inconnect-messaging-phone-identity-fields';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
 import { InconnectMessagingContextFieldEntity } from 'src/modules/inconnect-messaging/entities/context-field.entity';
+import { InconnectMessagingPhoneIdentityFieldEntity } from 'src/modules/inconnect-messaging/entities/phone-identity-field.entity';
 import { InconnectMessagingDispatchAttemptEntity } from 'src/modules/inconnect-messaging/entities/dispatch-attempt.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
@@ -34,6 +36,7 @@ const MESSAGING_ENTITIES: EntityTarget<object>[] = [
   InconnectMessagingOutboundUploadEntity,
   InconnectMessagingConversationMemberStateEntity,
   InconnectMessagingContextFieldEntity,
+  InconnectMessagingPhoneIdentityFieldEntity,
 ];
 
 const buildMetadataDataSource = async (): Promise<DataSource> => {
@@ -78,6 +81,9 @@ describe('INCONNECT Messaging persistence model', () => {
       { query } as never,
     );
     await new AddInconnectMessagingContextFieldsFastInstanceCommand().up({
+      query,
+    } as never);
+    await new AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand().up({
       query,
     } as never);
 
@@ -154,6 +160,7 @@ describe('INCONNECT Messaging persistence model', () => {
       'FK_INCONNECT_MSG_OUTBOUND_UPLOAD_CONSUMED_MESSAGE',
       'FK_INCONNECT_MSG_MEMBER_STATE_CONVERSATION',
       'FK_INCONNECT_MSG_CONTEXT_FIELD_METADATA',
+      'FK_INCONNECT_MSG_PHONE_IDENTITY_METADATA',
     ];
     const foreignKeys = MESSAGING_ENTITIES.flatMap(
       (entity) => dataSource.getMetadata(entity).foreignKeys,
@@ -225,6 +232,47 @@ describe('INCONNECT Messaging persistence model', () => {
           isUnique: true,
         }),
       ]),
+    );
+  });
+
+  it('physically binds phone identity fields to the anchor with one PRIMARY', async () => {
+    const dataSource = await buildMetadataDataSource();
+    const metadata = dataSource.getMetadata(
+      InconnectMessagingPhoneIdentityFieldEntity,
+    );
+    const configurationForeignKey = metadata.foreignKeys.find(
+      ({ name }) => name === 'FK_INCONNECT_MSG_PHONE_IDENTITY_CONFIG_ANCHOR',
+    );
+    const fieldForeignKey = metadata.foreignKeys.find(
+      ({ name }) => name === 'FK_INCONNECT_MSG_PHONE_IDENTITY_METADATA',
+    );
+    const primaryIndex = metadata.indices.find(
+      ({ name }) => name === 'IDX_INCONNECT_MSG_PHONE_IDENTITY_PRIMARY_UNIQUE',
+    );
+
+    expect(configurationForeignKey?.columnNames).toEqual([
+      'workspaceId',
+      'objectMetadataId',
+    ]);
+    expect(configurationForeignKey?.referencedColumnNames).toEqual([
+      'workspaceId',
+      'anchorObjectMetadataId',
+    ]);
+    expect(fieldForeignKey?.columnNames).toEqual([
+      'fieldMetadataId',
+      'objectMetadataId',
+      'workspaceId',
+    ]);
+    expect(fieldForeignKey?.referencedColumnNames).toEqual([
+      'id',
+      'objectMetadataId',
+      'workspaceId',
+    ]);
+    expect(primaryIndex).toEqual(
+      expect.objectContaining({
+        isUnique: true,
+        where: `"role" = 'PRIMARY'`,
+      }),
     );
   });
 

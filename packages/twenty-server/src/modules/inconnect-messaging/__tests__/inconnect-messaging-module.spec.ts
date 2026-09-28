@@ -17,6 +17,7 @@ import { InconnectMessagingReadResolver } from 'src/modules/inconnect-messaging/
 import { InconnectMessagingSubscriptionResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-subscription.resolver';
 import { InconnectMessagingContextResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-context.resolver';
 import { InconnectMessagingLinkResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-link.resolver';
+import { InconnectMessagingPhoneIdentityResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-phone-identity.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
@@ -24,6 +25,8 @@ import { InconnectMessagingContextConfigurationService } from 'src/modules/incon
 import { InconnectMessagingContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context.service';
 import { InconnectMessagingConversationLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-link.service';
 import { InconnectMessagingLinkCandidateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-link-candidate.service';
+import { InconnectMessagingPhoneIdentityConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-configuration.service';
+import { InconnectMessagingPhoneIdentityResolverService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 import { ModulesModule } from 'src/modules/modules.module';
 
 describe('InconnectMessagingModule wiring', () => {
@@ -102,6 +105,13 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(InconnectMessagingContextService);
     expect(moduleProviders).toContain(InconnectMessagingLinkResolver);
     expect(moduleProviders).toContain(InconnectMessagingLinkCandidateService);
+    expect(moduleProviders).toContain(InconnectMessagingPhoneIdentityResolver);
+    expect(moduleProviders).toContain(
+      InconnectMessagingPhoneIdentityConfigurationService,
+    );
+    expect(moduleProviders).toContain(
+      InconnectMessagingPhoneIdentityResolverService,
+    );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationLinkService,
     );

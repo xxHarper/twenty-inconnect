@@ -89,3 +89,18 @@ export type InconnectMessagingOutboxProcessingState =
 export type InconnectMessagingJson = Record<string, unknown>;
 
 export type InconnectMessagingInboundTimestampSource = 'PROVIDER' | 'SERVER';
+
+export const INCONNECT_MESSAGING_PHONE_IDENTITY_FIELD_ROLES = [
+  'PRIMARY',
+  'MATCH_ONLY',
+] as const;
+
+export type InconnectMessagingPhoneIdentityFieldRole =
+  (typeof INCONNECT_MESSAGING_PHONE_IDENTITY_FIELD_ROLES)[number];
+
+export type InconnectMessagingPhoneIdentityResolution =
+  | { state: 'DISABLED' }
+  | { state: 'INVALID' }
+  | { state: 'NO_MATCH' }
+  | { state: 'UNIQUE'; recordId: string }
+  | { state: 'AMBIGUOUS' };
