@@ -26,7 +26,10 @@ import { InconnectMessagingContextService } from 'src/modules/inconnect-messagin
 import { InconnectMessagingConversationLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-link.service';
 import { InconnectMessagingLinkCandidateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-link-candidate.service';
 import { InconnectMessagingPhoneIdentityConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-configuration.service';
-import { InconnectMessagingPhoneIdentityResolverService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
+import {
+  InconnectMessagingBackgroundPhoneIdentityResolverService,
+  InconnectMessagingPhoneIdentityResolverService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 import { ModulesModule } from 'src/modules/modules.module';
 
 describe('InconnectMessagingModule wiring', () => {
@@ -111,6 +114,12 @@ describe('InconnectMessagingModule wiring', () => {
     );
     expect(moduleProviders).toContain(
       InconnectMessagingPhoneIdentityResolverService,
+    );
+    expect(moduleProviders).toContain(
+      InconnectMessagingBackgroundPhoneIdentityResolverService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingBackgroundPhoneIdentityResolverService,
     );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationLinkService,

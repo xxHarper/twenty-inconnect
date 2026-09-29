@@ -1,10 +1,14 @@
 import { FieldMetadataType } from 'twenty-shared/types';
 
+import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingPhoneIdentityFieldEntity } from 'src/modules/inconnect-messaging/entities/phone-identity-field.entity';
-import { InconnectMessagingPhoneIdentityResolverService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
+import {
+  InconnectMessagingBackgroundPhoneIdentityResolverService,
+  InconnectMessagingPhoneIdentityResolverService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 
 jest.mock(
   'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service',
@@ -17,6 +21,7 @@ const FIELD_A_ID = '30303030-3333-4333-8333-333333333333';
 const FIELD_B_ID = '40404040-4444-4444-8444-444444444444';
 const RECORD_A_ID = '50505050-5555-4555-8555-555555555555';
 const RECORD_B_ID = '60606060-6666-4666-8666-666666666666';
+const OTHER_WORKSPACE_ID = '70707070-7777-4777-8777-777777777777';
 const authContext = {
   workspace: {
     id: WORKSPACE_ID,
@@ -60,6 +65,7 @@ const buildService = ({
   readableFieldIds,
   recordAccessKind = 'all-records',
   existingConfiguration = configuration,
+  workspaceSchema = 'workspace_test',
 }: {
   configuredFields?: Array<Record<string, unknown>>;
   fieldMetadata?: Array<Record<string, unknown>>;
@@ -67,6 +73,7 @@ const buildService = ({
   readableFieldIds?: Set<string> | null;
   recordAccessKind?: string;
   existingConfiguration?: typeof configuration | null;
+  workspaceSchema?: string | null;
 } = {}) => {
   const effectiveReadableFieldIds =
     readableFieldIds === undefined
@@ -107,6 +114,18 @@ const buildService = ({
       { findOne: jest.fn().mockResolvedValue(objectMetadata) },
     ],
     [FieldMetadataEntity, { find: jest.fn().mockResolvedValue(fieldMetadata) }],
+    [
+      WorkspaceEntity,
+      {
+        findOne: jest
+          .fn()
+          .mockImplementation(async ({ where }) =>
+            where.id === WORKSPACE_ID
+              ? { id: WORKSPACE_ID, databaseSchema: workspaceSchema }
+              : null,
+          ),
+      },
+    ],
   ]);
   const manager = {
     getRepository: jest.fn((entity) => repositories.get(entity)),
@@ -152,6 +171,11 @@ const buildService = ({
       recordAccessAuthorizationService as never,
       workspaceCacheService as never,
     ),
+    backgroundService:
+      new InconnectMessagingBackgroundPhoneIdentityResolverService(
+        dataSource as never,
+        workspaceCacheService as never,
+      ),
     dataSource,
     queryBuilder,
     authorizationService,
@@ -343,5 +367,198 @@ describe('InconnectMessagingPhoneIdentityResolverService', () => {
       recordAccessAuthorizationService.applyReadScopeToQueryBuilder.mock
         .invocationCallOrder[0],
     ).toBeLessThan(queryBuilder.getRawMany.mock.invocationCallOrder[0]);
+  });
+
+  it('does not disclose a matching record outside the human Record Access scope', async () => {
+    const { service, queryBuilder } = buildService({
+      rows: [{ recordId: RECORD_A_ID }],
+      recordAccessKind: 'denied',
+    });
+
+    await expect(
+      service.resolvePhoneIdentity({
+        authContext,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'NO_MATCH' });
+    expect(queryBuilder.getRawMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('InconnectMessagingBackgroundPhoneIdentityResolverService', () => {
+  it('returns INVALID without reading configuration or CRM', async () => {
+    const { backgroundService, dataSource } = buildService();
+
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: 'not-a-phone',
+      }),
+    ).resolves.toEqual({ state: 'INVALID' });
+    expect(dataSource.manager.getRepository).not.toHaveBeenCalled();
+    expect(dataSource.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('returns DISABLED for missing, empty, or corrupt configuration', async () => {
+    const withoutConfiguration = buildService({ existingConfiguration: null });
+
+    await expect(
+      withoutConfiguration.backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'DISABLED' });
+
+    const withoutFields = buildService({ configuredFields: [] });
+
+    await expect(
+      withoutFields.backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'DISABLED' });
+
+    const corruptFields = buildService({
+      configuredFields: [{ ...configuredPrimary, role: 'MATCH_ONLY' }],
+    });
+
+    await expect(
+      corruptFields.backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'DISABLED' });
+    expect(corruptFields.dataSource.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [[], { state: 'NO_MATCH' }],
+    [[{ recordId: RECORD_A_ID }], { state: 'UNIQUE', recordId: RECORD_A_ID }],
+    [
+      [{ recordId: RECORD_A_ID }, { recordId: RECORD_B_ID }],
+      { state: 'AMBIGUOUS' },
+    ],
+  ])(
+    'classifies distinct workspace records without a human actor',
+    async (rows, expected) => {
+      const { backgroundService, recordAccessAuthorizationService } =
+        buildService({ rows });
+
+      await expect(
+        backgroundService.resolvePhoneIdentity({
+          workspaceId: WORKSPACE_ID,
+          input: '+525514552571',
+        }),
+      ).resolves.toEqual(expected);
+      expect(
+        recordAccessAuthorizationService.applyReadScopeToQueryBuilder,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns UNIQUE regardless of which member or team owns the matching record', async () => {
+    const {
+      backgroundService,
+      authorizationService,
+      recordAccessAuthorizationService,
+    } = buildService({
+      rows: [{ recordId: RECORD_A_ID }],
+      readableFieldIds: new Set(),
+      recordAccessKind: 'denied',
+    });
+
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'UNIQUE', recordId: RECORD_A_ID });
+    expect(
+      authorizationService.filterReadableFieldMetadataIds,
+    ).not.toHaveBeenCalled();
+    expect(
+      recordAccessAuthorizationService.applyReadScopeToQueryBuilder,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates one record matched through PRIMARY and MATCH_ONLY fields', async () => {
+    const { backgroundService, queryBuilder } = buildService({
+      configuredFields: [
+        configuredPrimary,
+        {
+          ...configuredPrimary,
+          fieldMetadataId: FIELD_B_ID,
+          role: 'MATCH_ONLY',
+          ordinal: 1,
+        },
+      ],
+      fieldMetadata: [fieldA, fieldB],
+      rows: [{ recordId: RECORD_A_ID }, { recordId: RECORD_A_ID }],
+    });
+
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'UNIQUE', recordId: RECORD_A_ID });
+    expect(queryBuilder.distinct).toHaveBeenCalledWith(true);
+    expect(queryBuilder.limit).toHaveBeenCalledWith(2);
+  });
+
+  it('excludes soft-deleted rows from the exact bounded query', async () => {
+    const { backgroundService, queryBuilder } = buildService({ rows: [] });
+
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'NO_MATCH' });
+    expect(queryBuilder.where).toHaveBeenCalledWith(
+      expect.stringContaining('"deletedAt" IS NULL'),
+    );
+  });
+
+  it('derives the physical schema only from the exact trusted workspace', async () => {
+    const { backgroundService, queryBuilder } = buildService({ rows: [] });
+
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'NO_MATCH' });
+    expect(queryBuilder.from).toHaveBeenCalledWith(
+      expect.stringMatching(/^workspace_test\./),
+      'inconnect_messaging_phone_identity_record',
+    );
+
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: OTHER_WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'DISABLED' });
+  });
+
+  it('intentionally finds a record hidden from the human resolver', async () => {
+    const { service, backgroundService } = buildService({
+      rows: [{ recordId: RECORD_A_ID }],
+      recordAccessKind: 'denied',
+    });
+
+    await expect(
+      service.resolvePhoneIdentity({
+        authContext,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'NO_MATCH' });
+    await expect(
+      backgroundService.resolvePhoneIdentity({
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({ state: 'UNIQUE', recordId: RECORD_A_ID });
   });
 });

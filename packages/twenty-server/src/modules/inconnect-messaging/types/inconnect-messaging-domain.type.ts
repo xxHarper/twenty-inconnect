@@ -104,3 +104,9 @@ export type InconnectMessagingPhoneIdentityResolution =
   | { state: 'NO_MATCH' }
   | { state: 'UNIQUE'; recordId: string }
   | { state: 'AMBIGUOUS' };
+
+export const INCONNECT_MESSAGING_BACKGROUND_PHONE_IDENTITY_ACTOR =
+  'SYSTEM_PHONE_IDENTITY_RESOLUTION' as const;
+
+export type InconnectMessagingBackgroundPhoneIdentityActor =
+  typeof INCONNECT_MESSAGING_BACKGROUND_PHONE_IDENTITY_ACTOR;

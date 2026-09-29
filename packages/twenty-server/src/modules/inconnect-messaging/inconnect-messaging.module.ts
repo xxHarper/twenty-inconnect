@@ -78,7 +78,10 @@ import { InconnectMessagingContextService } from 'src/modules/inconnect-messagin
 import { InconnectMessagingConversationLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-link.service';
 import { InconnectMessagingLinkCandidateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-link-candidate.service';
 import { InconnectMessagingPhoneIdentityConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-configuration.service';
-import { InconnectMessagingPhoneIdentityResolverService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
+import {
+  InconnectMessagingBackgroundPhoneIdentityResolverService,
+  InconnectMessagingPhoneIdentityResolverService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -130,6 +133,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingLinkResolver,
     InconnectMessagingPhoneIdentityConfigurationService,
     InconnectMessagingPhoneIdentityResolverService,
+    InconnectMessagingBackgroundPhoneIdentityResolverService,
     InconnectMessagingPhoneIdentityResolver,
     InconnectMessagingWorkStateService,
     InconnectMessagingWorkStateResolver,
