@@ -82,6 +82,7 @@ import {
   InconnectMessagingBackgroundPhoneIdentityResolverService,
   InconnectMessagingPhoneIdentityResolverService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
+import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -134,6 +135,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingPhoneIdentityConfigurationService,
     InconnectMessagingPhoneIdentityResolverService,
     InconnectMessagingBackgroundPhoneIdentityResolverService,
+    InconnectMessagingInboundAutoLinkService,
     InconnectMessagingPhoneIdentityResolver,
     InconnectMessagingWorkStateService,
     InconnectMessagingWorkStateResolver,

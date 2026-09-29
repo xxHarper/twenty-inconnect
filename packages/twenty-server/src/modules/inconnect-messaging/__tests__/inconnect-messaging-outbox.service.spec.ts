@@ -102,6 +102,12 @@ const buildService = ({
       ? jest.fn().mockRejectedValue(new Error('redis unavailable'))
       : jest.fn().mockResolvedValue(undefined),
   };
+  const inboundAutoLinkService = {
+    attemptForInboundMessage: jest.fn().mockResolvedValue({
+      state: 'NO_MATCH',
+      publicationRequest: null,
+    }),
+  };
   const service = new InconnectMessagingOutboxService(
     dataSource as never,
     outboxEventRepository as never,
@@ -109,6 +115,7 @@ const buildService = ({
     authorizationService as never,
     recipientService as never,
     realtimePublisherService as never,
+    inboundAutoLinkService as never,
   );
 
   return {
@@ -118,6 +125,7 @@ const buildService = ({
     messageQueueService,
     authorizationService,
     realtimePublisherService,
+    inboundAutoLinkService,
   };
 };
 
@@ -159,8 +167,12 @@ describe('InconnectMessagingOutboxService', () => {
   });
 
   it('claims and publishes a minimal inbound hint only to authorized members', async () => {
-    const { service, persistedEvent, realtimePublisherService } =
-      buildService();
+    const {
+      service,
+      persistedEvent,
+      realtimePublisherService,
+      inboundAutoLinkService,
+    } = buildService();
 
     await service.publishEvent(event.id);
 
@@ -181,6 +193,64 @@ describe('InconnectMessagingOutboxService', () => {
     ).not.toContain('body');
     expect(persistedEvent.processingState).toBe('PUBLISHED');
     expect(persistedEvent.attemptCount).toBe(1);
+    expect(
+      inboundAutoLinkService.attemptForInboundMessage,
+    ).toHaveBeenCalledWith({
+      workspaceId: event.workspaceId,
+      messageId: event.aggregateId,
+    });
+  });
+
+  it('retries the durable inbound event when automatic linking fails without losing Message authority', async () => {
+    const { service, persistedEvent, inboundAutoLinkService } = buildService();
+
+    inboundAutoLinkService.attemptForInboundMessage.mockRejectedValueOnce(
+      new Error('database unavailable'),
+    );
+
+    await expect(service.publishEvent(event.id)).rejects.toThrow(
+      'database unavailable',
+    );
+    expect(persistedEvent.processingState).toBe('PENDING');
+    expect(persistedEvent.error).toEqual({
+      category: 'INBOUND_AUTO_LINK_FAILED',
+    });
+  });
+
+  it('enqueues the durable linked event before post-link recipient authorization', async () => {
+    const {
+      service,
+      inboundAutoLinkService,
+      messageQueueService,
+      authorizationService,
+    } = buildService();
+    const linkedEvent = {
+      id: '30303030-5555-4555-8555-555555555555',
+      workspaceId: event.workspaceId,
+      eventType: 'CONVERSATION_LINKED',
+    };
+
+    inboundAutoLinkService.attemptForInboundMessage.mockResolvedValueOnce({
+      state: 'LINKED',
+      publicationRequest: linkedEvent,
+    });
+
+    await service.publishEvent(event.id);
+
+    expect(messageQueueService.add).toHaveBeenCalledWith(
+      'InconnectMessagingOutboxPublishingJob',
+      { outboxEventId: linkedEvent.id },
+      expect.objectContaining({
+        id: `inconnect-messaging-outbox:${linkedEvent.id}`,
+      }),
+    );
+    expect(
+      inboundAutoLinkService.attemptForInboundMessage.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
+      authorizationService.findAuthorizedConversation.mock
+        .invocationCallOrder[0],
+    );
   });
 
   it('supports partial member fanout without publishing to outsiders', async () => {
@@ -250,12 +320,13 @@ describe('InconnectMessagingOutboxService', () => {
   });
 
   it('maps status changes to a status-only hint', async () => {
-    const { service, realtimePublisherService } = buildService({
-      initialEvent: {
-        ...event,
-        eventType: 'OUTBOUND_MESSAGE_STATUS_CHANGED',
-      },
-    });
+    const { service, realtimePublisherService, inboundAutoLinkService } =
+      buildService({
+        initialEvent: {
+          ...event,
+          eventType: 'OUTBOUND_MESSAGE_STATUS_CHANGED',
+        },
+      });
 
     await service.publishEvent(event.id);
 
@@ -266,6 +337,9 @@ describe('InconnectMessagingOutboxService', () => {
         }),
       }),
     );
+    expect(
+      inboundAutoLinkService.attemptForInboundMessage,
+    ).not.toHaveBeenCalled();
   });
 
   it('maps outbound creation to the existing message-created hint', async () => {

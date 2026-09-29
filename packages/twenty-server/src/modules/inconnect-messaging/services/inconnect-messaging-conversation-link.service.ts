@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-import { randomUUID } from 'crypto';
-
 import { isNonEmptyString } from '@sniptt/guards';
 import { DataSource, type EntityManager } from 'typeorm';
 
@@ -18,8 +16,8 @@ import { escapeIdentifier } from 'src/engine/workspace-manager/workspace-migrati
 import { type InconnectMessagingConversationContextDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-context.dto';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
-import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
+import { persistInconnectMessagingConversationLinkTransition } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-link-transition.util';
 import { InconnectMessagingContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-context.service';
 import {
   type InconnectMessagingOutboxPublicationRequest,
@@ -197,33 +195,11 @@ export class InconnectMessagingConversationLinkService {
       return null;
     }
 
-    conversation.linkedRecordObjectMetadataId = anchorObjectMetadataId;
-    conversation.linkedRecordId = recordId;
-    await conversationRepository.save(conversation);
-
-    const eventId = randomUUID();
-
-    await manager.getRepository(InconnectMessagingOutboxEventEntity).insert({
-      id: eventId,
-      workspaceId,
-      aggregateType: 'CONVERSATION',
-      aggregateId: conversation.id,
-      eventType: 'CONVERSATION_LINKED',
-      immutablePayload: { conversationId: conversation.id },
-      deduplicationKey: `inconnect-messaging:conversation-linked:${eventId}`,
-      availableAt: new Date(),
-      processingState: 'PENDING',
-      leaseToken: null,
-      leaseExpiresAt: null,
-      attemptCount: 0,
-      error: null,
-      publishedAt: null,
+    return persistInconnectMessagingConversationLinkTransition({
+      manager,
+      conversation,
+      objectMetadataId: anchorObjectMetadataId,
+      recordId,
     });
-
-    return {
-      id: eventId,
-      workspaceId,
-      eventType: 'CONVERSATION_LINKED',
-    };
   }
 }

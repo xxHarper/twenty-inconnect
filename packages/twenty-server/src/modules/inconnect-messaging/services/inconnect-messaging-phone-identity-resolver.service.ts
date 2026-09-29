@@ -7,7 +7,7 @@ import {
 } from 'libphonenumber-js';
 import { FieldMetadataType } from 'twenty-shared/types';
 import { normalizePhoneIdentity } from 'twenty-shared/utils';
-import { DataSource, In } from 'typeorm';
+import { DataSource, type EntityManager, In } from 'typeorm';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
@@ -49,6 +49,16 @@ type PhoneIdentityResolutionAuthority =
   | {
       kind: typeof INCONNECT_MESSAGING_BACKGROUND_PHONE_IDENTITY_ACTOR;
       workspaceId: string;
+    };
+
+type PhoneIdentityResolutionPersistence = DataSource | EntityManager;
+
+export type InconnectMessagingPhoneIdentityLinkResolution =
+  | Exclude<InconnectMessagingPhoneIdentityResolution, { state: 'UNIQUE' }>
+  | {
+      state: 'UNIQUE';
+      recordId: string;
+      objectMetadataId: string;
     };
 
 const phoneColumn = (
@@ -130,18 +140,20 @@ const parseCanonicalPhoneIdentity = ({
 };
 
 const resolvePhoneIdentityWithAuthority = async ({
-  dataSource,
+  persistence,
   workspaceCacheService,
   authority,
   input,
   defaultCountry,
+  lockAuthority = false,
 }: {
-  dataSource: DataSource;
+  persistence: PhoneIdentityResolutionPersistence;
   workspaceCacheService: WorkspaceCacheService;
   authority: PhoneIdentityResolutionAuthority;
   input: string | null | undefined;
   defaultCountry?: CountryCode;
-}): Promise<InconnectMessagingPhoneIdentityResolution> => {
+  lockAuthority?: boolean;
+}): Promise<InconnectMessagingPhoneIdentityLinkResolution> => {
   const canonicalIdentity = parseCanonicalPhoneIdentity({
     input,
     defaultCountry,
@@ -155,10 +167,13 @@ const resolvePhoneIdentityWithAuthority = async ({
     authority.kind === 'HUMAN'
       ? authority.authContext.workspace.id
       : authority.workspaceId;
-  const manager = dataSource.manager;
+  const manager = 'manager' in persistence ? persistence.manager : persistence;
   const configuration = await manager
     .getRepository(InconnectMessagingConfigurationEntity)
-    .findOne({ where: { workspaceId } });
+    .findOne({
+      where: { workspaceId },
+      ...(lockAuthority ? { lock: { mode: 'pessimistic_read' as const } } : {}),
+    });
 
   if (configuration === null) {
     return { state: 'DISABLED' };
@@ -306,14 +321,19 @@ const resolvePhoneIdentityWithAuthority = async ({
       numberColumn,
     )} = :phoneIdentityNationalNumber)`;
   });
-  const queryBuilder = dataSource
+  const queryBuilder = persistence
     .createQueryBuilder()
     .select(`${escapedRecordAlias}."id"`, 'recordId')
-    .distinct(true)
     .from(qualifiedTableName, recordAlias)
     .where(`${escapedRecordAlias}."deletedAt" IS NULL`)
     .andWhere(`(${fieldPredicates.join(' OR ')})`, parameters)
     .limit(2);
+
+  if (lockAuthority) {
+    queryBuilder.setLock('pessimistic_read');
+  } else {
+    queryBuilder.distinct(true);
+  }
 
   if (authority.kind === 'HUMAN') {
     const recordAccessScope =
@@ -346,7 +366,11 @@ const resolvePhoneIdentityWithAuthority = async ({
   }
 
   if (recordIds.length === 1) {
-    return { state: 'UNIQUE', recordId: recordIds[0] };
+    return {
+      state: 'UNIQUE',
+      recordId: recordIds[0],
+      objectMetadataId: objectMetadata.id,
+    };
   }
 
   return { state: 'AMBIGUOUS' };
@@ -370,8 +394,8 @@ export class InconnectMessagingPhoneIdentityResolverService {
     input: string | null | undefined;
     defaultCountry?: CountryCode;
   }): Promise<InconnectMessagingPhoneIdentityResolution> {
-    return resolvePhoneIdentityWithAuthority({
-      dataSource: this.dataSource,
+    const resolution = await resolvePhoneIdentityWithAuthority({
+      persistence: this.dataSource,
       workspaceCacheService: this.workspaceCacheService,
       authority: {
         kind: 'HUMAN',
@@ -382,6 +406,10 @@ export class InconnectMessagingPhoneIdentityResolverService {
       input,
       defaultCountry,
     });
+
+    return resolution.state === 'UNIQUE'
+      ? { state: 'UNIQUE', recordId: resolution.recordId }
+      : resolution;
   }
 }
 
@@ -403,8 +431,8 @@ export class InconnectMessagingBackgroundPhoneIdentityResolverService {
     input: string | null | undefined;
     defaultCountry?: CountryCode;
   }): Promise<InconnectMessagingPhoneIdentityResolution> {
-    return resolvePhoneIdentityWithAuthority({
-      dataSource: this.dataSource,
+    const resolution = await resolvePhoneIdentityWithAuthority({
+      persistence: this.dataSource,
       workspaceCacheService: this.workspaceCacheService,
       authority: {
         kind: INCONNECT_MESSAGING_BACKGROUND_PHONE_IDENTITY_ACTOR,
@@ -412,6 +440,31 @@ export class InconnectMessagingBackgroundPhoneIdentityResolverService {
       },
       input,
       defaultCountry,
+    });
+
+    return resolution.state === 'UNIQUE'
+      ? { state: 'UNIQUE', recordId: resolution.recordId }
+      : resolution;
+  }
+
+  async resolvePhoneIdentityForLink({
+    manager,
+    workspaceId,
+    input,
+  }: {
+    manager: EntityManager;
+    workspaceId: string;
+    input: string | null | undefined;
+  }): Promise<InconnectMessagingPhoneIdentityLinkResolution> {
+    return resolvePhoneIdentityWithAuthority({
+      persistence: manager,
+      workspaceCacheService: this.workspaceCacheService,
+      authority: {
+        kind: INCONNECT_MESSAGING_BACKGROUND_PHONE_IDENTITY_ACTOR,
+        workspaceId,
+      },
+      input,
+      lockAuthority: true,
     });
   }
 }

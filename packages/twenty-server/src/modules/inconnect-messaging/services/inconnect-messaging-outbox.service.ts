@@ -13,6 +13,7 @@ import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingOutboxEventEntity } from 'src/modules/inconnect-messaging/entities/outbox-event.entity';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
+import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
 import { InconnectMessagingRealtimePublisherService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-realtime-publisher.service';
 import { InconnectMessagingRealtimeRecipientService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-realtime-recipient.service';
 import {
@@ -48,6 +49,7 @@ export class InconnectMessagingOutboxService {
     private readonly authorizationService: InconnectMessagingAuthorizationService,
     private readonly recipientService: InconnectMessagingRealtimeRecipientService,
     private readonly realtimePublisherService: InconnectMessagingRealtimePublisherService,
+    private readonly inboundAutoLinkService: InconnectMessagingInboundAutoLinkService,
   ) {}
 
   async requestPublication(
@@ -63,7 +65,24 @@ export class InconnectMessagingOutboxService {
       return;
     }
 
+    let processingStage: 'AUTO_LINK' | 'REALTIME' = 'AUTO_LINK';
+
     try {
+      if (claim.event.eventType === 'INBOUND_MESSAGE_RECEIVED') {
+        const autoLinkResult =
+          await this.inboundAutoLinkService.attemptForInboundMessage({
+            workspaceId: claim.event.workspaceId,
+            messageId: claim.event.aggregateId,
+          });
+
+        if (autoLinkResult.publicationRequest !== null) {
+          await this.enqueueWithoutAffectingAuthority(
+            autoLinkResult.publicationRequest,
+          );
+        }
+      }
+
+      processingStage = 'REALTIME';
       const hint = await this.buildHint(claim.event);
 
       if (hint === null) {
@@ -100,13 +119,13 @@ export class InconnectMessagingOutboxService {
       await this.completeClaim(claim);
       this.logResult(claim.event, 'PUBLISHED', recipientCount);
     } catch (error) {
-      await this.releaseClaimForRetry(claim, 'REALTIME_PUBLISH_FAILED');
-      this.logResult(
-        claim.event,
-        'RETRY_PENDING',
-        undefined,
-        'REALTIME_PUBLISH_FAILED',
-      );
+      const errorCategory =
+        processingStage === 'AUTO_LINK'
+          ? 'INBOUND_AUTO_LINK_FAILED'
+          : 'REALTIME_PUBLISH_FAILED';
+
+      await this.releaseClaimForRetry(claim, errorCategory);
+      this.logResult(claim.event, 'RETRY_PENDING', undefined, errorCategory);
 
       throw error;
     }

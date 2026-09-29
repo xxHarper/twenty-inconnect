@@ -30,6 +30,7 @@ import {
   InconnectMessagingBackgroundPhoneIdentityResolverService,
   InconnectMessagingPhoneIdentityResolverService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
+import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
 import { ModulesModule } from 'src/modules/modules.module';
 
 describe('InconnectMessagingModule wiring', () => {
@@ -118,8 +119,12 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(
       InconnectMessagingBackgroundPhoneIdentityResolverService,
     );
+    expect(moduleProviders).toContain(InconnectMessagingInboundAutoLinkService);
     expect(moduleExports).not.toContain(
       InconnectMessagingBackgroundPhoneIdentityResolverService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingInboundAutoLinkService,
     );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationLinkService,

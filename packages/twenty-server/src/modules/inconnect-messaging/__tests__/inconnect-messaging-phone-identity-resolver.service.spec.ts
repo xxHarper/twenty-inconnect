@@ -86,6 +86,7 @@ const buildService = ({
     where: jest.fn(),
     andWhere: jest.fn(),
     limit: jest.fn(),
+    setLock: jest.fn(),
     getRawMany: jest.fn().mockResolvedValue(rows),
   };
 
@@ -96,15 +97,16 @@ const buildService = ({
     'where',
     'andWhere',
     'limit',
+    'setLock',
   ] as const) {
     queryBuilder[method].mockReturnValue(queryBuilder);
   }
 
+  const configurationRepository = {
+    findOne: jest.fn().mockResolvedValue(existingConfiguration),
+  };
   const repositories = new Map<unknown, unknown>([
-    [
-      InconnectMessagingConfigurationEntity,
-      { findOne: jest.fn().mockResolvedValue(existingConfiguration) },
-    ],
+    [InconnectMessagingConfigurationEntity, configurationRepository],
     [
       InconnectMessagingPhoneIdentityFieldEntity,
       { find: jest.fn().mockResolvedValue(configuredFields) },
@@ -129,6 +131,7 @@ const buildService = ({
   ]);
   const manager = {
     getRepository: jest.fn((entity) => repositories.get(entity)),
+    createQueryBuilder: jest.fn(() => queryBuilder),
   };
   const dataSource = {
     manager,
@@ -180,6 +183,7 @@ const buildService = ({
     queryBuilder,
     authorizationService,
     recordAccessAuthorizationService,
+    configurationRepository,
   };
 };
 
@@ -560,5 +564,32 @@ describe('InconnectMessagingBackgroundPhoneIdentityResolverService', () => {
         input: '+525514552571',
       }),
     ).resolves.toEqual({ state: 'UNIQUE', recordId: RECORD_A_ID });
+  });
+
+  it('locks current configuration and exact matching targets for link revalidation', async () => {
+    const {
+      backgroundService,
+      dataSource,
+      queryBuilder,
+      configurationRepository,
+    } = buildService({ rows: [{ recordId: RECORD_A_ID }] });
+
+    await expect(
+      backgroundService.resolvePhoneIdentityForLink({
+        manager: dataSource.manager as never,
+        workspaceId: WORKSPACE_ID,
+        input: '+525514552571',
+      }),
+    ).resolves.toEqual({
+      state: 'UNIQUE',
+      recordId: RECORD_A_ID,
+      objectMetadataId: OBJECT_ID,
+    });
+    expect(configurationRepository.findOne).toHaveBeenCalledWith({
+      where: { workspaceId: WORKSPACE_ID },
+      lock: { mode: 'pessimistic_read' },
+    });
+    expect(queryBuilder.setLock).toHaveBeenCalledWith('pessimistic_read');
+    expect(queryBuilder.distinct).not.toHaveBeenCalled();
   });
 });
