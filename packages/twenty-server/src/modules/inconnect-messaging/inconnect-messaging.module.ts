@@ -49,6 +49,7 @@ import { InconnectMessagingWorkStateResolver } from 'src/modules/inconnect-messa
 import { InconnectMessagingContextResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-context.resolver';
 import { InconnectMessagingLinkResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-link.resolver';
 import { InconnectMessagingPhoneIdentityResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-phone-identity.resolver';
+import { InconnectMessagingAutoCreateResolver } from 'src/modules/inconnect-messaging/resolvers/inconnect-messaging-auto-create.resolver';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
 import { InconnectMessagingAuthorizedProviderContextService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorized-provider-context.service';
 import { InconnectMessagingConversationQueryService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-conversation-query.service';
@@ -83,6 +84,7 @@ import {
   InconnectMessagingPhoneIdentityResolverService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
+import { InconnectMessagingAutoCreateConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-configuration.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -137,6 +139,8 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingBackgroundPhoneIdentityResolverService,
     InconnectMessagingInboundAutoLinkService,
     InconnectMessagingPhoneIdentityResolver,
+    InconnectMessagingAutoCreateConfigurationService,
+    InconnectMessagingAutoCreateResolver,
     InconnectMessagingWorkStateService,
     InconnectMessagingWorkStateResolver,
     InconnectMessagingSendService,

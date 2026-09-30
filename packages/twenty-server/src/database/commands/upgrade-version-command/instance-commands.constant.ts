@@ -155,6 +155,7 @@ import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/dat
 import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
 import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields';
 import { AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790550000000-add-inconnect-messaging-phone-identity-fields';
+import { AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305698-add-inconnect-messaging-auto-create-configuration';
 import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 
 export const INSTANCE_COMMANDS = [
@@ -313,5 +314,6 @@ export const INSTANCE_COMMANDS = [
   AddInconnectMessagingConversationWorkStateFastInstanceCommand,
   AddInconnectMessagingContextFieldsFastInstanceCommand,
   AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand,
+  AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand,
   BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand,
 ];

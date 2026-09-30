@@ -98,6 +98,18 @@ export const INCONNECT_MESSAGING_PHONE_IDENTITY_FIELD_ROLES = [
 export type InconnectMessagingPhoneIdentityFieldRole =
   (typeof INCONNECT_MESSAGING_PHONE_IDENTITY_FIELD_ROLES)[number];
 
+export const INCONNECT_MESSAGING_AUTO_CREATE_OWNER_STRATEGIES = [
+  'UNIQUE_ACTIVE_MEMBER_OF_ROLE',
+] as const;
+
+export type InconnectMessagingAutoCreateOwnerStrategy =
+  (typeof INCONNECT_MESSAGING_AUTO_CREATE_OWNER_STRATEGIES)[number];
+
+export const INCONNECT_MESSAGING_AUTO_CREATE_LABEL_POLICIES = ['OMIT'] as const;
+
+export type InconnectMessagingAutoCreateLabelPolicy =
+  (typeof INCONNECT_MESSAGING_AUTO_CREATE_LABEL_POLICIES)[number];
+
 export type InconnectMessagingPhoneIdentityResolution =
   | { state: 'DISABLED' }
   | { state: 'INVALID' }

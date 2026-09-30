@@ -9,6 +9,7 @@ import { AddInconnectMessagingOutboundUploadsFastInstanceCommand } from 'src/dat
 import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790006024000-add-inconnect-messaging-conversation-work-state';
 import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields';
 import { AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790550000000-add-inconnect-messaging-phone-identity-fields';
+import { AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305698-add-inconnect-messaging-auto-create-configuration';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
@@ -86,6 +87,9 @@ describe('INCONNECT Messaging persistence model', () => {
     await new AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand().up({
       query,
     } as never);
+    await new AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand().up(
+      { query } as never,
+    );
 
     const sql = query.mock.calls.map(([statement]) => statement).join('\n');
 
@@ -161,6 +165,8 @@ describe('INCONNECT Messaging persistence model', () => {
       'FK_INCONNECT_MSG_MEMBER_STATE_CONVERSATION',
       'FK_INCONNECT_MSG_CONTEXT_FIELD_METADATA',
       'FK_INCONNECT_MSG_PHONE_IDENTITY_METADATA',
+      'FK_INCONNECT_MSG_CONFIG_AUTO_CREATE_ANCHOR',
+      'FK_INCONNECT_MSG_CONFIG_AUTO_CREATE_ROLE',
     ];
     const foreignKeys = MESSAGING_ENTITIES.flatMap(
       (entity) => dataSource.getMetadata(entity).foreignKeys,
@@ -174,6 +180,43 @@ describe('INCONNECT Messaging persistence model', () => {
       expect(foreignKey?.columnNames).toContain('workspaceId');
       expect(foreignKey?.referencedColumnNames).toContain('workspaceId');
     }
+  });
+
+  it('keeps auto-create configuration on the Messaging singleton with workspace-isolated references', async () => {
+    const dataSource = await buildMetadataDataSource();
+    const metadata = dataSource.getMetadata(
+      InconnectMessagingConfigurationEntity,
+    );
+    const anchorForeignKey = metadata.foreignKeys.find(
+      ({ name }) => name === 'FK_INCONNECT_MSG_CONFIG_AUTO_CREATE_ANCHOR',
+    );
+    const roleForeignKey = metadata.foreignKeys.find(
+      ({ name }) => name === 'FK_INCONNECT_MSG_CONFIG_AUTO_CREATE_ROLE',
+    );
+
+    expect(anchorForeignKey?.columnNames).toEqual([
+      'autoCreateAnchorObjectMetadataId',
+      'workspaceId',
+    ]);
+    expect(anchorForeignKey?.referencedColumnNames).toEqual([
+      'id',
+      'workspaceId',
+    ]);
+    expect(roleForeignKey?.columnNames).toEqual([
+      'autoCreateOwnerRoleId',
+      'workspaceId',
+    ]);
+    expect(roleForeignKey?.referencedColumnNames).toEqual([
+      'id',
+      'workspaceId',
+    ]);
+    expect(metadata.checks.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'CHK_INCONNECT_MSG_CONFIG_AUTO_CREATE_TUPLE',
+        'CHK_INCONNECT_MSG_CONFIG_AUTO_CREATE_OWNER_STRATEGY',
+        'CHK_INCONNECT_MSG_CONFIG_AUTO_CREATE_LABEL_POLICY',
+      ]),
+    );
   });
 
   it('physically binds context fields to one configuration anchor and metadata workspace', async () => {

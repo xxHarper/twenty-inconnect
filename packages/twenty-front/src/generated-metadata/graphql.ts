@@ -2197,6 +2197,96 @@ export type InconnectCommercialTeamSettingsTeam = {
   name: Scalars['String']['output'];
 };
 
+export type InconnectMessagingAutoCreateAnchor = {
+  __typename?: 'InconnectMessagingAutoCreateAnchor';
+  label: Scalars['String']['output'];
+  objectMetadataId: Scalars['UUID']['output'];
+};
+
+export type InconnectMessagingAutoCreateConfiguration = {
+  __typename?: 'InconnectMessagingAutoCreateConfiguration';
+  anchorObject?: Maybe<InconnectMessagingAutoCreateAnchor>;
+  configuration?: Maybe<InconnectMessagingAutoCreateStoredConfiguration>;
+  effectiveEnabled: Scalars['Boolean']['output'];
+  eligibleOwnerRoles: Array<InconnectMessagingAutoCreateOwnerRole>;
+  primaryPhoneIdentity: InconnectMessagingAutoCreatePrimaryPhoneIdentity;
+  readiness: InconnectMessagingAutoCreateReadiness;
+  validationIssues: Array<InconnectMessagingAutoCreateValidationIssue>;
+};
+
+export type InconnectMessagingAutoCreateConfigurationInput = {
+  enabled: Scalars['Boolean']['input'];
+  labelPolicy: InconnectMessagingAutoCreateLabelPolicy;
+  ownerRoleId: Scalars['UUID']['input'];
+  ownerStrategy: InconnectMessagingAutoCreateOwnerStrategy;
+};
+
+export enum InconnectMessagingAutoCreateLabelPolicy {
+  OMIT = 'OMIT'
+}
+
+export type InconnectMessagingAutoCreateOwnerRole = {
+  __typename?: 'InconnectMessagingAutoCreateOwnerRole';
+  label: Scalars['String']['output'];
+  roleId: Scalars['UUID']['output'];
+};
+
+export enum InconnectMessagingAutoCreateOwnerStrategy {
+  UNIQUE_ACTIVE_MEMBER_OF_ROLE = 'UNIQUE_ACTIVE_MEMBER_OF_ROLE'
+}
+
+export type InconnectMessagingAutoCreatePrimaryPhoneIdentity = {
+  __typename?: 'InconnectMessagingAutoCreatePrimaryPhoneIdentity';
+  fieldMetadataId?: Maybe<Scalars['UUID']['output']>;
+  isActive?: Maybe<Scalars['Boolean']['output']>;
+  label?: Maybe<Scalars['String']['output']>;
+  status: InconnectMessagingAutoCreatePrimaryStatus;
+  type?: Maybe<Scalars['String']['output']>;
+};
+
+export enum InconnectMessagingAutoCreatePrimaryStatus {
+  INACTIVE = 'INACTIVE',
+  METADATA_MISSING = 'METADATA_MISSING',
+  MISSING = 'MISSING',
+  MULTIPLE = 'MULTIPLE',
+  VALID = 'VALID',
+  WRONG_ANCHOR = 'WRONG_ANCHOR',
+  WRONG_TYPE = 'WRONG_TYPE',
+  WRONG_WORKSPACE = 'WRONG_WORKSPACE'
+}
+
+export enum InconnectMessagingAutoCreateReadiness {
+  DISABLED = 'DISABLED',
+  INVALID = 'INVALID',
+  NOT_READY = 'NOT_READY'
+}
+
+export type InconnectMessagingAutoCreateStoredConfiguration = {
+  __typename?: 'InconnectMessagingAutoCreateStoredConfiguration';
+  configuredAnchorObjectMetadataId?: Maybe<Scalars['UUID']['output']>;
+  enabled: Scalars['Boolean']['output'];
+  labelPolicy?: Maybe<InconnectMessagingAutoCreateLabelPolicy>;
+  ownerRoleId?: Maybe<Scalars['UUID']['output']>;
+  ownerStrategy?: Maybe<InconnectMessagingAutoCreateOwnerStrategy>;
+};
+
+export enum InconnectMessagingAutoCreateValidationIssue {
+  CONFIGURATION_INCOMPLETE = 'CONFIGURATION_INCOMPLETE',
+  CONFIGURED_ANCHOR_MISMATCH = 'CONFIGURED_ANCHOR_MISMATCH',
+  CURRENT_ANCHOR_INVALID = 'CURRENT_ANCHOR_INVALID',
+  LABEL_POLICY_INVALID = 'LABEL_POLICY_INVALID',
+  OWNER_ROLE_INVALID = 'OWNER_ROLE_INVALID',
+  OWNER_STRATEGY_INVALID = 'OWNER_STRATEGY_INVALID',
+  PRIMARY_INACTIVE = 'PRIMARY_INACTIVE',
+  PRIMARY_METADATA_MISSING = 'PRIMARY_METADATA_MISSING',
+  PRIMARY_MISSING = 'PRIMARY_MISSING',
+  PRIMARY_MULTIPLE = 'PRIMARY_MULTIPLE',
+  PRIMARY_WRONG_ANCHOR = 'PRIMARY_WRONG_ANCHOR',
+  PRIMARY_WRONG_TYPE = 'PRIMARY_WRONG_TYPE',
+  PRIMARY_WRONG_WORKSPACE = 'PRIMARY_WRONG_WORKSPACE',
+  RUNTIME_NOT_IMPLEMENTED = 'RUNTIME_NOT_IMPLEMENTED'
+}
+
 export type InconnectMessagingContextCandidateField = {
   __typename?: 'InconnectMessagingContextCandidateField';
   fieldMetadataId: Scalars['UUID']['output'];
@@ -3269,6 +3359,7 @@ export type Mutation = {
   renameInconnectCommercialTeam: InconnectCommercialTeamSettingsMutationResult;
   renewApplicationToken: ApplicationTokenPair;
   renewToken: AuthTokens;
+  replaceInconnectMessagingAutoCreateConfiguration: InconnectMessagingAutoCreateConfiguration;
   replaceInconnectMessagingContextConfiguration: InconnectMessagingContextConfiguration;
   replaceInconnectMessagingPhoneIdentityConfiguration: InconnectMessagingPhoneIdentityConfiguration;
   replaceInconnectRecordAccessConfiguration: ReplaceInconnectRecordAccessConfigurationResult;
@@ -4086,6 +4177,11 @@ export type MutationRenewApplicationTokenArgs = {
 
 export type MutationRenewTokenArgs = {
   appToken: Scalars['String']['input'];
+};
+
+
+export type MutationReplaceInconnectMessagingAutoCreateConfigurationArgs = {
+  input: InconnectMessagingAutoCreateConfigurationInput;
 };
 
 
@@ -5280,6 +5376,7 @@ export type Query = {
   getViews: Array<View>;
   getWorkspaceCreationDefaults: WorkspaceCreationDefaultsDto;
   githubClaimAuthorizationUrl: Scalars['String']['output'];
+  inconnectMessagingAutoCreateConfiguration: InconnectMessagingAutoCreateConfiguration;
   inconnectMessagingContextConfiguration: InconnectMessagingContextConfiguration;
   inconnectMessagingConversation?: Maybe<InconnectMessagingConversation>;
   inconnectMessagingConversationContext?: Maybe<InconnectMessagingConversationContext>;
