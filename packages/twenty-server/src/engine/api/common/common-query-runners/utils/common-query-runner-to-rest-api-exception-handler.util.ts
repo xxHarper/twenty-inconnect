@@ -36,6 +36,7 @@ export const commonQueryRunnerToRestApiExceptionHandler = (
       throw new UnauthorizedException(error.message);
     case CommonQueryRunnerExceptionCode.MISSING_FLAT_INDEX_MAPS:
     case CommonQueryRunnerExceptionCode.MISSING_SYSTEM_FIELD:
+    case CommonQueryRunnerExceptionCode.INVALID_QUERY_RUNNER:
     case CommonQueryRunnerExceptionCode.INTERNAL_SERVER_ERROR:
       throw new InternalServerErrorException(error.message);
     default: {

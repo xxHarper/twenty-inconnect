@@ -50,10 +50,12 @@ type TestableInsertBuilder = {
 
 const buildQueryRunner = ({
   candidateIds,
+  transactionActive = false,
 }: {
   candidateIds: string[];
+  transactionActive?: boolean;
 }): QueryRunner => {
-  let isTransactionActive = false;
+  let isTransactionActive = transactionActive;
 
   return {
     get isTransactionActive() {
@@ -163,6 +165,31 @@ describe('WorkspaceInsertQueryBuilder INCONNECT owner integrity', () => {
     expect(
       (queryRunner.commitTransaction as jest.Mock).mock.invocationCallOrder[0],
     ).toBeGreaterThan(executeSpy.mock.invocationCallOrder[0]);
+  });
+
+  it('reuses a caller-owned transaction without managing its lifecycle', async () => {
+    const queryRunner = buildQueryRunner({
+      candidateIds: [SUPERVISOR_WORKSPACE_MEMBER_ID],
+      transactionActive: true,
+    });
+    const builder = buildBuilder({
+      valuesSet: [{ name: 'Caller owned' }],
+      queryRunner,
+    });
+    const executeSpy = jest
+      .spyOn(InsertQueryBuilder.prototype, 'execute')
+      .mockResolvedValue(insertResult);
+
+    await expect(
+      builder.executeInsertWithInconnectOwnerIntegrity(decision),
+    ).resolves.toBe(insertResult);
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    expect(queryRunner.startTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.rollbackTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.release).not.toHaveBeenCalled();
+    expect(queryRunner.isTransactionActive).toBe(true);
   });
 
   it('rolls back before INSERT when the default Role has multiple active members', async () => {

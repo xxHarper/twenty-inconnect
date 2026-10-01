@@ -1,4 +1,4 @@
-import { type DataSource } from 'typeorm';
+import { type DataSource, type QueryRunner } from 'typeorm';
 import { type FeatureFlagKey } from 'twenty-shared/types';
 
 import { type InconnectRecordAccessWorkspacePolicy } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
@@ -27,4 +27,5 @@ export interface WorkspaceInternalContext {
   apiKeyRoleMap: Record<string, string>;
   eventEmitterService: WorkspaceEventEmitter;
   coreDataSource: DataSource;
+  queryRunner?: QueryRunner;
 }

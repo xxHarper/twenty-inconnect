@@ -123,6 +123,7 @@ export class WorkspaceEntityManager extends EntityManager {
       apiKeyRoleMap: context.apiKeyRoleMap,
       eventEmitterService: this.eventEmitterService,
       coreDataSource: this.connection.coreDataSource,
+      queryRunner: this.queryRunner,
     };
   }
 
@@ -258,7 +259,7 @@ export class WorkspaceEntityManager extends EntityManager {
     return this.createQueryBuilder(
       target,
       metadata.name,
-      undefined,
+      this.queryRunner,
       permissionOptions,
     )
       .insert()

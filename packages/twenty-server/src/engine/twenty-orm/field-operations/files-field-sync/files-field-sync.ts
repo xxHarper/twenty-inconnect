@@ -6,12 +6,7 @@ import {
   type FieldMetadataSettingsMapping,
 } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
-import {
-  In,
-  type EntityTarget,
-  type ObjectLiteral,
-  type Repository,
-} from 'typeorm';
+import { In, Repository, type EntityTarget, type ObjectLiteral } from 'typeorm';
 import { type QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 
 import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/workspace-internal-context.interface';
@@ -52,8 +47,13 @@ export class FilesFieldSync {
 
   constructor(internalContext: WorkspaceInternalContext) {
     this.internalContext = internalContext;
-    this.fileRepository =
-      internalContext.coreDataSource.getRepository(FileEntity);
+    this.fileRepository = internalContext.queryRunner
+      ? new Repository(
+          FileEntity,
+          internalContext.coreDataSource.manager,
+          internalContext.queryRunner,
+        )
+      : internalContext.coreDataSource.getRepository(FileEntity);
   }
 
   prepareFilesFieldSyncBeforeUpdate<Entity extends ObjectLiteral>(

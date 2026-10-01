@@ -77,6 +77,7 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       flatFieldMetadataMaps,
       flatIndexMaps,
       workspaceDataSource,
+      queryRunner,
     } = queryRunnerContext;
 
     if (!isDefined(flatIndexMaps)) {
@@ -114,6 +115,7 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       flatFieldMetadataMaps,
       authContext,
       workspaceDataSource,
+      queryRunner,
       rolePermissionConfig,
     });
 
@@ -128,6 +130,7 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
     flatFieldMetadataMaps,
     authContext,
     workspaceDataSource,
+    queryRunner,
     rolePermissionConfig,
   }: {
     args: CommonExtendedInput<CreateManyQueryArgs>;
@@ -137,6 +140,7 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
     flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
     authContext: WorkspaceAuthContext;
     workspaceDataSource: GlobalWorkspaceDataSource;
+    queryRunner?: CommonExtendedQueryRunnerContext['queryRunner'];
     rolePermissionConfig?: RolePermissionConfig;
   }): Promise<void> {
     if (!args.selectedFieldsResult.relations) {
@@ -155,6 +159,7 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       limit: QUERY_MAX_RECORDS,
       authContext,
       workspaceDataSource,
+      queryRunner,
       rolePermissionConfig,
       selectedFields: args.selectedFieldsResult.select,
     });

@@ -257,11 +257,12 @@ export class WorkspaceInsertQueryBuilder<
         await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
       }
       const eventSelectQueryBuilder = (
-        this.connection.manager as WorkspaceEntityManager
+        (this.queryRunner?.manager ??
+          this.connection.manager) as WorkspaceEntityManager
       ).createQueryBuilder(
         mainAliasTarget,
         this.expressionMap.mainAlias?.metadata.name ?? '',
-        undefined,
+        this.queryRunner,
         {
           shouldBypassPermissionChecks: true,
         },

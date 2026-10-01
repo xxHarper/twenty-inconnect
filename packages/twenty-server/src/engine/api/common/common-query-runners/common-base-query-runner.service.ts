@@ -57,6 +57,7 @@ import {
 } from 'src/engine/metadata-modules/permissions/permissions.exception';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
 import { getWorkspaceContext } from 'src/engine/twenty-orm/storage/orm-workspace-context.storage';
 import { resolveRolePermissionConfig } from 'src/engine/twenty-orm/utils/resolve-role-permission-config.util';
@@ -112,12 +113,37 @@ export abstract class CommonBaseQueryRunnerService<
     args: CommonInput<Args>,
     queryRunnerContext: CommonBaseQueryRunnerContext,
   ): Promise<CommonQueryExecutionResult<Output, Args>> {
+    return this.executeWithOptionalQueryRunner(args, queryRunnerContext);
+  }
+
+  public async executeWithQueryRunner(
+    args: CommonInput<Args>,
+    queryRunnerContext: CommonBaseQueryRunnerContext,
+    queryRunner: WorkspaceQueryRunner,
+  ): Promise<CommonQueryExecutionResult<Output, Args>> {
+    // The caller owns commit, rollback, release, and the resulting after-commit lifecycle.
+    return this.executeWithOptionalQueryRunner(
+      args,
+      queryRunnerContext,
+      queryRunner,
+    );
+  }
+
+  private async executeWithOptionalQueryRunner(
+    args: CommonInput<Args>,
+    queryRunnerContext: CommonBaseQueryRunnerContext,
+    queryRunner?: WorkspaceQueryRunner,
+  ): Promise<CommonQueryExecutionResult<Output, Args>> {
     const {
       authContext,
       flatObjectMetadata,
       flatObjectMetadataMaps,
       flatFieldMetadataMaps,
     } = queryRunnerContext;
+
+    if (queryRunner) {
+      await this.assertCallerOwnedQueryRunner(queryRunner);
+    }
 
     await this.throttleQueryExecution(authContext);
 
@@ -162,6 +188,7 @@ export abstract class CommonBaseQueryRunnerService<
             processedArgs,
             queryRunnerContext,
             commonQueryParser,
+            queryRunner,
           ),
         authContext,
       );
@@ -170,6 +197,25 @@ export abstract class CommonBaseQueryRunnerService<
       results,
       args: processedArgs,
     };
+  }
+
+  private async assertCallerOwnedQueryRunner(
+    queryRunner: WorkspaceQueryRunner,
+  ): Promise<void> {
+    const workspaceDataSource =
+      await this.globalWorkspaceOrmManager.getGlobalWorkspaceDataSource();
+
+    if (
+      queryRunner.connection !== workspaceDataSource ||
+      queryRunner.isReleased ||
+      !queryRunner.isTransactionActive
+    ) {
+      throw new CommonQueryRunnerException(
+        'A transaction-active QueryRunner from the primary workspace datasource is required',
+        CommonQueryRunnerExceptionCode.INVALID_QUERY_RUNNER,
+        { userFriendlyMessage: STANDARD_ERROR_MESSAGE },
+      );
+    }
   }
 
   protected abstract run(
@@ -248,10 +294,12 @@ export abstract class CommonBaseQueryRunnerService<
     processedArgs: CommonExtendedInput<Args>,
     queryRunnerContext: CommonBaseQueryRunnerContext,
     commonQueryParser: GraphqlQueryParser,
+    queryRunner?: WorkspaceQueryRunner,
   ): Promise<Output> {
     const extendedQueryRunnerContext =
       await this.prepareExtendedQueryRunnerContextWithGlobalDatasource(
         queryRunnerContext,
+        queryRunner,
       );
 
     const results = await this.run(processedArgs, {
@@ -343,6 +391,7 @@ export abstract class CommonBaseQueryRunnerService<
 
   private async prepareExtendedQueryRunnerContextWithGlobalDatasource(
     queryRunnerContext: CommonBaseQueryRunnerContext,
+    queryRunner?: WorkspaceQueryRunner,
   ): Promise<Omit<CommonExtendedQueryRunnerContext, 'commonQueryParser'>> {
     const context = getWorkspaceContext();
 
@@ -366,15 +415,22 @@ export abstract class CommonBaseQueryRunnerService<
       ? await this.globalWorkspaceOrmManager.getGlobalWorkspaceDataSourceReplica()
       : await this.globalWorkspaceOrmManager.getGlobalWorkspaceDataSource();
 
-    const repository = globalWorkspaceDataSource.getRepository(
-      queryRunnerContext.flatObjectMetadata.nameSingular,
-      rolePermissionConfig,
-    );
+    const repository = queryRunner
+      ? queryRunner.manager.getRepository(
+          queryRunnerContext.flatObjectMetadata.nameSingular,
+          rolePermissionConfig,
+          context.authContext,
+        )
+      : globalWorkspaceDataSource.getRepository(
+          queryRunnerContext.flatObjectMetadata.nameSingular,
+          rolePermissionConfig,
+        );
 
     return {
       ...queryRunnerContext,
       authContext: context.authContext,
       workspaceDataSource: globalWorkspaceDataSource,
+      queryRunner,
       rolePermissionConfig,
       repository,
       featureFlagsMap: context.featureFlagsMap,

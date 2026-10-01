@@ -30,6 +30,7 @@ import {
 } from 'src/engine/metadata-modules/flat-field-metadata/utils/build-field-maps-from-flat-object-metadata.util';
 import { FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { GlobalWorkspaceDataSource } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
 import { type WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-select-query-builder';
 import { type RolePermissionConfig } from 'src/engine/twenty-orm/types/role-permission-config';
@@ -51,6 +52,7 @@ type ProcessNestedRelationsArgs<T extends ObjectRecord = ObjectRecord> = {
   limit: number;
   authContext: WorkspaceAuthContext;
   workspaceDataSource: GlobalWorkspaceDataSource;
+  queryRunner?: WorkspaceQueryRunner;
   rolePermissionConfig?: RolePermissionConfig;
   // oxlint-disable-next-line typescript/no-explicit-any
   selectedFields: Record<string, any>;
@@ -83,6 +85,7 @@ export class ProcessNestedRelationsV2Helper {
       limit,
       authContext,
       workspaceDataSource,
+      queryRunner,
       rolePermissionConfig,
       selectedFields,
     }: ProcessNestedRelationsArgs<T>,
@@ -102,6 +105,7 @@ export class ProcessNestedRelationsV2Helper {
           limit,
           authContext,
           workspaceDataSource,
+          queryRunner,
           rolePermissionConfig,
           relationQueryLimiter,
           selectedFields:
@@ -126,6 +130,7 @@ export class ProcessNestedRelationsV2Helper {
     limit,
     authContext,
     workspaceDataSource,
+    queryRunner,
     rolePermissionConfig,
     relationQueryLimiter,
     selectedFields,
@@ -142,6 +147,7 @@ export class ProcessNestedRelationsV2Helper {
     limit: number;
     authContext: WorkspaceAuthContext;
     workspaceDataSource: GlobalWorkspaceDataSource;
+    queryRunner?: WorkspaceQueryRunner;
     rolePermissionConfig?: RolePermissionConfig;
     relationQueryLimiter: ConcurrencyLimiter;
     selectedFields: Record<string, unknown>;
@@ -192,10 +198,16 @@ export class ProcessNestedRelationsV2Helper {
         fieldMaps,
       });
 
-    const targetObjectRepository = workspaceDataSource.getRepository(
-      targetObjectMetadata.nameSingular,
-      rolePermissionConfig,
-    );
+    const targetObjectRepository = queryRunner
+      ? queryRunner.manager.getRepository(
+          targetObjectMetadata.nameSingular,
+          rolePermissionConfig,
+          authContext,
+        )
+      : workspaceDataSource.getRepository(
+          targetObjectMetadata.nameSingular,
+          rolePermissionConfig,
+        );
 
     const targetObjectNameSingular = targetObjectMetadata.nameSingular;
 
@@ -303,6 +315,7 @@ export class ProcessNestedRelationsV2Helper {
           limit,
           authContext,
           workspaceDataSource,
+          queryRunner,
           rolePermissionConfig,
           selectedFields,
         },
