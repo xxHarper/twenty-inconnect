@@ -31,6 +31,7 @@ import {
   InconnectMessagingPhoneIdentityResolverService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
+import { InconnectMessagingAutoCreateAuthorityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-authority.service';
 import { ModulesModule } from 'src/modules/modules.module';
 
 describe('InconnectMessagingModule wiring', () => {
@@ -120,11 +121,17 @@ describe('InconnectMessagingModule wiring', () => {
       InconnectMessagingBackgroundPhoneIdentityResolverService,
     );
     expect(moduleProviders).toContain(InconnectMessagingInboundAutoLinkService);
+    expect(moduleProviders).toContain(
+      InconnectMessagingAutoCreateAuthorityService,
+    );
     expect(moduleExports).not.toContain(
       InconnectMessagingBackgroundPhoneIdentityResolverService,
     );
     expect(moduleExports).not.toContain(
       InconnectMessagingInboundAutoLinkService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingAutoCreateAuthorityService,
     );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationLinkService,

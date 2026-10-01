@@ -7,7 +7,6 @@ import { type EntityManager } from 'typeorm';
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
-import { RelationType } from 'src/engine/metadata-modules/field-metadata/interfaces/relation-type.interface';
 import { computeMorphOrRelationFieldJoinColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-morph-or-relation-field-join-column-name.util';
 import {
   computeColumnName,
@@ -21,6 +20,10 @@ import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/works
 import { InconnectMessagingAutoCreatePrimaryStatusDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { type PrimaryPhoneIdentityEvaluation } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
+import {
+  findInconnectMessagingAutoCreateOwnerFields,
+  isInconnectMessagingManyToOneRelation,
+} from 'src/modules/inconnect-messaging/utils/find-inconnect-messaging-auto-create-owner-fields.util';
 
 export const INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON = {
   CONFIGURATION_DISABLED: 'CONFIGURATION_DISABLED',
@@ -100,10 +103,6 @@ const isSystemManagedField = (fieldMetadata: FieldMetadataEntity): boolean =>
   (fieldMetadata.isSystem === true &&
     SYSTEM_MANAGED_FIELD_NAMES.has(fieldMetadata.name));
 
-const isManyToOneRelation = (fieldMetadata: FieldMetadataEntity): boolean =>
-  (fieldMetadata.settings as { relationType?: RelationType } | null)
-    ?.relationType === RelationType.MANY_TO_ONE;
-
 const getPhysicalColumnNames = (
   fieldMetadata: FieldMetadataEntity,
 ): string[] => {
@@ -114,7 +113,7 @@ const getPhysicalColumnNames = (
   }
 
   if (fieldMetadata.type === FieldMetadataType.RELATION) {
-    return isManyToOneRelation(fieldMetadata)
+    return isInconnectMessagingManyToOneRelation(fieldMetadata)
       ? [
           computeMorphOrRelationFieldJoinColumnName({
             name: fieldMetadata.name,
@@ -305,13 +304,10 @@ export class InconnectMessagingAutoCreateEligibilityService {
       );
     }
 
-    const ownerFields = fields.filter(
-      (field) =>
-        field.isActive === true &&
-        field.type === FieldMetadataType.RELATION &&
-        field.relationTargetObjectMetadataId === workspaceMemberObject.id &&
-        isManyToOneRelation(field),
-    );
+    const ownerFields = findInconnectMessagingAutoCreateOwnerFields({
+      fields,
+      workspaceMemberObjectMetadataId: workspaceMemberObject.id,
+    });
 
     if (ownerFields.length !== 1) {
       return ineligible(

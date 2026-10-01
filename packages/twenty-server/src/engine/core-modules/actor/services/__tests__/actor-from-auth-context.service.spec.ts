@@ -147,6 +147,34 @@ describe('ActorFromAuthContextService', () => {
       ]);
     });
 
+    it('should preserve application actor behavior', async () => {
+      const authContext = {
+        type: 'application',
+        application: {
+          id: '20202020-56c2-471b-925d-31ed3ecd0952',
+          name: 'Connected Application',
+        },
+        workspace: { id: '20202020-bdec-497f-847a-1bb334fefe58' },
+      } as unknown as WorkspaceAuthContext;
+
+      const result = await service.injectCreatedBy({
+        records: [{}],
+        objectMetadataNameSingular: 'person',
+        authContext,
+      });
+
+      expect(result).toEqual<ExpectedResult>([
+        {
+          createdBy: {
+            source: FieldActorSource.APPLICATION,
+            workspaceMemberId: null,
+            name: 'Connected Application',
+            context: {},
+          },
+        },
+      ]);
+    });
+
     it('should throw error when no valid actor information is found', async () => {
       const authContext = {
         type: 'system',
