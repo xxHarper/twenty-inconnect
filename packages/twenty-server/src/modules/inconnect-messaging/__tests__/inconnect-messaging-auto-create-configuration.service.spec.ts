@@ -9,6 +9,12 @@ import {
   type InconnectMessagingAutoCreateConfigurationInput,
 } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
 import { InconnectMessagingAutoCreateConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-configuration.service';
+import {
+  INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON,
+  type InconnectMessagingAutoCreateEligibilityResult,
+  InconnectMessagingAutoCreateEligibilityService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
+import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
 
 jest.mock(
   'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service',
@@ -53,6 +59,7 @@ const ownerRole = {
   id: OWNER_ROLE_ID,
   workspaceId: WORKSPACE_ID,
   label: 'Sales owner',
+  canBeAssignedToUsers: true,
 };
 const primaryRow = {
   id: '50505050-5555-4555-8555-555555555555',
@@ -79,6 +86,11 @@ const buildService = ({
   roleForInput = ownerRole,
   primaryRows = [primaryRow],
   field = primaryField,
+  eligibilityResult = {
+    status: 'ELIGIBLE',
+    reason: null,
+    phoneUniquenessScope: 'ALL_ROWS',
+  },
 }: {
   canManage?: boolean;
   configuration?: Record<string, unknown>;
@@ -87,6 +99,7 @@ const buildService = ({
   roleForInput?: Record<string, unknown> | null;
   primaryRows?: Array<Record<string, unknown>>;
   field?: Record<string, unknown> | null;
+  eligibilityResult?: InconnectMessagingAutoCreateEligibilityResult;
 } = {}) => {
   let storedConfiguration = { ...configuration };
   const configurationRepository = {
@@ -138,11 +151,22 @@ const buildService = ({
   const authorizationService = {
     canManageMessaging: jest.fn().mockResolvedValue(canManage),
   };
+  const eligibilityService = new InconnectMessagingAutoCreateEligibilityService(
+    {} as never,
+  );
+  const primaryValidatorService =
+    new InconnectMessagingAutoCreatePrimaryValidatorService();
+
+  jest
+    .spyOn(eligibilityService, 'evaluate')
+    .mockResolvedValue(eligibilityResult);
 
   return {
     service: new InconnectMessagingAutoCreateConfigurationService(
       dataSource as never,
       authorizationService as never,
+      eligibilityService,
+      primaryValidatorService,
     ),
     configurationRepository,
     dataSource,
@@ -163,7 +187,7 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
     expect(result.effectiveEnabled).toBe(false);
   });
 
-  it('persists a structurally valid enabled configuration but keeps runtime readiness false', async () => {
+  it('reports future runtime readiness for an eligible configuration while keeping runtime disabled', async () => {
     const { service, configurationRepository } = buildService();
 
     const result = await service.replaceConfiguration({
@@ -191,7 +215,7 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
       }),
     );
     expect(result.readiness).toBe(
-      InconnectMessagingAutoCreateReadinessDTO.NOT_READY,
+      InconnectMessagingAutoCreateReadinessDTO.READY_FOR_RUNTIME,
     );
     expect(result.validationIssues).toEqual([
       InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
@@ -258,7 +282,7 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
         authContext,
         input: autoCreateInput(),
       }),
-    ).rejects.toThrow('must belong to the current workspace');
+    ).rejects.toThrow('must be assignable to users in the current workspace');
     expect(configurationRepository.update).not.toHaveBeenCalled();
   });
 
@@ -343,6 +367,36 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
     expect(result.validationIssues).toContain(
       InconnectMessagingAutoCreateValidationIssueDTO.CONFIGURED_ANCHOR_MISMATCH,
     );
+    expect(result.effectiveEnabled).toBe(false);
+  });
+
+  it('reports an eligibility failure as not ready while keeping runtime disabled', async () => {
+    const { service } = buildService({
+      configuration: {
+        ...baseConfiguration,
+        autoCreateEnabled: true,
+        autoCreateAnchorObjectMetadataId: ANCHOR_ID,
+        autoCreateOwnerStrategy: 'UNIQUE_ACTIVE_MEMBER_OF_ROLE',
+        autoCreateOwnerRoleId: OWNER_ROLE_ID,
+        autoCreateLabelPolicy: 'OMIT',
+      },
+      eligibilityResult: {
+        status: 'INELIGIBLE',
+        reason:
+          INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.PHONE_UNIQUENESS_NOT_GUARANTEED,
+        phoneUniquenessScope: null,
+      },
+    });
+
+    const result = await service.getConfiguration({ authContext });
+
+    expect(result.readiness).toBe(
+      InconnectMessagingAutoCreateReadinessDTO.NOT_READY,
+    );
+    expect(result.validationIssues).toEqual([
+      InconnectMessagingAutoCreateValidationIssueDTO.PHONE_UNIQUENESS_NOT_GUARANTEED,
+      InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
+    ]);
     expect(result.effectiveEnabled).toBe(false);
   });
 

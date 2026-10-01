@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-import { FieldMetadataType } from 'twenty-shared/types';
 import { DataSource, type EntityManager } from 'typeorm';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
@@ -9,7 +8,6 @@ import {
   NotFoundError,
   UserInputError,
 } from 'src/engine/core-modules/graphql/utils/graphql-errors.util';
-import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
 import {
@@ -18,24 +16,25 @@ import {
   InconnectMessagingAutoCreateLabelPolicyDTO,
   InconnectMessagingAutoCreateOwnerStrategyDTO,
   InconnectMessagingAutoCreatePrimaryStatusDTO,
-  type InconnectMessagingAutoCreatePrimaryPhoneIdentityDTO,
   InconnectMessagingAutoCreateReadinessDTO,
   InconnectMessagingAutoCreateValidationIssueDTO,
 } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
-import { InconnectMessagingPhoneIdentityFieldEntity } from 'src/modules/inconnect-messaging/entities/phone-identity-field.entity';
 import { InconnectMessagingAuthorizationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service';
-
-type PrimaryPhoneIdentityEvaluation = {
-  summary: InconnectMessagingAutoCreatePrimaryPhoneIdentityDTO;
-  issue: InconnectMessagingAutoCreateValidationIssueDTO | null;
-};
+import {
+  INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON,
+  type InconnectMessagingAutoCreateEligibilityReason,
+  InconnectMessagingAutoCreateEligibilityService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
+import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
 
 @Injectable()
 export class InconnectMessagingAutoCreateConfigurationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly authorizationService: InconnectMessagingAuthorizationService,
+    private readonly eligibilityService: InconnectMessagingAutoCreateEligibilityService,
+    private readonly primaryValidatorService: InconnectMessagingAutoCreatePrimaryValidatorService,
   ) {}
 
   async getConfiguration({
@@ -95,17 +94,21 @@ export class InconnectMessagingAutoCreateConfigurationService {
         throw new UserInputError('The configured owner Role does not exist');
       }
 
-      if (ownerRole.workspaceId !== configuration.workspaceId) {
+      if (
+        ownerRole.workspaceId !== configuration.workspaceId ||
+        ownerRole.canBeAssignedToUsers !== true
+      ) {
         throw new UserInputError(
-          'The configured owner Role must belong to the current workspace',
+          'The configured owner Role must be assignable to users in the current workspace',
         );
       }
 
       if (input.enabled) {
-        const primaryPhoneIdentity = await this.evaluatePrimaryPhoneIdentity({
-          manager,
-          configuration,
-        });
+        const primaryPhoneIdentity =
+          await this.primaryValidatorService.evaluate({
+            manager,
+            configuration,
+          });
 
         if (
           primaryPhoneIdentity.summary.status !==
@@ -190,7 +193,10 @@ export class InconnectMessagingAutoCreateConfigurationService {
           where: { workspaceId },
           order: { label: 'ASC', id: 'ASC' },
         }),
-        this.evaluatePrimaryPhoneIdentity({ manager, configuration }),
+        this.primaryValidatorService.evaluate({
+          manager,
+          configuration,
+        }),
       ]);
 
     const storedOwnerStrategy = configuration.autoCreateOwnerStrategy as
@@ -243,7 +249,9 @@ export class InconnectMessagingAutoCreateConfigurationService {
 
       if (
         !eligibleOwnerRoles.some(
-          ({ id }) => id === configuration.autoCreateOwnerRoleId,
+          ({ id, canBeAssignedToUsers }) =>
+            id === configuration.autoCreateOwnerRoleId &&
+            canBeAssignedToUsers === true,
         )
       ) {
         validationIssues.push(
@@ -265,13 +273,35 @@ export class InconnectMessagingAutoCreateConfigurationService {
       validationIssues.push(primaryPhoneIdentity.issue);
     }
 
-    const hasStructuralIssue = validationIssues.length > 0;
     let readiness = InconnectMessagingAutoCreateReadinessDTO.DISABLED;
 
-    if (hasStructuralIssue) {
+    if (!configuration.autoCreateEnabled) {
+      readiness = InconnectMessagingAutoCreateReadinessDTO.DISABLED;
+    } else if (validationIssues.length > 0) {
       readiness = InconnectMessagingAutoCreateReadinessDTO.INVALID;
-    } else if (configuration.autoCreateEnabled) {
-      readiness = InconnectMessagingAutoCreateReadinessDTO.NOT_READY;
+    } else {
+      const ownerRoleIsValid = eligibleOwnerRoles.some(
+        ({ id, canBeAssignedToUsers }) =>
+          id === configuration.autoCreateOwnerRoleId &&
+          canBeAssignedToUsers === true,
+      );
+      const eligibility = await this.eligibilityService.evaluate({
+        manager,
+        configuration,
+        anchorObject,
+        ownerRoleIsValid,
+        primaryPhoneIdentity,
+      });
+
+      if (eligibility.status === 'ELIGIBLE') {
+        readiness = InconnectMessagingAutoCreateReadinessDTO.READY_FOR_RUNTIME;
+      } else {
+        readiness = InconnectMessagingAutoCreateReadinessDTO.NOT_READY;
+        validationIssues.push(
+          this.mapEligibilityReasonToValidationIssue(eligibility.reason),
+        );
+      }
+
       validationIssues.push(
         InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
       );
@@ -300,147 +330,44 @@ export class InconnectMessagingAutoCreateConfigurationService {
               ? storedLabelPolicy
               : null,
           },
-      eligibleOwnerRoles: eligibleOwnerRoles.map((role) => ({
-        roleId: role.id,
-        label: role.label,
-      })),
+      eligibleOwnerRoles: eligibleOwnerRoles
+        .filter(({ canBeAssignedToUsers }) => canBeAssignedToUsers === true)
+        .map((role) => ({
+          roleId: role.id,
+          label: role.label,
+        })),
       readiness,
       validationIssues,
       effectiveEnabled: false,
     };
   }
 
-  private async evaluatePrimaryPhoneIdentity({
-    manager,
-    configuration,
-  }: {
-    manager: EntityManager;
-    configuration: InconnectMessagingConfigurationEntity;
-  }): Promise<PrimaryPhoneIdentityEvaluation> {
-    const primaryRows = await manager
-      .getRepository(InconnectMessagingPhoneIdentityFieldEntity)
-      .find({
-        where: { workspaceId: configuration.workspaceId, role: 'PRIMARY' },
-        order: { ordinal: 'ASC', id: 'ASC' },
-      });
-
-    if (primaryRows.length === 0) {
-      return this.primaryEvaluation(
-        InconnectMessagingAutoCreatePrimaryStatusDTO.MISSING,
-        InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_MISSING,
-      );
+  private mapEligibilityReasonToValidationIssue(
+    reason: InconnectMessagingAutoCreateEligibilityReason,
+  ): InconnectMessagingAutoCreateValidationIssueDTO {
+    switch (reason) {
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.REQUIRED_FIELD_UNSATISFIED:
+        return InconnectMessagingAutoCreateValidationIssueDTO.REQUIRED_FIELD_UNSATISFIED;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.OWNER_CONFIGURATION_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.OWNER_CONFIGURATION_INVALID;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.PHONE_UNIQUENESS_NOT_GUARANTEED:
+        return InconnectMessagingAutoCreateValidationIssueDTO.PHONE_UNIQUENESS_NOT_GUARANTEED;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.UNSUPPORTED_REQUIRED_FIELD:
+        return InconnectMessagingAutoCreateValidationIssueDTO.UNSUPPORTED_REQUIRED_FIELD;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.UNSUPPORTED_ANCHOR:
+        return InconnectMessagingAutoCreateValidationIssueDTO.UNSUPPORTED_ANCHOR;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.PRIMARY_MISSING:
+        return InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_MISSING;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.PRIMARY_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_METADATA_MISSING;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.ANCHOR_MISMATCH:
+        return InconnectMessagingAutoCreateValidationIssueDTO.CONFIGURED_ANCHOR_MISMATCH;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.CONFIGURATION_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.CONFIGURATION_INCOMPLETE;
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.CONFIGURATION_DISABLED:
+      case INCONNECT_MESSAGING_AUTO_CREATE_ELIGIBILITY_REASON.METADATA_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.METADATA_INVALID;
     }
-
-    if (primaryRows.length !== 1) {
-      return this.primaryEvaluation(
-        InconnectMessagingAutoCreatePrimaryStatusDTO.MULTIPLE,
-        InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_MULTIPLE,
-      );
-    }
-
-    const primaryRow = primaryRows[0];
-    const fieldMetadata = await manager
-      .getRepository(FieldMetadataEntity)
-      .findOne({ where: { id: primaryRow.fieldMetadataId } });
-
-    if (fieldMetadata === null) {
-      return this.primaryEvaluation(
-        InconnectMessagingAutoCreatePrimaryStatusDTO.METADATA_MISSING,
-        InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_METADATA_MISSING,
-      );
-    }
-
-    const safeSummary = {
-      fieldMetadataId:
-        fieldMetadata.workspaceId === configuration.workspaceId
-          ? fieldMetadata.id
-          : null,
-      label:
-        fieldMetadata.workspaceId === configuration.workspaceId
-          ? fieldMetadata.label
-          : null,
-      type:
-        fieldMetadata.workspaceId === configuration.workspaceId
-          ? fieldMetadata.type
-          : null,
-      isActive:
-        fieldMetadata.workspaceId === configuration.workspaceId
-          ? fieldMetadata.isActive
-          : null,
-    };
-
-    if (
-      primaryRow.workspaceId !== configuration.workspaceId ||
-      fieldMetadata.workspaceId !== configuration.workspaceId
-    ) {
-      return {
-        summary: {
-          status: InconnectMessagingAutoCreatePrimaryStatusDTO.WRONG_WORKSPACE,
-          ...safeSummary,
-        },
-        issue:
-          InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_WRONG_WORKSPACE,
-      };
-    }
-
-    if (
-      primaryRow.objectMetadataId !== configuration.anchorObjectMetadataId ||
-      fieldMetadata.objectMetadataId !== configuration.anchorObjectMetadataId
-    ) {
-      return {
-        summary: {
-          status: InconnectMessagingAutoCreatePrimaryStatusDTO.WRONG_ANCHOR,
-          ...safeSummary,
-        },
-        issue:
-          InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_WRONG_ANCHOR,
-      };
-    }
-
-    if (fieldMetadata.isActive !== true) {
-      return {
-        summary: {
-          status: InconnectMessagingAutoCreatePrimaryStatusDTO.INACTIVE,
-          ...safeSummary,
-        },
-        issue: InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_INACTIVE,
-      };
-    }
-
-    if (fieldMetadata.type !== FieldMetadataType.PHONES) {
-      return {
-        summary: {
-          status: InconnectMessagingAutoCreatePrimaryStatusDTO.WRONG_TYPE,
-          ...safeSummary,
-        },
-        issue:
-          InconnectMessagingAutoCreateValidationIssueDTO.PRIMARY_WRONG_TYPE,
-      };
-    }
-
-    return {
-      summary: {
-        status: InconnectMessagingAutoCreatePrimaryStatusDTO.VALID,
-        ...safeSummary,
-      },
-      issue: null,
-    };
-  }
-
-  private primaryEvaluation(
-    status: InconnectMessagingAutoCreatePrimaryStatusDTO,
-    issue: InconnectMessagingAutoCreateValidationIssueDTO,
-  ): PrimaryPhoneIdentityEvaluation {
-    return {
-      summary: {
-        status,
-        fieldMetadataId: null,
-        label: null,
-        type: null,
-        isActive: null,
-      },
-      issue,
-    };
   }
 
   private isSupportedOwnerStrategy(

@@ -85,6 +85,8 @@ import {
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
 import { InconnectMessagingAutoCreateConfigurationService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-configuration.service';
+import { InconnectMessagingAutoCreateEligibilityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
+import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -139,6 +141,8 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingBackgroundPhoneIdentityResolverService,
     InconnectMessagingInboundAutoLinkService,
     InconnectMessagingPhoneIdentityResolver,
+    InconnectMessagingAutoCreatePrimaryValidatorService,
+    InconnectMessagingAutoCreateEligibilityService,
     InconnectMessagingAutoCreateConfigurationService,
     InconnectMessagingAutoCreateResolver,
     InconnectMessagingWorkStateService,
