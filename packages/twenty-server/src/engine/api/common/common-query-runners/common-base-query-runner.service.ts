@@ -129,10 +129,32 @@ export abstract class CommonBaseQueryRunnerService<
     );
   }
 
+  protected async executeWithQueryRunnerUsingRun(
+    args: CommonInput<Args>,
+    queryRunnerContext: CommonBaseQueryRunnerContext,
+    queryRunner: WorkspaceQueryRunner,
+    run: (
+      args: CommonExtendedInput<Args>,
+      queryRunnerContext: CommonExtendedQueryRunnerContext,
+    ) => Promise<Output>,
+  ): Promise<CommonQueryExecutionResult<Output, Args>> {
+    return this.executeWithOptionalQueryRunner(
+      args,
+      queryRunnerContext,
+      queryRunner,
+      run,
+    );
+  }
+
   private async executeWithOptionalQueryRunner(
     args: CommonInput<Args>,
     queryRunnerContext: CommonBaseQueryRunnerContext,
     queryRunner?: WorkspaceQueryRunner,
+    run: (
+      args: CommonExtendedInput<Args>,
+      queryRunnerContext: CommonExtendedQueryRunnerContext,
+    ) => Promise<Output> = (processedArgs, extendedQueryRunnerContext) =>
+      this.run(processedArgs, extendedQueryRunnerContext),
   ): Promise<CommonQueryExecutionResult<Output, Args>> {
     const {
       authContext,
@@ -189,6 +211,7 @@ export abstract class CommonBaseQueryRunnerService<
             queryRunnerContext,
             commonQueryParser,
             queryRunner,
+            run,
           ),
         authContext,
       );
@@ -295,6 +318,10 @@ export abstract class CommonBaseQueryRunnerService<
     queryRunnerContext: CommonBaseQueryRunnerContext,
     commonQueryParser: GraphqlQueryParser,
     queryRunner?: WorkspaceQueryRunner,
+    run: (
+      args: CommonExtendedInput<Args>,
+      queryRunnerContext: CommonExtendedQueryRunnerContext,
+    ) => Promise<Output> = (args, context) => this.run(args, context),
   ): Promise<Output> {
     const extendedQueryRunnerContext =
       await this.prepareExtendedQueryRunnerContextWithGlobalDatasource(
@@ -302,7 +329,7 @@ export abstract class CommonBaseQueryRunnerService<
         queryRunner,
       );
 
-    const results = await this.run(processedArgs, {
+    const results = await run(processedArgs, {
       ...extendedQueryRunnerContext,
       commonQueryParser,
     });

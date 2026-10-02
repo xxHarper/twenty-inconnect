@@ -25,6 +25,7 @@ const ROLE_ID = '55555555-5555-4555-8555-555555555555';
 const OBJECT_ID = '66666666-6666-4666-8666-666666666666';
 const ID_FIELD_ID = '77777777-7777-4777-8777-777777777777';
 const NAME_FIELD_ID = '88888888-8888-4888-8888-888888888888';
+const HOOK_INJECTED_FIELD_ID = '99999999-9999-4999-8999-999999999999';
 const WORKSPACE_SCHEMA = 'workspace_transactional_create';
 const OBJECT_NAME = 'transactionalContact';
 const TABLE_NAME = '_transactionalContact';
@@ -63,13 +64,15 @@ const getDisposableDatabaseUrl = (): string => {
 const transactionalContactSchema = new EntitySchema<{
   id: string;
   name: string;
+  hookInjected: string;
 }>({
   name: OBJECT_NAME,
   tableName: TABLE_NAME,
   schema: WORKSPACE_SCHEMA,
   columns: {
-    id: { type: 'uuid', primary: true },
+    id: { type: 'uuid', primary: true, generated: 'uuid' },
     name: { type: String },
+    hookInjected: { type: String },
   },
 });
 
@@ -144,6 +147,11 @@ const nameFieldMetadata = buildFlatFieldMetadata({
   name: 'name',
   type: FieldMetadataType.TEXT,
 });
+const hookInjectedFieldMetadata = buildFlatFieldMetadata({
+  id: HOOK_INJECTED_FIELD_ID,
+  name: 'hookInjected',
+  type: FieldMetadataType.TEXT,
+});
 
 const flatObjectMetadata = {
   id: OBJECT_ID,
@@ -165,8 +173,12 @@ const flatObjectMetadata = {
   isUIEditable: true,
   isUICreatable: true,
   openRecordIn: ObjectOpenRecordIn.USER_CHOICE,
-  fieldIds: [ID_FIELD_ID, NAME_FIELD_ID],
-  fieldUniversalIdentifiers: [ID_FIELD_ID, NAME_FIELD_ID],
+  fieldIds: [ID_FIELD_ID, NAME_FIELD_ID, HOOK_INJECTED_FIELD_ID],
+  fieldUniversalIdentifiers: [
+    ID_FIELD_ID,
+    NAME_FIELD_ID,
+    HOOK_INJECTED_FIELD_ID,
+  ],
   indexMetadataIds: [],
   indexMetadataUniversalIdentifiers: [],
   searchFieldMetadataIds: [],
@@ -200,10 +212,12 @@ const flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata> = {
   byUniversalIdentifier: {
     [ID_FIELD_ID]: idFieldMetadata,
     [NAME_FIELD_ID]: nameFieldMetadata,
+    [HOOK_INJECTED_FIELD_ID]: hookInjectedFieldMetadata,
   },
   universalIdentifierById: {
     [ID_FIELD_ID]: ID_FIELD_ID,
     [NAME_FIELD_ID]: NAME_FIELD_ID,
+    [HOOK_INJECTED_FIELD_ID]: HOOK_INJECTED_FIELD_ID,
   },
   universalIdentifiersByApplicationId: {},
 };
@@ -221,7 +235,14 @@ describeWithDisposablePostgres(
     let eventEmitter: EventEmitter2;
     let eventEmitterSpy: jest.SpyInstance;
     let createOneRunner: CommonCreateOneQueryRunnerService;
+    let createManyRunner: CommonCreateManyQueryRunnerService;
     let queryRunnerContext: CommonBaseQueryRunnerContext;
+    let canReadObjectRecords = true;
+    let fetchUpsertedRecordsSpy: jest.SpyInstance;
+    let processNestedRelationsIfNeededSpy: jest.SpyInstance;
+    let processRecordSpy: jest.Mock;
+    let executePreQueryHooksSpy: jest.Mock;
+    let executePostQueryHooksSpy: jest.Mock;
 
     const authContext = {
       type: 'user',
@@ -235,9 +256,9 @@ describeWithDisposablePostgres(
       userWorkspaceId: USER_WORKSPACE_ID,
     } as unknown as WorkspaceAuthContext;
 
-    const objectPermissions = {
+    const buildObjectPermissions = () => ({
       [OBJECT_ID]: {
-        canReadObjectRecords: true,
+        canReadObjectRecords,
         canUpdateObjectRecords: true,
         canSoftDeleteObjectRecords: true,
         canDestroyObjectRecords: true,
@@ -245,7 +266,7 @@ describeWithDisposablePostgres(
         rowLevelPermissionPredicates: [],
         rowLevelPermissionPredicateGroups: [],
       },
-    };
+    });
 
     const buildWorkspaceContext = () => ({
       authContext,
@@ -264,7 +285,7 @@ describeWithDisposablePostgres(
       },
       objectIdByNameSingular: { [OBJECT_NAME]: OBJECT_ID },
       featureFlagsMap: { IS_ORM_V2_READ_PATH_ENABLED: false },
-      permissionsPerRoleId: { [ROLE_ID]: objectPermissions },
+      permissionsPerRoleId: { [ROLE_ID]: buildObjectPermissions() },
       entityMetadatas: workspaceDataSource.entityMetadatas,
       userWorkspaceRoleMap: { [USER_WORKSPACE_ID]: ROLE_ID },
       apiKeyRoleMap: {},
@@ -279,6 +300,18 @@ describeWithDisposablePostgres(
         {
           data: { id, name },
           selectedFields: { id: true, name: true },
+        },
+        queryRunnerContext,
+        queryRunner,
+      );
+
+    const runReceiptCreate = (
+      queryRunner: WorkspaceQueryRunner,
+      name: string,
+    ) =>
+      createOneRunner.executeCreateOnlyForWriteReceiptWithQueryRunner(
+        {
+          data: { name },
         },
         queryRunnerContext,
         queryRunner,
@@ -309,8 +342,12 @@ describeWithDisposablePostgres(
       await coreDataSource.query('CREATE SCHEMA "core"');
       await coreDataSource.query(`
         CREATE TABLE "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" (
-          "id" uuid PRIMARY KEY,
-          "name" text NOT NULL
+          "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          "name" text NOT NULL,
+          "hookInjected" text NOT NULL,
+          "status" text NOT NULL DEFAULT 'NEW',
+          "position" bigint NOT NULL DEFAULT 0,
+          "createdAt" timestamptz NOT NULL DEFAULT now()
         )
       `);
       await coreDataSource.query(`
@@ -343,7 +380,7 @@ describeWithDisposablePostgres(
       const dataArgProcessor = new DataArgProcessorService(
         recordPositionService,
       );
-      const createManyRunner = new CommonCreateManyQueryRunnerService(
+      createManyRunner = new CommonCreateManyQueryRunnerService(
         recordPositionService,
       );
       const globalWorkspaceOrmManager = {
@@ -356,12 +393,35 @@ describeWithDisposablePostgres(
             withWorkspaceContext(buildWorkspaceContext() as never, callback),
           ),
       };
+      executePreQueryHooksSpy = jest
+        .fn()
+        .mockImplementation((_auth, _object, _operation, args) => ({
+          ...args,
+          data: {
+            ...args.data,
+            hookInjected: 'HOOKED',
+          },
+        }));
+      executePostQueryHooksSpy = jest.fn();
       const workspaceQueryHookService = {
-        executePreQueryHooks: jest
-          .fn()
-          .mockImplementation((_auth, _object, _operation, args) => args),
-        executePostQueryHooks: jest.fn(),
+        executePreQueryHooks: executePreQueryHooksSpy,
+        executePostQueryHooks: executePostQueryHooksSpy,
       };
+
+      fetchUpsertedRecordsSpy = jest.spyOn(
+        createManyRunner as unknown as {
+          fetchUpsertedRecords: (...parameters: unknown[]) => Promise<unknown>;
+        },
+        'fetchUpsertedRecords',
+      );
+      processNestedRelationsIfNeededSpy = jest.spyOn(
+        createManyRunner as unknown as {
+          processNestedRelationsIfNeeded: (
+            ...parameters: unknown[]
+          ) => Promise<unknown>;
+        },
+        'processNestedRelationsIfNeeded',
+      );
 
       Object.assign(createManyRunner, {
         processNestedRelationsHelper: {
@@ -370,12 +430,13 @@ describeWithDisposablePostgres(
       });
 
       createOneRunner = new CommonCreateOneQueryRunnerService(createManyRunner);
+      processRecordSpy = jest.fn().mockImplementation((record) => record);
       Object.assign(createOneRunner, {
         dataArgProcessor,
         workspaceQueryHookService,
         globalWorkspaceOrmManager,
         commonResultGettersService: {
-          processRecord: jest.fn().mockImplementation((record) => record),
+          processRecord: processRecordSpy,
         },
         throttlerService: {
           tokenBucketThrottleOrThrow: jest.fn(),
@@ -403,7 +464,13 @@ describeWithDisposablePostgres(
     });
 
     beforeEach(async () => {
+      canReadObjectRecords = true;
       eventEmitterSpy.mockClear();
+      fetchUpsertedRecordsSpy.mockClear();
+      processNestedRelationsIfNeededSpy.mockClear();
+      processRecordSpy.mockClear();
+      executePreQueryHooksSpy.mockClear();
+      executePostQueryHooksSpy.mockClear();
       await coreDataSource.query(
         `TRUNCATE TABLE "${WORKSPACE_SCHEMA}"."${TABLE_NAME}", "core"."transactionalCreateProbe"`,
       );
@@ -457,6 +524,8 @@ describeWithDisposablePostgres(
       expect(rollbackSpy).not.toHaveBeenCalled();
       expect(releaseSpy).not.toHaveBeenCalled();
       expect(eventEmitterSpy).not.toHaveBeenCalled();
+      expect(fetchUpsertedRecordsSpy).toHaveBeenCalledTimes(1);
+      expect(processNestedRelationsIfNeededSpy).toHaveBeenCalledTimes(1);
 
       const [insideWorkspaceCount] = (await queryRunner.query(
         `SELECT COUNT(*)::text AS "count" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
@@ -547,6 +616,139 @@ describeWithDisposablePostgres(
       expect(workspaceCount.count).toBe('1');
       expect(coreCount.count).toBe('1');
       expect(eventEmitterSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('commits a generated-ID write receipt without ordinary result refetch or read permission', async () => {
+      canReadObjectRecords = false;
+      const queryRunner = workspaceDataSource.createQueryRunner();
+
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      const receipt = await runReceiptCreate(
+        queryRunner,
+        'Generated receipt contact',
+      );
+
+      expect(receipt).toEqual({
+        objectMetadataId: OBJECT_ID,
+        recordId: expect.any(String),
+      });
+      expect(Object.isFrozen(receipt)).toBe(true);
+      expect(fetchUpsertedRecordsSpy).not.toHaveBeenCalled();
+      expect(processNestedRelationsIfNeededSpy).not.toHaveBeenCalled();
+      expect(processRecordSpy).toHaveBeenCalledWith(
+        { id: receipt.recordId },
+        flatObjectMetadata,
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+        WORKSPACE_ID,
+      );
+      expect(executePreQueryHooksSpy).toHaveBeenCalledTimes(1);
+      expect(executePostQueryHooksSpy).toHaveBeenCalledTimes(1);
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+
+      const [insideRecord] = (await queryRunner.query(
+        `SELECT "id", "name", "hookInjected", "status", "position"::text AS "position", "createdAt" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
+        [receipt.recordId],
+      )) as Array<{
+        id: string;
+        name: string;
+        hookInjected: string;
+        status: string;
+        position: string;
+        createdAt: Date;
+      }>;
+
+      expect(insideRecord).toMatchObject({
+        id: receipt.recordId,
+        name: 'Generated receipt contact',
+        hookInjected: 'HOOKED',
+        status: 'NEW',
+        position: '0',
+      });
+      expect(insideRecord.createdAt).toBeInstanceOf(Date);
+
+      await queryRunner.commitTransaction();
+      await queryRunner.release();
+
+      const [persistedRecord] = await coreDataSource.query<
+        Array<{ id: string }>
+      >(
+        `SELECT "id" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
+        [receipt.recordId],
+      );
+
+      expect(persistedRecord.id).toBe(receipt.recordId);
+      expect(eventEmitterSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('rolls back a generated-ID write receipt and discards its buffered events', async () => {
+      canReadObjectRecords = false;
+      const queryRunner = workspaceDataSource.createQueryRunner();
+
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      const receipt = await runReceiptCreate(
+        queryRunner,
+        'Rolled back receipt contact',
+      );
+      const [insideRecordCount] = (await queryRunner.query(
+        `SELECT COUNT(*)::text AS "count" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
+        [receipt.recordId],
+      )) as Array<{ count: string }>;
+
+      expect(insideRecordCount.count).toBe('1');
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+
+      const [persistedRecordCount] = await coreDataSource.query<
+        Array<{ count: string }>
+      >(
+        `SELECT COUNT(*)::text AS "count" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
+        [receipt.recordId],
+      );
+
+      expect(persistedRecordCount.count).toBe('0');
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects upsert and multi-record receipt attempts', async () => {
+      const queryRunner = workspaceDataSource.createQueryRunner();
+
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      await expect(
+        createOneRunner.executeCreateOnlyForWriteReceiptWithQueryRunner(
+          {
+            data: { name: 'Upsert receipt' },
+            upsert: true,
+          },
+          queryRunnerContext,
+          queryRunner,
+        ),
+      ).rejects.toBeInstanceOf(Error);
+      await expect(
+        createOneRunner.executeCreateOnlyForWriteReceiptWithQueryRunner(
+          {
+            data: [{ name: 'First receipt' }, { name: 'Second receipt' }],
+          } as unknown as Parameters<
+            CommonCreateOneQueryRunnerService['executeCreateOnlyForWriteReceiptWithQueryRunner']
+          >[0],
+          queryRunnerContext,
+          queryRunner,
+        ),
+      ).rejects.toBeInstanceOf(Error);
+
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+
+      expect(fetchUpsertedRecordsSpy).not.toHaveBeenCalled();
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
     });
 
     it('propagates create failure so the caller can roll back every prior write', async () => {

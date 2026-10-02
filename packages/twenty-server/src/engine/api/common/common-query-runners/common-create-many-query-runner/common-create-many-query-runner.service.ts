@@ -224,20 +224,14 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
     const { selectedFieldsResult } = args;
 
     if (!args.upsert) {
-      const selectedColumns = buildColumnsToReturn({
-        select: selectedFieldsResult.select,
-        relations: selectedFieldsResult.relations,
+      return this.executeInsertStage({
+        repository,
         flatObjectMetadata,
         flatObjectMetadataMaps,
         flatFieldMetadataMaps,
+        flatIndexMaps,
+        args,
       });
-
-      return await repository.insert(
-        args.data,
-        undefined,
-        selectedColumns,
-        args.internallyInjectedFieldNames,
-      );
     }
 
     return this.performUpsertOperation({
@@ -250,6 +244,63 @@ export class CommonCreateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       selectedFieldsResult,
       workspaceId,
     });
+  }
+
+  async executeInsertStage({
+    repository,
+    flatObjectMetadata,
+    flatObjectMetadataMaps,
+    flatFieldMetadataMaps,
+    flatIndexMaps,
+    args,
+  }: {
+    repository: WorkspaceRepository<ObjectLiteral>;
+    flatObjectMetadata: FlatObjectMetadata;
+    flatObjectMetadataMaps: FlatEntityMaps<FlatObjectMetadata>;
+    flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
+    flatIndexMaps: FlatEntityMaps<FlatIndexMetadata> | undefined;
+    args: CommonExtendedInput<CreateManyQueryArgs>;
+  }): Promise<InsertResult> {
+    if (args.upsert === true) {
+      throw new CommonQueryRunnerException(
+        'The create-only insert stage does not support upsert',
+        CommonQueryRunnerExceptionCode.INVALID_QUERY_INPUT,
+        { userFriendlyMessage: STANDARD_ERROR_MESSAGE },
+      );
+    }
+
+    if (args.data.length > QUERY_MAX_RECORDS) {
+      throw new CommonQueryRunnerException(
+        `Maximum number of records to upsert is ${QUERY_MAX_RECORDS}.`,
+        CommonQueryRunnerExceptionCode.TOO_MANY_RECORDS_TO_UPDATE,
+        {
+          userFriendlyMessage: msg`Maximum number of records to upsert is ${QUERY_MAX_RECORDS}.`,
+        },
+      );
+    }
+
+    if (!isDefined(flatIndexMaps)) {
+      throw new CommonQueryRunnerException(
+        `Missing flatIndexMaps in queryRunnerContext`,
+        CommonQueryRunnerExceptionCode.MISSING_FLAT_INDEX_MAPS,
+        { userFriendlyMessage: STANDARD_ERROR_MESSAGE },
+      );
+    }
+
+    const selectedColumns = buildColumnsToReturn({
+      select: args.selectedFieldsResult.select,
+      relations: args.selectedFieldsResult.relations,
+      flatObjectMetadata,
+      flatObjectMetadataMaps,
+      flatFieldMetadataMaps,
+    });
+
+    return repository.insert(
+      args.data,
+      undefined,
+      selectedColumns,
+      args.internallyInjectedFieldNames,
+    );
   }
 
   private async performUpsertOperation({

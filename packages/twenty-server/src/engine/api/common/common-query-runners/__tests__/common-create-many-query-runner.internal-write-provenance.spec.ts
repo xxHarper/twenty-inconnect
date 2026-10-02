@@ -6,9 +6,6 @@ import {
   type CreateManyQueryArgs,
 } from 'src/engine/api/common/types/common-query-args.type';
 import { type RecordPositionService } from 'src/engine/core-modules/record-position/services/record-position.service';
-import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
-import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
-import { type FlatIndexMetadata } from 'src/engine/metadata-modules/flat-index-metadata/types/flat-index-metadata.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
 
@@ -50,26 +47,15 @@ describe('CommonCreateManyQueryRunnerService internal write provenance', () => {
     } as unknown as CommonExtendedInput<CreateManyQueryArgs>;
     const runner = new CommonCreateManyQueryRunnerService(
       {} as RecordPositionService,
-    ) as unknown as {
-      insertOrUpsertRecords: (parameters: {
-        repository: WorkspaceRepository<ObjectLiteral>;
-        flatObjectMetadata: FlatObjectMetadata;
-        flatObjectMetadataMaps: FlatEntityMaps<FlatObjectMetadata>;
-        flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata>;
-        flatIndexMaps: FlatEntityMaps<FlatIndexMetadata>;
-        args: CommonExtendedInput<CreateManyQueryArgs>;
-        workspaceId: string;
-      }) => Promise<InsertResult>;
-    };
+    );
 
-    await runner.insertOrUpsertRecords({
+    await runner.executeInsertStage({
       repository,
       flatObjectMetadata,
       flatObjectMetadataMaps: emptyFlatEntityMaps(),
       flatFieldMetadataMaps: emptyFlatEntityMaps(),
       flatIndexMaps: emptyFlatEntityMaps(),
       args,
-      workspaceId: 'workspace-id',
     });
 
     expect(repository.insert).toHaveBeenCalledWith(
