@@ -15,6 +15,7 @@ import {
   InconnectMessagingAutoCreateEligibilityService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
 import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
+import { type InconnectMessagingAutomationPrincipalValidation } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 
 jest.mock(
   'src/modules/inconnect-messaging/services/inconnect-messaging-authorization.service',
@@ -91,6 +92,17 @@ const buildService = ({
     reason: null,
     phoneUniquenessScope: 'ALL_ROWS',
   },
+  principalValidation = {
+    status: 'VALID',
+    principal: {
+      workspaceId: WORKSPACE_ID,
+      userId: '11111111-2222-4333-8444-555555555555',
+      userWorkspaceId: '22222222-3333-4444-8555-666666666666',
+      workspaceMemberId: '33333333-4444-4555-8666-777777777777',
+      roleId: '44444444-5555-4666-8777-888888888888',
+      name: 'INCONNECT Messaging Automation',
+    },
+  },
 }: {
   canManage?: boolean;
   configuration?: Record<string, unknown>;
@@ -100,6 +112,7 @@ const buildService = ({
   primaryRows?: Array<Record<string, unknown>>;
   field?: Record<string, unknown> | null;
   eligibilityResult?: InconnectMessagingAutoCreateEligibilityResult;
+  principalValidation?: InconnectMessagingAutomationPrincipalValidation;
 } = {}) => {
   let storedConfiguration = { ...configuration };
   const configurationRepository = {
@@ -160,6 +173,9 @@ const buildService = ({
   jest
     .spyOn(eligibilityService, 'evaluate')
     .mockResolvedValue(eligibilityResult);
+  const automationPrincipalService = {
+    validate: jest.fn().mockResolvedValue(principalValidation),
+  };
 
   return {
     service: new InconnectMessagingAutoCreateConfigurationService(
@@ -167,6 +183,7 @@ const buildService = ({
       authorizationService as never,
       eligibilityService,
       primaryValidatorService,
+      automationPrincipalService as never,
     ),
     configurationRepository,
     dataSource,
@@ -398,6 +415,35 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
       InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
     ]);
     expect(result.effectiveEnabled).toBe(false);
+  });
+
+  it('reports explicit provisioning readiness without exposing principal internals', async () => {
+    const { service } = buildService({
+      configuration: {
+        ...baseConfiguration,
+        autoCreateEnabled: true,
+        autoCreateAnchorObjectMetadataId: ANCHOR_ID,
+        autoCreateOwnerStrategy: 'UNIQUE_ACTIVE_MEMBER_OF_ROLE',
+        autoCreateOwnerRoleId: OWNER_ROLE_ID,
+        autoCreateLabelPolicy: 'OMIT',
+      },
+      principalValidation: {
+        status: 'INVALID',
+        reason: 'AUTOMATION_PRINCIPAL_MISSING',
+      },
+    });
+
+    const result = await service.getConfiguration({ authContext });
+
+    expect(result.readiness).toBe(
+      InconnectMessagingAutoCreateReadinessDTO.NOT_READY,
+    );
+    expect(result.validationIssues).toEqual([
+      InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_PRINCIPAL_NEEDS_PROVISIONING,
+      InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
+    ]);
+    expect(result.effectiveEnabled).toBe(false);
+    expect(result).not.toHaveProperty('automationUserWorkspaceId');
   });
 
   it('exposes corrupt duplicate PRIMARY state without selecting one', async () => {

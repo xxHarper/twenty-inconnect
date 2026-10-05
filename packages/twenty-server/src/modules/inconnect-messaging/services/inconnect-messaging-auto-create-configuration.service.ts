@@ -27,6 +27,11 @@ import {
   InconnectMessagingAutoCreateEligibilityService,
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
 import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
+import {
+  INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON,
+  type InconnectMessagingAutomationPrincipalValidationReason,
+  InconnectMessagingAutomationPrincipalService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 
 @Injectable()
 export class InconnectMessagingAutoCreateConfigurationService {
@@ -35,6 +40,7 @@ export class InconnectMessagingAutoCreateConfigurationService {
     private readonly authorizationService: InconnectMessagingAuthorizationService,
     private readonly eligibilityService: InconnectMessagingAutoCreateEligibilityService,
     private readonly primaryValidatorService: InconnectMessagingAutoCreatePrimaryValidatorService,
+    private readonly automationPrincipalService: InconnectMessagingAutomationPrincipalService,
   ) {}
 
   async getConfiguration({
@@ -294,7 +300,23 @@ export class InconnectMessagingAutoCreateConfigurationService {
       });
 
       if (eligibility.status === 'ELIGIBLE') {
-        readiness = InconnectMessagingAutoCreateReadinessDTO.READY_FOR_RUNTIME;
+        const principalValidation =
+          await this.automationPrincipalService.validate({
+            manager,
+            workspaceId,
+          });
+
+        if (principalValidation.status === 'VALID') {
+          readiness =
+            InconnectMessagingAutoCreateReadinessDTO.READY_FOR_RUNTIME;
+        } else {
+          readiness = InconnectMessagingAutoCreateReadinessDTO.NOT_READY;
+          validationIssues.push(
+            this.mapPrincipalReasonToValidationIssue(
+              principalValidation.reason,
+            ),
+          );
+        }
       } else {
         readiness = InconnectMessagingAutoCreateReadinessDTO.NOT_READY;
         validationIssues.push(
@@ -340,6 +362,23 @@ export class InconnectMessagingAutoCreateConfigurationService {
       validationIssues,
       effectiveEnabled: false,
     };
+  }
+
+  private mapPrincipalReasonToValidationIssue(
+    reason: InconnectMessagingAutomationPrincipalValidationReason,
+  ): InconnectMessagingAutoCreateValidationIssueDTO {
+    switch (reason) {
+      case INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON.PRINCIPAL_MISSING:
+        return InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_PRINCIPAL_NEEDS_PROVISIONING;
+      case INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON.PRINCIPAL_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_PRINCIPAL_INVALID;
+      case INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON.ROLE_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_ROLE_INVALID;
+      case INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON.PERMISSIONS_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_PERMISSIONS_INVALID;
+      case INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON.RECORD_ACCESS_POLICY_INVALID:
+        return InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_RECORD_ACCESS_POLICY_INVALID;
+    }
   }
 
   private mapEligibilityReasonToValidationIssue(

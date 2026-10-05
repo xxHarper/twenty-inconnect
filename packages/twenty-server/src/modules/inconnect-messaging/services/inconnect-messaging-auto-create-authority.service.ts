@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
 import { STANDARD_OBJECTS } from 'twenty-shared/metadata';
-import { type ActorMetadata } from 'twenty-shared/types';
 import { DataSource, type EntityManager } from 'typeorm';
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
@@ -20,12 +19,8 @@ import {
 } from 'src/modules/inconnect-messaging/exceptions/inconnect-messaging-auto-create-authority.exception';
 import { InconnectMessagingAutoCreateEligibilityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
 import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
-import {
-  INCONNECT_MESSAGING_SYSTEM_PHONE_IDENTITY_RECORD_CREATION_ACTOR,
-  type InconnectMessagingSystemPhoneIdentityRecordCreationActor,
-} from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
-import { buildInconnectMessagingAutoCreateSystemActor } from 'src/modules/inconnect-messaging/utils/build-inconnect-messaging-auto-create-system-actor.util';
 import { findInconnectMessagingAutoCreateOwnerFields } from 'src/modules/inconnect-messaging/utils/find-inconnect-messaging-auto-create-owner-fields.util';
+import { InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 
 declare const INCONNECT_MESSAGING_AUTO_CREATE_AUTHORITY_BRAND: unique symbol;
 
@@ -34,7 +29,6 @@ export type InconnectMessagingAutoCreateAuthority = Readonly<{
 }>;
 
 export type InconnectMessagingAutoCreateAuthorityPlan = Readonly<{
-  purpose: InconnectMessagingSystemPhoneIdentityRecordCreationActor;
   workspaceId: string;
   objectMetadataId: string;
   objectMetadataNameSingular: string;
@@ -50,7 +44,11 @@ export type InconnectMessagingAutoCreateAuthorityPlan = Readonly<{
   ownerFieldName: string;
   ownerJoinColumnName: string;
   allowedFieldMetadataIds: readonly string[];
-  actor: Readonly<ActorMetadata>;
+  automationUserId: string;
+  automationUserWorkspaceId: string;
+  automationWorkspaceMemberId: string;
+  automationRoleId: string;
+  automationPrincipalName: string;
 }>;
 
 type AuthoritySnapshot = {
@@ -76,10 +74,6 @@ const freezePlan = (
   Object.freeze({
     ...plan,
     allowedFieldMetadataIds: Object.freeze([...plan.allowedFieldMetadataIds]),
-    actor: Object.freeze({
-      ...plan.actor,
-      context: Object.freeze({ ...plan.actor.context }),
-    }),
   });
 
 // This provider intentionally has no public controller, resolver, or module export.
@@ -95,6 +89,7 @@ export class InconnectMessagingAutoCreateAuthorityService {
     private readonly dataSource: DataSource,
     private readonly eligibilityService: InconnectMessagingAutoCreateEligibilityService,
     private readonly primaryValidatorService: InconnectMessagingAutoCreatePrimaryValidatorService,
+    private readonly automationPrincipalService: InconnectMessagingAutomationPrincipalService,
   ) {}
 
   async issueAuthority({
@@ -364,10 +359,21 @@ export class InconnectMessagingAutoCreateAuthorityService {
     }
 
     const ownerField = ownerFields[0];
-    const actor = buildInconnectMessagingAutoCreateSystemActor();
+    const principalValidation = await this.automationPrincipalService.validate({
+      lock: true,
+      manager,
+      workspaceId,
+    });
+
+    if (principalValidation.status !== 'VALID') {
+      return throwAuthorityException(
+        `Messaging automation principal is not ready: ${principalValidation.reason}`,
+        InconnectMessagingAutoCreateAuthorityExceptionCode.AUTHORITY_DENIED,
+      );
+    }
+    const principal = principalValidation.principal;
 
     return {
-      purpose: INCONNECT_MESSAGING_SYSTEM_PHONE_IDENTITY_RECORD_CREATION_ACTOR,
       workspaceId,
       objectMetadataId: anchorObject.id,
       objectMetadataNameSingular: anchorObject.nameSingular,
@@ -385,7 +391,11 @@ export class InconnectMessagingAutoCreateAuthorityService {
         name: ownerField.name,
       }),
       allowedFieldMetadataIds: [primaryPhoneField.id, ownerField.id],
-      actor,
+      automationUserId: principal.userId,
+      automationUserWorkspaceId: principal.userWorkspaceId,
+      automationWorkspaceMemberId: principal.workspaceMemberId,
+      automationRoleId: principal.roleId,
+      automationPrincipalName: principal.name,
     };
   }
 

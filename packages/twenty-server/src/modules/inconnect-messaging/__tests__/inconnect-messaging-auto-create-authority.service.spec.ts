@@ -1,4 +1,4 @@
-import { FieldActorSource, FieldMetadataType } from 'twenty-shared/types';
+import { FieldMetadataType } from 'twenty-shared/types';
 import { type DataSource, type EntityManager } from 'typeorm';
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
@@ -21,8 +21,7 @@ import {
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-authority.service';
 import { type InconnectMessagingAutoCreateEligibilityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
 import { type InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
-import { INCONNECT_MESSAGING_SYSTEM_PHONE_IDENTITY_RECORD_CREATION_ACTOR } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
-import { INCONNECT_MESSAGING_AUTO_CREATE_SYSTEM_ACTOR_NAME } from 'src/modules/inconnect-messaging/utils/build-inconnect-messaging-auto-create-system-actor.util';
+import { type InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_WORKSPACE_ID = '11111111-1111-4111-8111-222222222222';
@@ -35,6 +34,10 @@ const OTHER_OWNER_WORKSPACE_MEMBER_ID = '44444444-4444-4444-8444-222222222222';
 const PRIMARY_IDENTITY_ID = '55555555-5555-4555-8555-111111111111';
 const PRIMARY_FIELD_ID = '66666666-6666-4666-8666-111111111111';
 const OWNER_FIELD_ID = '66666666-6666-4666-8666-222222222222';
+const AUTOMATION_USER_ID = '77777777-7777-4777-8777-111111111111';
+const AUTOMATION_USER_WORKSPACE_ID = '77777777-7777-4777-8777-222222222222';
+const AUTOMATION_WORKSPACE_MEMBER_ID = '77777777-7777-4777-8777-333333333333';
+const AUTOMATION_ROLE_ID = '77777777-7777-4777-8777-444444444444';
 const WORKSPACE_SCHEMA = 'workspace_11111111-1111-4111-8111-111111111111';
 
 const configuration = {
@@ -237,10 +240,24 @@ const buildHarness = ({
       issue: null,
     }),
   } as unknown as InconnectMessagingAutoCreatePrimaryValidatorService;
+  const automationPrincipalService = {
+    validate: jest.fn().mockResolvedValue({
+      status: 'VALID',
+      principal: {
+        workspaceId: WORKSPACE_ID,
+        userId: AUTOMATION_USER_ID,
+        userWorkspaceId: AUTOMATION_USER_WORKSPACE_ID,
+        workspaceMemberId: AUTOMATION_WORKSPACE_MEMBER_ID,
+        roleId: AUTOMATION_ROLE_ID,
+        name: 'INCONNECT Messaging Automation',
+      },
+    }),
+  } as unknown as InconnectMessagingAutomationPrincipalService;
   const service = new InconnectMessagingAutoCreateAuthorityService(
     dataSource,
     eligibilityService,
     primaryValidatorService,
+    automationPrincipalService,
   );
 
   return {
@@ -254,7 +271,7 @@ const buildHarness = ({
 };
 
 describe('InconnectMessagingAutoCreateAuthorityService', () => {
-  it('issues an exact transaction-bound authority with system provenance', async () => {
+  it('issues an exact transaction-bound authority for the validated automation member', async () => {
     const harness = buildHarness();
 
     const authority = await harness.service.issueAuthority({
@@ -268,7 +285,6 @@ describe('InconnectMessagingAutoCreateAuthorityService', () => {
     });
 
     expect(plan).toMatchObject({
-      purpose: INCONNECT_MESSAGING_SYSTEM_PHONE_IDENTITY_RECORD_CREATION_ACTOR,
       workspaceId: WORKSPACE_ID,
       objectMetadataId: ANCHOR_OBJECT_ID,
       configurationRevision: '17',
@@ -278,14 +294,15 @@ describe('InconnectMessagingAutoCreateAuthorityService', () => {
       ownerWorkspaceMemberId: OWNER_WORKSPACE_MEMBER_ID,
       ownerFieldMetadataId: OWNER_FIELD_ID,
       allowedFieldMetadataIds: [PRIMARY_FIELD_ID, OWNER_FIELD_ID],
-      actor: {
-        source: FieldActorSource.SYSTEM,
-        workspaceMemberId: null,
-        name: INCONNECT_MESSAGING_AUTO_CREATE_SYSTEM_ACTOR_NAME,
-        context: {},
-      },
+      automationUserId: AUTOMATION_USER_ID,
+      automationUserWorkspaceId: AUTOMATION_USER_WORKSPACE_ID,
+      automationWorkspaceMemberId: AUTOMATION_WORKSPACE_MEMBER_ID,
+      automationRoleId: AUTOMATION_ROLE_ID,
+      automationPrincipalName: 'INCONNECT Messaging Automation',
     });
-    expect(plan.actor.workspaceMemberId).not.toBe(plan.ownerWorkspaceMemberId);
+    expect(plan.automationWorkspaceMemberId).not.toBe(
+      plan.ownerWorkspaceMemberId,
+    );
     expect(harness.dataSource.createEntityManager).toHaveBeenCalledWith(
       harness.queryRunner,
     );

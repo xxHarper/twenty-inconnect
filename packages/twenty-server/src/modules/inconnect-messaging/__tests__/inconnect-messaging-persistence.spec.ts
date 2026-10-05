@@ -10,6 +10,7 @@ import { AddInconnectMessagingConversationWorkStateFastInstanceCommand } from 's
 import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields';
 import { AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790550000000-add-inconnect-messaging-phone-identity-fields';
 import { AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305698-add-inconnect-messaging-auto-create-configuration';
+import { AddInconnectMessagingAutomationPrincipalFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305700-add-inconnect-messaging-automation-principal';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
@@ -90,6 +91,9 @@ describe('INCONNECT Messaging persistence model', () => {
     await new AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand().up(
       { query } as never,
     );
+    await new AddInconnectMessagingAutomationPrincipalFastInstanceCommand().up({
+      query,
+    } as never);
 
     const sql = query.mock.calls.map(([statement]) => statement).join('\n');
 

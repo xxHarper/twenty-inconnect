@@ -32,6 +32,10 @@ import {
 } from 'src/modules/inconnect-messaging/services/inconnect-messaging-phone-identity-resolver.service';
 import { InconnectMessagingInboundAutoLinkService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-inbound-auto-link.service';
 import { InconnectMessagingAutoCreateAuthorityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-authority.service';
+import { InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
+import { InconnectMessagingAutomationPrincipalProvisioningService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal-provisioning.service';
+import { InconnectMessagingAutomationRecordAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-access.service';
+import { InconnectMessagingProvisionAutomationPrincipalCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-provision-automation-principal.command';
 import { ModulesModule } from 'src/modules/modules.module';
 
 describe('InconnectMessagingModule wiring', () => {
@@ -124,6 +128,18 @@ describe('InconnectMessagingModule wiring', () => {
     expect(moduleProviders).toContain(
       InconnectMessagingAutoCreateAuthorityService,
     );
+    expect(moduleProviders).toContain(
+      InconnectMessagingAutomationPrincipalService,
+    );
+    expect(moduleProviders).toContain(
+      InconnectMessagingAutomationPrincipalProvisioningService,
+    );
+    expect(moduleProviders).toContain(
+      InconnectMessagingAutomationRecordAccessService,
+    );
+    expect(moduleProviders).toContain(
+      InconnectMessagingProvisionAutomationPrincipalCommand,
+    );
     expect(moduleExports).not.toContain(
       InconnectMessagingBackgroundPhoneIdentityResolverService,
     );
@@ -132,6 +148,15 @@ describe('InconnectMessagingModule wiring', () => {
     );
     expect(moduleExports).not.toContain(
       InconnectMessagingAutoCreateAuthorityService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingAutomationPrincipalService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingAutomationPrincipalProvisioningService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingAutomationRecordAccessService,
     );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationLinkService,

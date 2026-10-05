@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
+import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
 import {
@@ -119,6 +120,20 @@ export class InconnectMessagingConfigurationEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   autoCreateLabelPolicy: InconnectMessagingAutoCreateLabelPolicy | null;
+
+  @Column({ nullable: true, type: 'uuid' })
+  automationUserWorkspaceId: string | null;
+
+  @ManyToOne(() => UserWorkspaceEntity, {
+    nullable: true,
+    onDelete: 'RESTRICT',
+  })
+  @JoinColumn({
+    foreignKeyConstraintName:
+      'FK_INCONNECT_MSG_CONFIG_AUTOMATION_USER_WORKSPACE',
+    name: 'automationUserWorkspaceId',
+  })
+  automationUserWorkspace: Relation<UserWorkspaceEntity> | null;
 
   @Column({
     default: () => 'CURRENT_TIMESTAMP',

@@ -88,6 +88,10 @@ import { InconnectMessagingAutoCreateConfigurationService } from 'src/modules/in
 import { InconnectMessagingAutoCreateEligibilityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-eligibility.service';
 import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
 import { InconnectMessagingAutoCreateAuthorityService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-authority.service';
+import { InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
+import { InconnectMessagingAutomationPrincipalProvisioningService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal-provisioning.service';
+import { InconnectMessagingAutomationRecordAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-access.service';
+import { InconnectMessagingProvisionAutomationPrincipalCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-provision-automation-principal.command';
 
 const INCONNECT_MESSAGING_ENTITIES = [
   InconnectMessagingConfigurationEntity,
@@ -145,6 +149,10 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingAutoCreatePrimaryValidatorService,
     InconnectMessagingAutoCreateEligibilityService,
     InconnectMessagingAutoCreateAuthorityService,
+    InconnectMessagingAutomationPrincipalService,
+    InconnectMessagingAutomationPrincipalProvisioningService,
+    InconnectMessagingAutomationRecordAccessService,
+    InconnectMessagingProvisionAutomationPrincipalCommand,
     InconnectMessagingAutoCreateConfigurationService,
     InconnectMessagingAutoCreateResolver,
     InconnectMessagingWorkStateService,
