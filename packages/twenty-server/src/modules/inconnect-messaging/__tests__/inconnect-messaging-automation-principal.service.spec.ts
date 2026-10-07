@@ -3,6 +3,7 @@ import {
   getObjectPermissionUniversalIdentifier,
   getRoleUniversalIdentifier,
 } from 'twenty-shared/application';
+import { FieldMetadataType } from 'twenty-shared/types';
 
 import { AppTokenEntity } from 'src/engine/core-modules/app-token/app-token.entity';
 import { ApplicationEntity } from 'src/engine/core-modules/application/application.entity';
@@ -45,6 +46,7 @@ const ANCHOR_UNIVERSAL_IDENTIFIER = '55555555-5555-4555-8555-555555555555';
 const PRIMARY_FIELD_ID = '66666666-6666-4666-8666-666666666666';
 const OWNER_FIELD_ID = '77777777-7777-4777-8777-777777777777';
 const BUSINESS_FIELD_ID = '88888888-8888-4888-8888-888888888888';
+const POSITION_FIELD_ID = '89898989-8989-4989-8989-898989898989';
 const MANAGED_OBJECT_ID = '99999999-9999-4999-8999-999999999999';
 const POLICY_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ids = getInconnectMessagingAutomationPrincipalIds(WORKSPACE_ID);
@@ -62,18 +64,52 @@ const createPrincipalState = () => {
       objectMetadataId: ANCHOR_ID,
       workspaceId: WORKSPACE_ID,
       universalIdentifier: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      name: 'phone',
+      type: FieldMetadataType.PHONES,
+      isActive: true,
+      isSystem: false,
+      isSystemSideEffect: false,
+      isNullable: true,
+      isUIEditable: true,
     },
     {
       id: OWNER_FIELD_ID,
       objectMetadataId: ANCHOR_ID,
       workspaceId: WORKSPACE_ID,
       universalIdentifier: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      name: 'owner',
+      type: FieldMetadataType.RELATION,
+      isActive: true,
+      isSystem: false,
+      isSystemSideEffect: false,
+      isNullable: false,
+      isUIEditable: true,
     },
     {
       id: BUSINESS_FIELD_ID,
       objectMetadataId: ANCHOR_ID,
       workspaceId: WORKSPACE_ID,
       universalIdentifier: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      name: 'businessField',
+      type: FieldMetadataType.TEXT,
+      isActive: true,
+      isSystem: false,
+      isSystemSideEffect: false,
+      isNullable: true,
+      isUIEditable: true,
+    },
+    {
+      id: POSITION_FIELD_ID,
+      objectMetadataId: ANCHOR_ID,
+      workspaceId: WORKSPACE_ID,
+      universalIdentifier: 'dededede-dede-4ede-8ede-dededededede',
+      name: 'position',
+      type: FieldMetadataType.POSITION,
+      isActive: true,
+      isSystem: true,
+      isSystemSideEffect: true,
+      isNullable: false,
+      isUIEditable: false,
     },
   ];
 
@@ -214,7 +250,9 @@ const createPrincipalState = () => {
       fieldMetadataId: field.id,
       canReadFieldValue: null,
       canUpdateFieldValue:
-        field.id === PRIMARY_FIELD_ID || field.id === OWNER_FIELD_ID
+        field.id === PRIMARY_FIELD_ID ||
+        field.id === OWNER_FIELD_ID ||
+        field.id === POSITION_FIELD_ID
           ? null
           : false,
     })),
@@ -375,8 +413,25 @@ const expectReason = async (
 };
 
 describe('InconnectMessagingAutomationPrincipalService', () => {
-  it('validates the exact internal principal, deny-list snapshot, and ordinary ownRecords policy', async () => {
-    const { validate } = buildService();
+  it('validates PRIMARY plus Owner as deliberate authority and position as required system-create authority', async () => {
+    const { state, validate } = buildService();
+
+    expect(
+      state.fieldPermissions
+        .filter(({ canUpdateFieldValue }) => canUpdateFieldValue === null)
+        .map(({ fieldMetadataId }) => fieldMetadataId),
+    ).toEqual([PRIMARY_FIELD_ID, OWNER_FIELD_ID, POSITION_FIELD_ID]);
+    expect(
+      state.fieldPermissions.every(
+        ({ canReadFieldValue }) => canReadFieldValue === null,
+      ),
+    ).toBe(true);
+    expect(state.objectPermissions[0]).toMatchObject({
+      canReadObjectRecords: false,
+      canUpdateObjectRecords: true,
+      canSoftDeleteObjectRecords: false,
+      canDestroyObjectRecords: false,
+    });
 
     await expect(validate()).resolves.toEqual({
       status: 'VALID',
@@ -505,6 +560,19 @@ describe('InconnectMessagingAutomationPrincipalService', () => {
         )),
     ],
     [
+      'missing required position write authority',
+      (state: PrincipalState) =>
+        (state.fieldPermissions.find(
+          ({ fieldMetadataId }) => fieldMetadataId === POSITION_FIELD_ID,
+        )!.canUpdateFieldValue = false),
+    ],
+    [
+      'position metadata no longer being the canonical system field',
+      (state: PrincipalState) =>
+        (state.fields.find(({ id }) => id === POSITION_FIELD_ID)!.isSystem =
+          false),
+    ],
+    [
       'a newly added Field without an explicit deny',
       (state: PrincipalState) =>
         state.fields.push({
@@ -512,6 +580,13 @@ describe('InconnectMessagingAutomationPrincipalService', () => {
           objectMetadataId: ANCHOR_ID,
           workspaceId: WORKSPACE_ID,
           universalIdentifier: POLICY_ID,
+          name: 'newBusinessField',
+          type: FieldMetadataType.TEXT,
+          isActive: true,
+          isSystem: false,
+          isSystemSideEffect: false,
+          isNullable: true,
+          isUIEditable: true,
         }),
     ],
     [

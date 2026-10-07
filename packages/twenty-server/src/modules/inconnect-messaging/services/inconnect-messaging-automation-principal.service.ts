@@ -33,6 +33,7 @@ import {
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingPhoneIdentityFieldEntity } from 'src/modules/inconnect-messaging/entities/phone-identity-field.entity';
 import { InconnectMessagingAutomationRecordAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-access.service';
+import { resolveInconnectMessagingAutomationFieldAuthority } from 'src/modules/inconnect-messaging/utils/resolve-inconnect-messaging-automation-field-authority.util';
 import { escapeIdentifier } from 'src/engine/workspace-manager/workspace-migration/utils/remove-sql-injection.util';
 
 export const INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_VALIDATION_REASON = {
@@ -387,10 +388,15 @@ export class InconnectMessagingAutomationPrincipalService {
       return false;
     }
 
-    const allowedFieldIds = new Set([
-      primaryRows[0].fieldMetadataId,
-      managedObjects[0].ownerFieldMetadataId,
-    ]);
+    const fieldAuthority = resolveInconnectMessagingAutomationFieldAuthority({
+      fields,
+      ownerFieldMetadataId: managedObjects[0].ownerFieldMetadataId,
+      primaryFieldMetadataId: primaryRows[0].fieldMetadataId,
+    });
+
+    if (fieldAuthority === null) {
+      return false;
+    }
     const objectPermissionQuery = manager
       .getRepository(ObjectPermissionEntity)
       .createQueryBuilder('objectPermission')
@@ -467,9 +473,8 @@ export class InconnectMessagingAutomationPrincipalService {
           roleUniversalIdentifier,
         },
       );
-      const expectedUpdatePermission = allowedFieldIds.has(field.id)
-        ? null
-        : false;
+      const expectedUpdatePermission =
+        fieldAuthority.writableFieldMetadataIds.has(field.id) ? null : false;
 
       return (
         fieldPermission.id ===

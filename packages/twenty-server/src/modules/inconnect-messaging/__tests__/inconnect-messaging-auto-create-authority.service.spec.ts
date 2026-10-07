@@ -378,6 +378,49 @@ describe('InconnectMessagingAutoCreateAuthorityService', () => {
     });
   });
 
+  it('revalidates the complete plan against current state in the same transaction', async () => {
+    const harness = buildHarness();
+    const authority = await harness.service.issueAuthority({
+      workspaceId: WORKSPACE_ID,
+      queryRunner: harness.queryRunner,
+    });
+
+    await expect(
+      harness.service.revalidateCreatePlan({
+        authority,
+        queryRunner: harness.queryRunner,
+        workspaceId: WORKSPACE_ID,
+      }),
+    ).resolves.toMatchObject({
+      objectMetadataId: ANCHOR_OBJECT_ID,
+      primaryPhoneFieldMetadataId: PRIMARY_FIELD_ID,
+      ownerWorkspaceMemberId: OWNER_WORKSPACE_MEMBER_ID,
+    });
+  });
+
+  it('fails closed when current authority drifts after issuance', async () => {
+    const harness = buildHarness();
+
+    harness.buildersByAlias.configuration.getOne
+      .mockResolvedValueOnce(configuration)
+      .mockResolvedValueOnce({ ...configuration, revision: '18' });
+
+    const authority = await harness.service.issueAuthority({
+      workspaceId: WORKSPACE_ID,
+      queryRunner: harness.queryRunner,
+    });
+
+    await expect(
+      harness.service.revalidateCreatePlan({
+        authority,
+        queryRunner: harness.queryRunner,
+        workspaceId: WORKSPACE_ID,
+      }),
+    ).rejects.toMatchObject({
+      code: InconnectMessagingAutoCreateAuthorityExceptionCode.AUTHORITY_DENIED,
+    });
+  });
+
   it('does not recognize a fabricated token from generic system or application code', async () => {
     const { queryRunner, service } = buildHarness();
 

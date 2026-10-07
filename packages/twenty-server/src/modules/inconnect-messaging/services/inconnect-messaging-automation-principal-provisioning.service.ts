@@ -5,6 +5,7 @@ import {
   getObjectPermissionUniversalIdentifier,
   getRoleUniversalIdentifier,
 } from 'twenty-shared/application';
+import { STANDARD_OBJECTS } from 'twenty-shared/metadata';
 import { type APP_LOCALES, SOURCE_LOCALE } from 'twenty-shared/translations';
 import { OpenRecordIn } from 'twenty-shared/types';
 import { DataSource } from 'typeorm';
@@ -37,8 +38,8 @@ import { InconnectMessagingAutomationRecordAccessService } from 'src/modules/inc
 import { InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 import { InconnectMessagingAutoCreatePrimaryValidatorService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
 import { findInconnectMessagingAutoCreateOwnerFields } from 'src/modules/inconnect-messaging/utils/find-inconnect-messaging-auto-create-owner-fields.util';
+import { resolveInconnectMessagingAutomationFieldAuthority } from 'src/modules/inconnect-messaging/utils/resolve-inconnect-messaging-automation-field-authority.util';
 import { WorkspaceMemberWorkspaceEntity } from 'src/modules/workspace-member/standard-objects/workspace-member.workspace-entity';
-import { STANDARD_OBJECTS } from 'twenty-shared/metadata';
 
 const ROLE_CACHE_KEYS = [
   'flatRoleMaps',
@@ -363,11 +364,20 @@ export class InconnectMessagingAutomationPrincipalProvisioningService {
         fields,
         workspaceMemberObjectMetadataId: workspaceMemberObject.id,
       });
+      const fieldAuthority =
+        primary.summary.fieldMetadataId === null || ownerFields.length !== 1
+          ? null
+          : resolveInconnectMessagingAutomationFieldAuthority({
+              fields,
+              ownerFieldMetadataId: ownerFields[0].id,
+              primaryFieldMetadataId: primary.summary.fieldMetadataId,
+            });
 
       if (
         primary.summary.status !== 'VALID' ||
         primary.summary.fieldMetadataId === null ||
-        ownerFields.length !== 1
+        ownerFields.length !== 1 ||
+        fieldAuthority === null
       ) {
         throw new Error('Automation writable Field authority is unavailable');
       }
@@ -466,11 +476,6 @@ export class InconnectMessagingAutomationPrincipalProvisioningService {
         canDestroyObjectRecords: false,
       });
 
-      const allowedFieldIds = new Set([
-        primary.summary.fieldMetadataId,
-        ownerFields[0].id,
-      ]);
-
       await manager.getRepository(FieldPermissionEntity).save(
         fields.map((field) => ({
           id: getInconnectMessagingAutomationFieldPermissionId({
@@ -488,7 +493,11 @@ export class InconnectMessagingAutomationPrincipalProvisioningService {
           objectMetadataId: anchorObject.id,
           fieldMetadataId: field.id,
           canReadFieldValue: null,
-          canUpdateFieldValue: allowedFieldIds.has(field.id) ? null : false,
+          canUpdateFieldValue: fieldAuthority.writableFieldMetadataIds.has(
+            field.id,
+          )
+            ? null
+            : false,
         })),
       );
     });

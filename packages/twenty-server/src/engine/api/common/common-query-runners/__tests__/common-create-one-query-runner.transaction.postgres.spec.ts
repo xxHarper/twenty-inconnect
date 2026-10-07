@@ -1,21 +1,42 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { FieldMetadataType, ObjectOpenRecordIn } from 'twenty-shared/types';
-import { DataSource, EntitySchema } from 'typeorm';
+import {
+  FieldMetadataType,
+  ObjectOpenRecordIn,
+  RelationOnDeleteAction,
+  RelationType,
+} from 'twenty-shared/types';
+import { DataSource, EntitySchema, type EntityManager } from 'typeorm';
 
 import { DataArgProcessorService } from 'src/engine/api/common/common-args-processors/data-arg-processor/data-arg-processor.service';
 import { CommonCreateManyQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/common-create-many-query-runner.service';
 import { CommonCreateOneQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-create-one-query-runner.service';
 import { type CommonBaseQueryRunnerContext } from 'src/engine/api/common/types/common-base-query-runner-context.type';
+import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { type InconnectRecordAccessWorkspacePolicy } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
 import { type RecordPositionService } from 'src/engine/core-modules/record-position/services/record-position.service';
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { GlobalWorkspaceDataSource } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource';
+import { type WorkspaceEntityManager } from 'src/engine/twenty-orm/entity-manager/workspace-entity-manager';
 import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { withWorkspaceContext } from 'src/engine/twenty-orm/storage/orm-workspace-context.storage';
 import { WorkspaceEventEmitter } from 'src/engine/workspace-event-emitter/workspace-event-emitter';
+import { computeEventName } from 'src/engine/workspace-event-emitter/utils/compute-event-name';
+import { type WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
+import {
+  INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_FIRST_NAME,
+  INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_LAST_NAME,
+} from 'src/modules/inconnect-messaging/constants/inconnect-messaging-automation-principal.constant';
+import {
+  type InconnectMessagingAutoCreateAuthority,
+  type InconnectMessagingAutoCreateAuthorityPlan,
+  type InconnectMessagingAutoCreateAuthorityService,
+} from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-authority.service';
+import { type InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
+import { InconnectMessagingAutomationRecordCreateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-create.service';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_MEMBER_ID = '22222222-2222-4222-8222-222222222222';
@@ -26,9 +47,19 @@ const OBJECT_ID = '66666666-6666-4666-8666-666666666666';
 const ID_FIELD_ID = '77777777-7777-4777-8777-777777777777';
 const NAME_FIELD_ID = '88888888-8888-4888-8888-888888888888';
 const HOOK_INJECTED_FIELD_ID = '99999999-9999-4999-8999-999999999999';
+const STATUS_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+const POSITION_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
+const CREATED_AT_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3';
+const UPDATED_AT_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4';
+const PHONE_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5';
+const OWNER_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6';
+const WORKSPACE_MEMBER_OBJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7';
+const WORKSPACE_MEMBER_ID_FIELD_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8';
+const SUPERVISOR_WORKSPACE_MEMBER_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const WORKSPACE_SCHEMA = 'workspace_transactional_create';
 const OBJECT_NAME = 'transactionalContact';
 const TABLE_NAME = '_transactionalContact';
+const WORKSPACE_MEMBER_TABLE_NAME = '_workspaceMember';
 
 const disposableDatabaseName =
   process.env.TWENTY_TRANSACTIONAL_CREATE_POSTGRES_TEST_DATABASE;
@@ -65,6 +96,15 @@ const transactionalContactSchema = new EntitySchema<{
   id: string;
   name: string;
   hookInjected: string;
+  status: string;
+  position: string;
+  createdAt: Date;
+  updatedAt: Date;
+  phonePrimaryPhoneNumber: string | null;
+  phonePrimaryPhoneCountryCode: string | null;
+  phonePrimaryPhoneCallingCode: string | null;
+  phoneAdditionalPhones: object[] | null;
+  ownerId: string;
 }>({
   name: OBJECT_NAME,
   tableName: TABLE_NAME,
@@ -73,6 +113,24 @@ const transactionalContactSchema = new EntitySchema<{
     id: { type: 'uuid', primary: true, generated: 'uuid' },
     name: { type: String },
     hookInjected: { type: String },
+    status: { type: String },
+    position: { type: 'bigint' },
+    createdAt: { type: 'timestamptz', createDate: true },
+    updatedAt: { type: 'timestamptz', updateDate: true },
+    phonePrimaryPhoneNumber: { type: String, nullable: true },
+    phonePrimaryPhoneCountryCode: { type: String, nullable: true },
+    phonePrimaryPhoneCallingCode: { type: String, nullable: true },
+    phoneAdditionalPhones: { type: 'jsonb', nullable: true },
+    ownerId: { type: 'uuid' },
+  },
+});
+
+const workspaceMemberSchema = new EntitySchema<{ id: string }>({
+  name: 'workspaceMember',
+  tableName: WORKSPACE_MEMBER_TABLE_NAME,
+  schema: WORKSPACE_SCHEMA,
+  columns: {
+    id: { type: 'uuid', primary: true },
   },
 });
 
@@ -80,10 +138,18 @@ const buildFlatFieldMetadata = ({
   id,
   name,
   type,
+  isNullable = false,
+  isSystem = false,
+  settings = null,
+  relationTargetObjectMetadataId = null,
 }: {
   id: string;
   name: string;
   type: FieldMetadataType;
+  isNullable?: boolean;
+  isSystem?: boolean;
+  settings?: FlatFieldMetadata['settings'];
+  relationTargetObjectMetadataId?: string | null;
 }): FlatFieldMetadata =>
   ({
     id,
@@ -96,8 +162,8 @@ const buildFlatFieldMetadata = ({
     name,
     label: name,
     type,
-    isNullable: false,
-    isSystem: name === 'id',
+    isNullable,
+    isSystem: name === 'id' || isSystem,
     isSystemSideEffect: false,
     isActive: true,
     isUnique: name === 'id',
@@ -107,11 +173,11 @@ const buildFlatFieldMetadata = ({
     description: null,
     icon: null,
     options: null,
-    settings: null,
+    settings,
     overrides: null,
     universalSettings: null,
     relationTargetFieldMetadataId: null,
-    relationTargetObjectMetadataId: null,
+    relationTargetObjectMetadataId,
     relationTargetFieldMetadataUniversalIdentifier: null,
     relationTargetObjectMetadataUniversalIdentifier: null,
     morphId: null,
@@ -142,6 +208,13 @@ const idFieldMetadata = buildFlatFieldMetadata({
   name: 'id',
   type: FieldMetadataType.UUID,
 });
+const workspaceMemberIdFieldMetadata = {
+  ...idFieldMetadata,
+  id: WORKSPACE_MEMBER_ID_FIELD_ID,
+  universalIdentifier: WORKSPACE_MEMBER_ID_FIELD_ID,
+  objectMetadataId: WORKSPACE_MEMBER_OBJECT_ID,
+  objectMetadataUniversalIdentifier: WORKSPACE_MEMBER_OBJECT_ID,
+} as FlatFieldMetadata;
 const nameFieldMetadata = buildFlatFieldMetadata({
   id: NAME_FIELD_ID,
   name: 'name',
@@ -151,6 +224,46 @@ const hookInjectedFieldMetadata = buildFlatFieldMetadata({
   id: HOOK_INJECTED_FIELD_ID,
   name: 'hookInjected',
   type: FieldMetadataType.TEXT,
+});
+const statusFieldMetadata = buildFlatFieldMetadata({
+  id: STATUS_FIELD_ID,
+  name: 'status',
+  type: FieldMetadataType.TEXT,
+});
+const positionFieldMetadata = buildFlatFieldMetadata({
+  id: POSITION_FIELD_ID,
+  name: 'position',
+  type: FieldMetadataType.NUMBER,
+  isSystem: true,
+});
+const createdAtFieldMetadata = buildFlatFieldMetadata({
+  id: CREATED_AT_FIELD_ID,
+  name: 'createdAt',
+  type: FieldMetadataType.DATE_TIME,
+  isSystem: true,
+});
+const updatedAtFieldMetadata = buildFlatFieldMetadata({
+  id: UPDATED_AT_FIELD_ID,
+  name: 'updatedAt',
+  type: FieldMetadataType.DATE_TIME,
+  isSystem: true,
+});
+const phoneFieldMetadata = buildFlatFieldMetadata({
+  id: PHONE_FIELD_ID,
+  name: 'phone',
+  type: FieldMetadataType.PHONES,
+  isNullable: true,
+});
+const ownerFieldMetadata = buildFlatFieldMetadata({
+  id: OWNER_FIELD_ID,
+  name: 'owner',
+  type: FieldMetadataType.RELATION,
+  settings: {
+    relationType: RelationType.MANY_TO_ONE,
+    onDelete: RelationOnDeleteAction.SET_NULL,
+    joinColumnName: 'ownerId',
+  },
+  relationTargetObjectMetadataId: WORKSPACE_MEMBER_OBJECT_ID,
 });
 
 const flatObjectMetadata = {
@@ -173,11 +286,27 @@ const flatObjectMetadata = {
   isUIEditable: true,
   isUICreatable: true,
   openRecordIn: ObjectOpenRecordIn.USER_CHOICE,
-  fieldIds: [ID_FIELD_ID, NAME_FIELD_ID, HOOK_INJECTED_FIELD_ID],
+  fieldIds: [
+    ID_FIELD_ID,
+    NAME_FIELD_ID,
+    HOOK_INJECTED_FIELD_ID,
+    STATUS_FIELD_ID,
+    POSITION_FIELD_ID,
+    CREATED_AT_FIELD_ID,
+    UPDATED_AT_FIELD_ID,
+    PHONE_FIELD_ID,
+    OWNER_FIELD_ID,
+  ],
   fieldUniversalIdentifiers: [
     ID_FIELD_ID,
     NAME_FIELD_ID,
     HOOK_INJECTED_FIELD_ID,
+    STATUS_FIELD_ID,
+    POSITION_FIELD_ID,
+    CREATED_AT_FIELD_ID,
+    UPDATED_AT_FIELD_ID,
+    PHONE_FIELD_ID,
+    OWNER_FIELD_ID,
   ],
   indexMetadataIds: [],
   indexMetadataUniversalIdentifiers: [],
@@ -203,9 +332,28 @@ const flatObjectMetadata = {
   updatedAt: new Date(0).toISOString(),
 } as FlatObjectMetadata;
 
+const workspaceMemberObjectMetadata = {
+  ...flatObjectMetadata,
+  id: WORKSPACE_MEMBER_OBJECT_ID,
+  universalIdentifier: WORKSPACE_MEMBER_OBJECT_ID,
+  nameSingular: 'workspaceMember',
+  namePlural: 'workspaceMembers',
+  targetTableName: WORKSPACE_MEMBER_TABLE_NAME,
+  fieldIds: [WORKSPACE_MEMBER_ID_FIELD_ID],
+  fieldUniversalIdentifiers: [WORKSPACE_MEMBER_ID_FIELD_ID],
+  labelIdentifierFieldMetadataId: WORKSPACE_MEMBER_ID_FIELD_ID,
+  labelIdentifierFieldMetadataUniversalIdentifier: WORKSPACE_MEMBER_ID_FIELD_ID,
+} as FlatObjectMetadata;
+
 const flatObjectMetadataMaps: FlatEntityMaps<FlatObjectMetadata> = {
-  byUniversalIdentifier: { [OBJECT_ID]: flatObjectMetadata },
-  universalIdentifierById: { [OBJECT_ID]: OBJECT_ID },
+  byUniversalIdentifier: {
+    [OBJECT_ID]: flatObjectMetadata,
+    [WORKSPACE_MEMBER_OBJECT_ID]: workspaceMemberObjectMetadata,
+  },
+  universalIdentifierById: {
+    [OBJECT_ID]: OBJECT_ID,
+    [WORKSPACE_MEMBER_OBJECT_ID]: WORKSPACE_MEMBER_OBJECT_ID,
+  },
   universalIdentifiersByApplicationId: {},
 };
 const flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata> = {
@@ -213,11 +361,25 @@ const flatFieldMetadataMaps: FlatEntityMaps<FlatFieldMetadata> = {
     [ID_FIELD_ID]: idFieldMetadata,
     [NAME_FIELD_ID]: nameFieldMetadata,
     [HOOK_INJECTED_FIELD_ID]: hookInjectedFieldMetadata,
+    [STATUS_FIELD_ID]: statusFieldMetadata,
+    [POSITION_FIELD_ID]: positionFieldMetadata,
+    [CREATED_AT_FIELD_ID]: createdAtFieldMetadata,
+    [UPDATED_AT_FIELD_ID]: updatedAtFieldMetadata,
+    [PHONE_FIELD_ID]: phoneFieldMetadata,
+    [OWNER_FIELD_ID]: ownerFieldMetadata,
+    [WORKSPACE_MEMBER_ID_FIELD_ID]: workspaceMemberIdFieldMetadata,
   },
   universalIdentifierById: {
     [ID_FIELD_ID]: ID_FIELD_ID,
     [NAME_FIELD_ID]: NAME_FIELD_ID,
     [HOOK_INJECTED_FIELD_ID]: HOOK_INJECTED_FIELD_ID,
+    [STATUS_FIELD_ID]: STATUS_FIELD_ID,
+    [POSITION_FIELD_ID]: POSITION_FIELD_ID,
+    [CREATED_AT_FIELD_ID]: CREATED_AT_FIELD_ID,
+    [UPDATED_AT_FIELD_ID]: UPDATED_AT_FIELD_ID,
+    [PHONE_FIELD_ID]: PHONE_FIELD_ID,
+    [OWNER_FIELD_ID]: OWNER_FIELD_ID,
+    [WORKSPACE_MEMBER_ID_FIELD_ID]: WORKSPACE_MEMBER_ID_FIELD_ID,
   },
   universalIdentifiersByApplicationId: {},
 };
@@ -243,6 +405,9 @@ describeWithDisposablePostgres(
     let processRecordSpy: jest.Mock;
     let executePreQueryHooksSpy: jest.Mock;
     let executePostQueryHooksSpy: jest.Mock;
+    let inconnectRecordAccessPolicy: InconnectRecordAccessWorkspacePolicy = {
+      status: 'not-configured',
+    };
 
     const authContext = {
       type: 'user',
@@ -266,6 +431,15 @@ describeWithDisposablePostgres(
         rowLevelPermissionPredicates: [],
         rowLevelPermissionPredicateGroups: [],
       },
+      [WORKSPACE_MEMBER_OBJECT_ID]: {
+        canReadObjectRecords: true,
+        canUpdateObjectRecords: false,
+        canSoftDeleteObjectRecords: false,
+        canDestroyObjectRecords: false,
+        restrictedFields: {},
+        rowLevelPermissionPredicates: [],
+        rowLevelPermissionPredicateGroups: [],
+      },
     });
 
     const buildWorkspaceContext = () => ({
@@ -275,7 +449,7 @@ describeWithDisposablePostgres(
       flatIndexMaps: emptyFlatEntityMaps(),
       flatRowLevelPermissionPredicateMaps: emptyFlatEntityMaps(),
       flatRowLevelPermissionPredicateGroupMaps: emptyFlatEntityMaps(),
-      inconnectRecordAccessPolicy: { status: 'not-configured' },
+      inconnectRecordAccessPolicy,
       inconnectTeamAccessMaps: {
         version: 1,
         status: 'valid',
@@ -283,7 +457,10 @@ describeWithDisposablePostgres(
         memberWorkspaceMemberIdsByTeamId: {},
         assignableMemberWorkspaceMemberIdsByTeamId: {},
       },
-      objectIdByNameSingular: { [OBJECT_NAME]: OBJECT_ID },
+      objectIdByNameSingular: {
+        [OBJECT_NAME]: OBJECT_ID,
+        workspaceMember: WORKSPACE_MEMBER_OBJECT_ID,
+      },
       featureFlagsMap: { IS_ORM_V2_READ_PATH_ENABLED: false },
       permissionsPerRoleId: { [ROLE_ID]: buildObjectPermissions() },
       entityMetadatas: workspaceDataSource.entityMetadatas,
@@ -317,6 +494,140 @@ describeWithDisposablePostgres(
         queryRunner,
       );
 
+    const buildAutomationRecordCreateHarness = () => {
+      const authority = Object.freeze(
+        {},
+      ) as InconnectMessagingAutoCreateAuthority;
+      const plan: InconnectMessagingAutoCreateAuthorityPlan = Object.freeze({
+        workspaceId: WORKSPACE_ID,
+        objectMetadataId: OBJECT_ID,
+        objectMetadataNameSingular: OBJECT_NAME,
+        configurationRevision: '1',
+        configurationUpdatedAt: '2026-10-07T00:00:00.000Z',
+        primaryPhoneIdentityFieldId: PHONE_FIELD_ID,
+        primaryPhoneFieldMetadataId: PHONE_FIELD_ID,
+        primaryPhoneFieldName: 'phone',
+        ownerStrategy: 'UNIQUE_ACTIVE_MEMBER_OF_ROLE',
+        ownerRoleId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        ownerWorkspaceMemberId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+        ownerFieldMetadataId: OWNER_FIELD_ID,
+        ownerFieldName: 'owner',
+        ownerJoinColumnName: 'ownerId',
+        allowedFieldMetadataIds: Object.freeze([
+          PHONE_FIELD_ID,
+          OWNER_FIELD_ID,
+        ]),
+        automationUserId: USER_ID,
+        automationUserWorkspaceId: USER_WORKSPACE_ID,
+        automationWorkspaceMemberId: WORKSPACE_MEMBER_ID,
+        automationRoleId: ROLE_ID,
+        automationPrincipalName: `${INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_FIRST_NAME} ${INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_LAST_NAME}`,
+      });
+      const userWorkspace = {
+        id: USER_WORKSPACE_ID,
+        userId: USER_ID,
+        workspaceId: WORKSPACE_ID,
+        deletedAt: null,
+        user: {
+          id: USER_ID,
+          firstName: INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_FIRST_NAME,
+          lastName: INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_LAST_NAME,
+          email: 'automation@internal.invalid',
+          isEmailVerified: false,
+          disabled: false,
+          canImpersonate: false,
+          canAccessFullAdminPanel: false,
+          locale: 'en',
+          createdAt: new Date('2026-10-07T00:00:00.000Z'),
+          updatedAt: new Date('2026-10-07T00:00:00.000Z'),
+          deletedAt: null,
+        },
+        workspace: {
+          id: WORKSPACE_ID,
+          displayName: 'F13 physical fixture',
+          databaseSchema: WORKSPACE_SCHEMA,
+          createdAt: new Date('2026-10-07T00:00:00.000Z'),
+          updatedAt: new Date('2026-10-07T00:00:00.000Z'),
+          deletedAt: null,
+        },
+      };
+      const manager = {
+        getRepository: jest.fn(() => ({
+          findOne: jest.fn().mockResolvedValue(userWorkspace),
+        })),
+      } as unknown as EntityManager;
+      const dataSource = {
+        createEntityManager: jest.fn().mockReturnValue(manager),
+      } as unknown as DataSource;
+      const authorityService = {
+        revalidateCreatePlan: jest.fn().mockResolvedValue(plan),
+        assertCreateScope: jest.fn().mockResolvedValue(plan),
+      } as unknown as InconnectMessagingAutoCreateAuthorityService;
+      const automationPrincipalService = {
+        validate: jest.fn().mockResolvedValue({
+          status: 'VALID',
+          principal: {
+            workspaceId: WORKSPACE_ID,
+            userId: USER_ID,
+            userWorkspaceId: USER_WORKSPACE_ID,
+            workspaceMemberId: WORKSPACE_MEMBER_ID,
+            roleId: ROLE_ID,
+            name: plan.automationPrincipalName,
+          },
+        }),
+      } as unknown as InconnectMessagingAutomationPrincipalService;
+      const workspaceCacheService = {
+        getOrRecompute: jest.fn().mockResolvedValue({
+          flatWorkspaceMemberMaps: {
+            byId: {
+              [WORKSPACE_MEMBER_ID]: {
+                id: WORKSPACE_MEMBER_ID,
+                userId: USER_ID,
+                name: {
+                  firstName:
+                    INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_FIRST_NAME,
+                  lastName: INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_LAST_NAME,
+                },
+                deletedAt: null,
+              },
+            },
+            idByUserId: { [USER_ID]: WORKSPACE_MEMBER_ID },
+          },
+          flatObjectMetadataMaps,
+          flatFieldMetadataMaps,
+          flatIndexMaps: emptyFlatEntityMaps(),
+        }),
+      } as unknown as WorkspaceCacheService;
+
+      return {
+        authority,
+        service: new InconnectMessagingAutomationRecordCreateService(
+          dataSource,
+          authorityService,
+          automationPrincipalService,
+          workspaceCacheService,
+          createOneRunner,
+        ),
+      };
+    };
+
+    const runRepositoryCreateMany = (
+      queryRunner: WorkspaceQueryRunner,
+      records: Array<{
+        id: string;
+        name: string;
+        hookInjected: string;
+        ownerId?: string;
+      }>,
+    ) =>
+      withWorkspaceContext(buildWorkspaceContext() as never, () => {
+        const repository = (
+          queryRunner.manager as WorkspaceEntityManager
+        ).getRepository(OBJECT_NAME, { unionOf: [ROLE_ID] }, authContext);
+
+        return repository.insert(records, undefined, ['id']);
+      });
+
     const getConnectionIdentity = async (queryRunner: WorkspaceQueryRunner) => {
       const [identity] = (await queryRunner.query(
         `SELECT pg_backend_pid() AS "backendPid", txid_current()::text AS "transactionId"`,
@@ -347,8 +658,40 @@ describeWithDisposablePostgres(
           "hookInjected" text NOT NULL,
           "status" text NOT NULL DEFAULT 'NEW',
           "position" bigint NOT NULL DEFAULT 0,
-          "createdAt" timestamptz NOT NULL DEFAULT now()
+          "createdAt" timestamptz NOT NULL DEFAULT now(),
+          "updatedAt" timestamptz NOT NULL DEFAULT now(),
+          "phonePrimaryPhoneNumber" text DEFAULT '5514552571',
+          "phonePrimaryPhoneCountryCode" text DEFAULT 'MX',
+          "phonePrimaryPhoneCallingCode" text DEFAULT '+52',
+          "phoneAdditionalPhones" jsonb,
+          "ownerId" uuid NOT NULL DEFAULT '${WORKSPACE_MEMBER_ID}'
         )
+      `);
+      await coreDataSource.query(`
+        CREATE TABLE "${WORKSPACE_SCHEMA}"."${WORKSPACE_MEMBER_TABLE_NAME}" (
+          "id" uuid PRIMARY KEY
+        )
+      `);
+      await coreDataSource.query(
+        `INSERT INTO "${WORKSPACE_SCHEMA}"."${WORKSPACE_MEMBER_TABLE_NAME}" ("id") VALUES ($1), ($2)`,
+        [WORKSPACE_MEMBER_ID, SUPERVISOR_WORKSPACE_MEMBER_ID],
+      );
+      await coreDataSource.query(`
+        CREATE FUNCTION "${WORKSPACE_SCHEMA}"."setTransactionalContactStatus"()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $function$
+        BEGIN
+          NEW."status" := 'TRIGGERED';
+          RETURN NEW;
+        END;
+        $function$
+      `);
+      await coreDataSource.query(`
+        CREATE TRIGGER "setTransactionalContactStatusBeforeInsert"
+        BEFORE INSERT ON "${WORKSPACE_SCHEMA}"."${TABLE_NAME}"
+        FOR EACH ROW
+        EXECUTE FUNCTION "${WORKSPACE_SCHEMA}"."setTransactionalContactStatus"()
       `);
       await coreDataSource.query(`
         CREATE TABLE "core"."transactionalCreateProbe" (
@@ -363,7 +706,7 @@ describeWithDisposablePostgres(
         {
           type: 'postgres',
           url,
-          entities: [transactionalContactSchema],
+          entities: [transactionalContactSchema, workspaceMemberSchema],
         },
         new WorkspaceEventEmitter(eventEmitter),
         coreDataSource,
@@ -399,6 +742,7 @@ describeWithDisposablePostgres(
           ...args,
           data: {
             ...args.data,
+            name: args.data.name ?? 'Automation contact',
             hookInjected: 'HOOKED',
           },
         }));
@@ -465,6 +809,7 @@ describeWithDisposablePostgres(
 
     beforeEach(async () => {
       canReadObjectRecords = true;
+      inconnectRecordAccessPolicy = { status: 'not-configured' };
       eventEmitterSpy.mockClear();
       fetchUpsertedRecordsSpy.mockClear();
       processNestedRelationsIfNeededSpy.mockClear();
@@ -625,6 +970,10 @@ describeWithDisposablePostgres(
       await queryRunner.connect();
       await queryRunner.startTransaction();
 
+      const querySpy = jest.spyOn(queryRunner, 'query');
+
+      querySpy.mockClear();
+
       const receipt = await runReceiptCreate(
         queryRunner,
         'Generated receipt contact',
@@ -648,6 +997,15 @@ describeWithDisposablePostgres(
       expect(executePostQueryHooksSpy).toHaveBeenCalledTimes(1);
       expect(eventEmitterSpy).not.toHaveBeenCalled();
 
+      const createQueries = querySpy.mock.calls.map(([query]) => String(query));
+
+      expect(createQueries).toHaveLength(1);
+      expect(createQueries[0]).toMatch(/^INSERT INTO /);
+      expect(createQueries[0]).toContain('RETURNING *');
+      expect(createQueries.some((query) => /^SELECT /i.test(query))).toBe(
+        false,
+      );
+
       const [insideRecord] = (await queryRunner.query(
         `SELECT "id", "name", "hookInjected", "status", "position"::text AS "position", "createdAt" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
         [receipt.recordId],
@@ -664,7 +1022,7 @@ describeWithDisposablePostgres(
         id: receipt.recordId,
         name: 'Generated receipt contact',
         hookInjected: 'HOOKED',
-        status: 'NEW',
+        status: 'TRIGGERED',
         position: '0',
       });
       expect(insideRecord.createdAt).toBeInstanceOf(Date);
@@ -681,6 +1039,28 @@ describeWithDisposablePostgres(
 
       expect(persistedRecord.id).toBe(receipt.recordId);
       expect(eventEmitterSpy).toHaveBeenCalledTimes(2);
+
+      const eventSnapshots = eventEmitterSpy.mock.calls.map(
+        ([, eventBatch]) => eventBatch.events[0].properties.after,
+      );
+
+      expect(eventSnapshots).toHaveLength(2);
+      expect(eventSnapshots[0]).toEqual(eventSnapshots[1]);
+      expect(eventSnapshots[0]).toMatchObject({
+        id: receipt.recordId,
+        name: 'Generated receipt contact',
+        hookInjected: 'HOOKED',
+        status: 'TRIGGERED',
+        position: '0',
+        phone: {
+          primaryPhoneNumber: '5514552571',
+          primaryPhoneCountryCode: 'MX',
+          primaryPhoneCallingCode: '+52',
+          additionalPhones: [],
+        },
+      });
+      expect(eventSnapshots[0].createdAt).toBeInstanceOf(Date);
+      expect(eventSnapshots[0].updatedAt).toBeInstanceOf(Date);
     });
 
     it('rolls back a generated-ID write receipt and discards its buffered events', async () => {
@@ -713,6 +1093,303 @@ describeWithDisposablePostgres(
       );
 
       expect(persistedRecordCount.count).toBe('0');
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps create-many caller projection narrow and orders complete events by identifiers', async () => {
+      canReadObjectRecords = false;
+      const firstRecordId = 'f1111111-1111-4111-8111-111111111111';
+      const secondRecordId = 'f2222222-2222-4222-8222-222222222222';
+      const queryRunner = workspaceDataSource.createQueryRunner();
+
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      const querySpy = jest.spyOn(queryRunner, 'query');
+
+      querySpy.mockClear();
+
+      const result = await runRepositoryCreateMany(queryRunner, [
+        {
+          id: firstRecordId,
+          name: 'First create-many contact',
+          hookInjected: 'FIRST_HOOK',
+        },
+        {
+          id: secondRecordId,
+          name: 'Second create-many contact',
+          hookInjected: 'SECOND_HOOK',
+        },
+      ]);
+
+      expect(result.identifiers).toEqual([
+        { id: firstRecordId },
+        { id: secondRecordId },
+      ]);
+      expect(result.generatedMaps).toEqual([
+        { id: firstRecordId },
+        { id: secondRecordId },
+      ]);
+      expect(result.raw).toEqual([
+        { id: firstRecordId },
+        { id: secondRecordId },
+      ]);
+      expect(
+        result.raw.some((record: Record<string, unknown>) =>
+          Object.prototype.hasOwnProperty.call(record, 'name'),
+        ),
+      ).toBe(false);
+
+      const createQueries = querySpy.mock.calls.map(([query]) => String(query));
+
+      expect(createQueries).toHaveLength(1);
+      expect(createQueries[0]).toMatch(/^INSERT INTO /);
+      expect(createQueries[0]).toContain('RETURNING *');
+      expect(createQueries.some((query) => /^SELECT /i.test(query))).toBe(
+        false,
+      );
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+
+      await queryRunner.commitTransaction();
+      await queryRunner.release();
+
+      expect(eventEmitterSpy).toHaveBeenCalledTimes(2);
+
+      const eventSnapshotNames = eventEmitterSpy.mock.calls.map(
+        ([, eventBatch]) =>
+          eventBatch.events.map(
+            (event: { properties: { after: { name: string } } }) =>
+              event.properties.after.name,
+          ),
+      );
+
+      expect(eventSnapshotNames).toEqual([
+        ['First create-many contact', 'Second create-many contact'],
+        ['First create-many contact', 'Second create-many contact'],
+      ]);
+    });
+
+    it('creates outside ownRecords from INSERT snapshot while ordinary read remains scoped', async () => {
+      const recordId = 'f3333333-3333-4333-8333-333333333333';
+
+      inconnectRecordAccessPolicy = {
+        status: 'configured',
+        managedObjectMetadataIds: [OBJECT_ID],
+        rules: [
+          {
+            roleId: ROLE_ID,
+            objectMetadataId: OBJECT_ID,
+            ownerFieldMetadataId: OWNER_FIELD_ID,
+            ownerFieldName: 'owner',
+            ownerJoinColumnName: 'ownerId',
+            recordEffect: 'ownRecords',
+            createPolicy: 'standardPermissionsOnly',
+            ownerTransferPolicy: 'denied',
+            ownerRequirement: 'required',
+            missingOwnerPolicy: 'requireExplicit',
+          },
+        ],
+      };
+
+      const queryRunner = workspaceDataSource.createQueryRunner();
+
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      const result = await runRepositoryCreateMany(queryRunner, [
+        {
+          id: recordId,
+          name: 'Supervisor-owned contact',
+          hookInjected: 'OWNER_SCOPE_HOOK',
+          ownerId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+        },
+      ]);
+
+      expect(result).toMatchObject({
+        identifiers: [{ id: recordId }],
+        generatedMaps: [{ id: recordId }],
+        raw: [{ id: recordId }],
+      });
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+
+      const ordinaryRead = await withWorkspaceContext(
+        buildWorkspaceContext() as never,
+        () =>
+          (queryRunner.manager as WorkspaceEntityManager)
+            .getRepository(OBJECT_NAME, { unionOf: [ROLE_ID] }, authContext)
+            .find({ where: { id: recordId } }),
+      );
+
+      expect(ordinaryRead).toEqual([]);
+
+      await queryRunner.commitTransaction();
+      await queryRunner.release();
+
+      expect(eventEmitterSpy).toHaveBeenCalledTimes(2);
+
+      const eventSnapshots = eventEmitterSpy.mock.calls.map(
+        ([, eventBatch]) => eventBatch.events[0].properties.after,
+      );
+
+      expect(eventSnapshots).toHaveLength(2);
+      expect(eventSnapshots[0]).toEqual(eventSnapshots[1]);
+      expect(eventSnapshots[0]).toMatchObject({
+        id: recordId,
+        name: 'Supervisor-owned contact',
+        ownerId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+        status: 'TRIGGERED',
+      });
+      expect(eventSnapshots[0].ownerId).not.toBe(WORKSPACE_MEMBER_ID);
+    });
+
+    it('runs the real F13 automation executor with Supervisor Owner while normal reads stay scoped', async () => {
+      canReadObjectRecords = false;
+      inconnectRecordAccessPolicy = {
+        status: 'configured',
+        managedObjectMetadataIds: [OBJECT_ID],
+        rules: [
+          {
+            roleId: ROLE_ID,
+            objectMetadataId: OBJECT_ID,
+            ownerFieldMetadataId: OWNER_FIELD_ID,
+            ownerFieldName: 'owner',
+            ownerJoinColumnName: 'ownerId',
+            recordEffect: 'ownRecords',
+            createPolicy: 'standardPermissionsOnly',
+            ownerTransferPolicy: 'denied',
+            ownerRequirement: 'required',
+            missingOwnerPolicy: 'requireExplicit',
+          },
+        ],
+      };
+
+      const { authority, service } = buildAutomationRecordCreateHarness();
+      const queryRunner = workspaceDataSource.createQueryRunner();
+
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      const querySpy = jest.spyOn(queryRunner, 'query');
+
+      querySpy.mockClear();
+
+      const receipt = await service.execute({
+        workspaceId: WORKSPACE_ID,
+        canonicalPhoneIdentity: '+525514552571',
+        authority,
+        queryRunner,
+      });
+
+      expect(receipt).toEqual({
+        objectMetadataId: OBJECT_ID,
+        recordId: expect.any(String),
+      });
+      expect(Object.keys(receipt)).toEqual(['objectMetadataId', 'recordId']);
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+
+      const createQueries = querySpy.mock.calls.map(([query]) => String(query));
+      const insertQueries = createQueries.filter((query) =>
+        /^INSERT INTO /i.test(query),
+      );
+      const selectQueries = createQueries.filter((query) =>
+        /^SELECT /i.test(query),
+      );
+
+      expect(insertQueries).toHaveLength(1);
+      expect(insertQueries[0]).toContain('RETURNING *');
+      expect(selectQueries).toHaveLength(1);
+      expect(selectQueries[0]).toContain(WORKSPACE_MEMBER_TABLE_NAME);
+      expect(selectQueries[0]).not.toContain(TABLE_NAME);
+
+      await queryRunner.commitTransaction();
+      await queryRunner.release();
+
+      const [persistedRecord] = await coreDataSource.query<
+        Array<{
+          id: string;
+          ownerId: string;
+          phonePrimaryPhoneCallingCode: string;
+          phonePrimaryPhoneCountryCode: string;
+          phonePrimaryPhoneNumber: string;
+        }>
+      >(
+        `SELECT "id", "ownerId", "phonePrimaryPhoneCallingCode", "phonePrimaryPhoneCountryCode", "phonePrimaryPhoneNumber" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
+        [receipt.recordId],
+      );
+
+      expect(persistedRecord).toEqual({
+        id: receipt.recordId,
+        ownerId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+        phonePrimaryPhoneCallingCode: '+52',
+        phonePrimaryPhoneCountryCode: 'MX',
+        phonePrimaryPhoneNumber: '5514552571',
+      });
+      expect(eventEmitterSpy).toHaveBeenCalledTimes(2);
+      expect(
+        eventEmitterSpy.mock.calls.map(([eventName]) => eventName),
+      ).toEqual([
+        computeEventName(OBJECT_NAME, DatabaseEventAction.CREATED),
+        computeEventName(OBJECT_NAME, DatabaseEventAction.UPSERTED),
+      ]);
+
+      const eventSnapshots = eventEmitterSpy.mock.calls.map(
+        ([, eventBatch]) => eventBatch.events[0].properties.after,
+      );
+
+      expect(eventSnapshots[0]).toEqual(eventSnapshots[1]);
+      expect(eventSnapshots[0]).toMatchObject({
+        id: receipt.recordId,
+        name: 'Automation contact',
+        ownerId: SUPERVISOR_WORKSPACE_MEMBER_ID,
+        status: 'TRIGGERED',
+        phone: {
+          primaryPhoneNumber: '5514552571',
+          primaryPhoneCountryCode: 'MX',
+          primaryPhoneCallingCode: '+52',
+          additionalPhones: [],
+        },
+      });
+
+      const readQueryRunner = workspaceDataSource.createQueryRunner();
+
+      await readQueryRunner.connect();
+
+      await expect(
+        withWorkspaceContext(buildWorkspaceContext() as never, () =>
+          (readQueryRunner.manager as WorkspaceEntityManager)
+            .getRepository(OBJECT_NAME, { unionOf: [ROLE_ID] }, authContext)
+            .find({ where: { id: receipt.recordId } }),
+        ),
+      ).rejects.toThrow('does not have permission');
+      await readQueryRunner.release();
+
+      eventEmitterSpy.mockClear();
+
+      const rollbackQueryRunner = workspaceDataSource.createQueryRunner();
+
+      await rollbackQueryRunner.connect();
+      await rollbackQueryRunner.startTransaction();
+
+      const rolledBackReceipt = await service.execute({
+        workspaceId: WORKSPACE_ID,
+        canonicalPhoneIdentity: '+14155552671',
+        authority,
+        queryRunner: rollbackQueryRunner,
+      });
+
+      expect(eventEmitterSpy).not.toHaveBeenCalled();
+
+      await rollbackQueryRunner.rollbackTransaction();
+      await rollbackQueryRunner.release();
+
+      const [rolledBackRecordCount] = await coreDataSource.query<
+        Array<{ count: string }>
+      >(
+        `SELECT COUNT(*)::text AS "count" FROM "${WORKSPACE_SCHEMA}"."${TABLE_NAME}" WHERE "id" = $1`,
+        [rolledBackReceipt.recordId],
+      );
+
+      expect(rolledBackRecordCount.count).toBe('0');
       expect(eventEmitterSpy).not.toHaveBeenCalled();
     });
 

@@ -1,5 +1,5 @@
 import { type ObjectsPermissions } from 'twenty-shared/types';
-import { isDefined } from 'twenty-shared/utils';
+import { isDefined, isValidUuid } from 'twenty-shared/utils';
 import {
   type EntityTarget,
   InsertQueryBuilder,
@@ -251,37 +251,16 @@ export class WorkspaceInsertQueryBuilder<
       }
 
       const result =
-        await this.executeInsertWithInconnectOwnerIntegrity(inconnectDecision);
+        await this.executeInsertReturningCompleteRows(inconnectDecision);
+
+      const formattedResultForEvent = this.buildFormattedEventSnapshots({
+        result,
+        objectMetadata,
+      });
 
       if (isDefined(filesFieldFileIds)) {
         await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
       }
-      const eventSelectQueryBuilder = (
-        (this.queryRunner?.manager ??
-          this.connection.manager) as WorkspaceEntityManager
-      ).createQueryBuilder(
-        mainAliasTarget,
-        this.expressionMap.mainAlias?.metadata.name ?? '',
-        this.queryRunner,
-        {
-          shouldBypassPermissionChecks: true,
-        },
-      ) as WorkspaceSelectQueryBuilder<T>;
-
-      eventSelectQueryBuilder.whereInIds(
-        result.identifiers.map((identifier) => identifier.id),
-      );
-
-      const afterResult = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
-
-      const formattedResultForEvent = formatResult<T[]>(
-        afterResult,
-        objectMetadata,
-        this.internalContext.flatObjectMetadataMaps,
-        this.internalContext.flatFieldMetadataMaps,
-      );
 
       this.internalContext.eventEmitterService.emitDatabaseBatchEvent(
         formatTwentyOrmEventToDatabaseBatchEvent({
@@ -308,21 +287,8 @@ export class WorkspaceInsertQueryBuilder<
       );
 
       // TypeORM returns all entity columns for insertions
-      const resultWithoutInsertionExtraColumns = !isDefined(result.raw)
-        ? []
-        : result.raw.map((rawResult: Record<string, string>) =>
-            Object.keys(rawResult)
-              .filter(
-                (key) =>
-                  this.expressionMap.returning.includes(key) ||
-                  this.expressionMap.returning === '*',
-              )
-              .reduce((filtered: Record<string, string>, key) => {
-                filtered[key] = rawResult[key];
-
-                return filtered;
-              }, {}),
-          );
+      const resultWithoutInsertionExtraColumns =
+        this.projectCompleteRowsToCallerReturning(result.raw);
 
       const formattedResult = formatResult<T[]>(
         resultWithoutInsertionExtraColumns,
@@ -349,6 +315,198 @@ export class WorkspaceInsertQueryBuilder<
         this.internalContext,
       );
     }
+  }
+
+  private async executeInsertReturningCompleteRows(
+    decision: InconnectRecordAccessDecision,
+  ): Promise<InsertResult> {
+    const callerReturning = Array.isArray(this.expressionMap.returning)
+      ? [...this.expressionMap.returning]
+      : this.expressionMap.returning;
+
+    this.expressionMap.returning = '*';
+
+    try {
+      return await this.executeInsertWithInconnectOwnerIntegrity(decision);
+    } finally {
+      this.expressionMap.returning = callerReturning;
+    }
+  }
+
+  private buildFormattedEventSnapshots({
+    result,
+    objectMetadata,
+  }: {
+    result: InsertResult;
+    objectMetadata: FlatObjectMetadata;
+  }): T[] {
+    const completeRows = this.getCompleteRowsFromInsertResult(result);
+    const entityMetadata = this.expressionMap.mainAlias?.metadata;
+
+    if (!isDefined(entityMetadata)) {
+      throw new TwentyORMException(
+        'Entity metadata is missing while constructing INSERT event snapshots',
+        TwentyORMExceptionCode.ORM_EVENT_DATA_CORRUPTED,
+      );
+    }
+
+    const hydratedRows = completeRows.map((completeRow) => {
+      const hydratedRow: ObjectLiteral = {};
+
+      for (const column of entityMetadata.columns) {
+        if (
+          !Object.prototype.hasOwnProperty.call(
+            completeRow,
+            column.databaseName,
+          )
+        ) {
+          continue;
+        }
+
+        column.setEntityValue(
+          hydratedRow,
+          this.connection.driver.prepareHydratedValue(
+            completeRow[column.databaseName],
+            column,
+          ),
+        );
+      }
+
+      return hydratedRow;
+    });
+
+    return formatResult<T[]>(
+      hydratedRows,
+      objectMetadata,
+      this.internalContext.flatObjectMetadataMaps,
+      this.internalContext.flatFieldMetadataMaps,
+    );
+  }
+
+  private getCompleteRowsFromInsertResult(
+    result: InsertResult,
+  ): ObjectLiteral[] {
+    if (!isDefined(result.raw)) {
+      if (result.identifiers.length === 0) {
+        return [];
+      }
+
+      return this.throwCorruptedInsertEventData(
+        'INSERT did not return rows for event construction',
+      );
+    }
+
+    if (!Array.isArray(result.raw)) {
+      return this.throwCorruptedInsertEventData(
+        'INSERT returned a malformed event snapshot result',
+      );
+    }
+
+    const completeRowById = new Map<string, ObjectLiteral>();
+
+    for (const completeRow of result.raw) {
+      if (
+        typeof completeRow !== 'object' ||
+        completeRow === null ||
+        Array.isArray(completeRow)
+      ) {
+        return this.throwCorruptedInsertEventData(
+          'INSERT returned a malformed event snapshot row',
+        );
+      }
+
+      const rowId: unknown = completeRow.id;
+
+      if (typeof rowId !== 'string' || !isValidUuid(rowId)) {
+        return this.throwCorruptedInsertEventData(
+          'INSERT returned an invalid event snapshot identifier',
+        );
+      }
+
+      const canonicalRowId = rowId.toLowerCase();
+
+      if (completeRowById.has(canonicalRowId)) {
+        return this.throwCorruptedInsertEventData(
+          'INSERT returned duplicate event snapshot identifiers',
+        );
+      }
+
+      completeRowById.set(canonicalRowId, completeRow);
+    }
+
+    if (completeRowById.size !== result.identifiers.length) {
+      return this.throwCorruptedInsertEventData(
+        'INSERT identifiers and event snapshot rows do not correspond',
+      );
+    }
+
+    const seenIdentifierIds = new Set<string>();
+
+    return result.identifiers.map((identifier) => {
+      const identifierId: unknown = identifier.id;
+
+      if (typeof identifierId !== 'string' || !isValidUuid(identifierId)) {
+        return this.throwCorruptedInsertEventData(
+          'INSERT returned an invalid authoritative identifier',
+        );
+      }
+
+      const canonicalIdentifierId = identifierId.toLowerCase();
+
+      if (seenIdentifierIds.has(canonicalIdentifierId)) {
+        return this.throwCorruptedInsertEventData(
+          'INSERT returned duplicate authoritative identifiers',
+        );
+      }
+
+      seenIdentifierIds.add(canonicalIdentifierId);
+
+      const correspondingRow = completeRowById.get(canonicalIdentifierId);
+
+      if (!isDefined(correspondingRow)) {
+        return this.throwCorruptedInsertEventData(
+          'INSERT identifier has no corresponding event snapshot row',
+        );
+      }
+
+      return correspondingRow;
+    });
+  }
+
+  private projectCompleteRowsToCallerReturning(
+    rawResult: unknown,
+  ): ObjectLiteral[] {
+    if (!isDefined(rawResult)) {
+      return [];
+    }
+
+    if (!Array.isArray(rawResult)) {
+      throw new TwentyORMException(
+        'INSERT returned a malformed caller result',
+        TwentyORMExceptionCode.ORM_EVENT_DATA_CORRUPTED,
+      );
+    }
+
+    return rawResult.map((completeRow: ObjectLiteral) =>
+      Object.keys(completeRow)
+        .filter(
+          (key) =>
+            this.expressionMap.returning === '*' ||
+            this.expressionMap.returning.includes(key),
+        )
+        .reduce((projectedRow: ObjectLiteral, key) => {
+          projectedRow[key] = completeRow[key];
+
+          return projectedRow;
+        }, {}),
+    );
+  }
+
+  private throwCorruptedInsertEventData(message: string): never {
+    throw new TwentyORMException(
+      message,
+      TwentyORMExceptionCode.ORM_EVENT_DATA_CORRUPTED,
+    );
   }
 
   private async executeInsertWithInconnectOwnerIntegrity(

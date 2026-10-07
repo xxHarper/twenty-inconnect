@@ -76,6 +76,36 @@ const freezePlan = (
     allowedFieldMetadataIds: Object.freeze([...plan.allowedFieldMetadataIds]),
   });
 
+const plansAreEqual = (
+  left: InconnectMessagingAutoCreateAuthorityPlan,
+  right: InconnectMessagingAutoCreateAuthorityPlan,
+): boolean =>
+  left.workspaceId === right.workspaceId &&
+  left.objectMetadataId === right.objectMetadataId &&
+  left.objectMetadataNameSingular === right.objectMetadataNameSingular &&
+  left.configurationRevision === right.configurationRevision &&
+  left.configurationUpdatedAt === right.configurationUpdatedAt &&
+  left.primaryPhoneIdentityFieldId === right.primaryPhoneIdentityFieldId &&
+  left.primaryPhoneFieldMetadataId === right.primaryPhoneFieldMetadataId &&
+  left.primaryPhoneFieldName === right.primaryPhoneFieldName &&
+  left.ownerStrategy === right.ownerStrategy &&
+  left.ownerRoleId === right.ownerRoleId &&
+  left.ownerWorkspaceMemberId === right.ownerWorkspaceMemberId &&
+  left.ownerFieldMetadataId === right.ownerFieldMetadataId &&
+  left.ownerFieldName === right.ownerFieldName &&
+  left.ownerJoinColumnName === right.ownerJoinColumnName &&
+  left.allowedFieldMetadataIds.length ===
+    right.allowedFieldMetadataIds.length &&
+  left.allowedFieldMetadataIds.every(
+    (fieldMetadataId, index) =>
+      fieldMetadataId === right.allowedFieldMetadataIds[index],
+  ) &&
+  left.automationUserId === right.automationUserId &&
+  left.automationUserWorkspaceId === right.automationUserWorkspaceId &&
+  left.automationWorkspaceMemberId === right.automationWorkspaceMemberId &&
+  left.automationRoleId === right.automationRoleId &&
+  left.automationPrincipalName === right.automationPrincipalName;
+
 // This provider intentionally has no public controller, resolver, or module export.
 // The capability it issues is valid only in the exact transaction that validated it.
 @Injectable()
@@ -193,6 +223,37 @@ export class InconnectMessagingAutoCreateAuthorityService {
     }
 
     return plan;
+  }
+
+  async revalidateCreatePlan({
+    authority,
+    queryRunner,
+    workspaceId,
+  }: {
+    authority: InconnectMessagingAutoCreateAuthority;
+    queryRunner: WorkspaceQueryRunner;
+    workspaceId: string;
+  }): Promise<InconnectMessagingAutoCreateAuthorityPlan> {
+    const issuedPlan = await this.resolveCreatePlan({
+      authority,
+      queryRunner,
+      workspaceId,
+    });
+    const manager = this.dataSource.createEntityManager(queryRunner);
+    const currentPlan = await this.buildPlan({
+      manager,
+      queryRunner,
+      workspaceId,
+    });
+
+    if (!plansAreEqual(issuedPlan, currentPlan)) {
+      return throwAuthorityException(
+        'Messaging auto-create authority no longer matches current transactional state',
+        InconnectMessagingAutoCreateAuthorityExceptionCode.AUTHORITY_DENIED,
+      );
+    }
+
+    return freezePlan(currentPlan);
   }
 
   private async buildPlan({

@@ -1,5 +1,6 @@
 import { MODULE_METADATA } from '@nestjs/common/constants';
 
+import { CoreCommonApiModule } from 'src/engine/api/common/core-common-api.module';
 import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { InconnectMessagingModule } from 'src/modules/inconnect-messaging/inconnect-messaging.module';
@@ -35,6 +36,7 @@ import { InconnectMessagingAutoCreateAuthorityService } from 'src/modules/inconn
 import { InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 import { InconnectMessagingAutomationPrincipalProvisioningService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal-provisioning.service';
 import { InconnectMessagingAutomationRecordAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-access.service';
+import { InconnectMessagingAutomationRecordCreateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-create.service';
 import { InconnectMessagingProvisionAutomationPrincipalCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-provision-automation-principal.command';
 import { ModulesModule } from 'src/modules/modules.module';
 
@@ -100,6 +102,7 @@ describe('InconnectMessagingModule wiring', () => {
     ) as unknown[];
 
     expect(moduleImports).toContain(InconnectRecordAccessModule);
+    expect(moduleImports).toContain(CoreCommonApiModule);
     expect(moduleImports).toContain(PermissionsModule);
     expect(moduleProviders).toContain(InconnectMessagingAuthorizationService);
     expect(moduleProviders).toContain(
@@ -138,6 +141,9 @@ describe('InconnectMessagingModule wiring', () => {
       InconnectMessagingAutomationRecordAccessService,
     );
     expect(moduleProviders).toContain(
+      InconnectMessagingAutomationRecordCreateService,
+    );
+    expect(moduleProviders).toContain(
       InconnectMessagingProvisionAutomationPrincipalCommand,
     );
     expect(moduleExports).not.toContain(
@@ -157,6 +163,9 @@ describe('InconnectMessagingModule wiring', () => {
     );
     expect(moduleExports).not.toContain(
       InconnectMessagingAutomationRecordAccessService,
+    );
+    expect(moduleExports).not.toContain(
+      InconnectMessagingAutomationRecordCreateService,
     );
     expect(moduleProviders).toContain(
       InconnectMessagingConversationLinkService,

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { CoreCommonApiModule } from 'src/engine/api/common/core-common-api.module';
 import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { AuthModule } from 'src/engine/core-modules/auth/auth.module';
 import { SecretEncryptionModule } from 'src/engine/core-modules/secret-encryption/secret-encryption.module';
@@ -91,6 +92,7 @@ import { InconnectMessagingAutoCreateAuthorityService } from 'src/modules/inconn
 import { InconnectMessagingAutomationPrincipalService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal.service';
 import { InconnectMessagingAutomationPrincipalProvisioningService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-principal-provisioning.service';
 import { InconnectMessagingAutomationRecordAccessService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-access.service';
+import { InconnectMessagingAutomationRecordCreateService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-automation-record-create.service';
 import { InconnectMessagingProvisionAutomationPrincipalCommand } from 'src/modules/inconnect-messaging/commands/inconnect-messaging-provision-automation-principal.command';
 
 const INCONNECT_MESSAGING_ENTITIES = [
@@ -111,6 +113,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
 
 @Module({
   imports: [
+    CoreCommonApiModule,
     TypeOrmModule.forFeature([
       ...INCONNECT_MESSAGING_ENTITIES,
       UserWorkspaceEntity,
@@ -152,6 +155,7 @@ const INCONNECT_MESSAGING_ENTITIES = [
     InconnectMessagingAutomationPrincipalService,
     InconnectMessagingAutomationPrincipalProvisioningService,
     InconnectMessagingAutomationRecordAccessService,
+    InconnectMessagingAutomationRecordCreateService,
     InconnectMessagingProvisionAutomationPrincipalCommand,
     InconnectMessagingAutoCreateConfigurationService,
     InconnectMessagingAutoCreateResolver,
