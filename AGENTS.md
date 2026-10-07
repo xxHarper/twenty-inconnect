@@ -235,7 +235,11 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-09-29 checkpoint on `feature/inconnect-messaging` includes Twilio inbound, secure inbound media ingestion into `FileEntity`/`FileStorage`, authorized attachment access, rich inbound `IMAGE`, `STICKER`, `AUDIO`, `VIDEO`, `DOCUMENT`, `CONTACT`, and `LOCATION` content, media-ready realtime updates, real frontend media rendering, the authorized Read API, the native inbox, outbound free-form Messaging, server-authoritative WhatsApp session policy, durable dispatch, templates, the functional composer and template picker, secure outbound media backend preparation, actor/workspace-scoped upload staging, deterministic and idempotent server-owned file identities, `FileStorage`/`FileEntity` outbound preparation, transactional outbound `Message` + `Attachment` consumption, provider-neutral media dispatch, Twilio outbound media delivery, an expiring provider-media capability, metadata GraphQL upload mutations, the user-facing attachment composer, the secure dynamic CRM Conversation context backend, the visible dynamic CRM Conversation context panel, the native CRM context configuration UI in Settings, secure manual CRM linking, canonical phone identity normalization, phone-identity configuration and secure human resolution, narrow background phone resolution, and inbound automatic linking to an existing exact UNIQUE CRM record. Fase 12A is the dynamic-anchor-driven, TRIAGE-authorized backend foundation with PostgreSQL Conversation and target locks plus durable `CONVERSATION_LINKED` Outbox persistence. Fase 12B is the visible manual workflow: an authorized `UNASSIGNED` Conversation exposes `Link CRM record`, then explicit search, single candidate selection, mandatory confirmation, authorized Link, and backend-authoritative `LINKED` context refresh. F13A/F13B add a separate exact-phone path: after inbound persistence, the `INBOUND_MESSAGE_RECEIVED` Outbox consumer may resolve `Conversation.externalAddressNormalized` through configured PHONES Fields and automatically perform the existing one-way link only when the workspace-wide result is UNIQUE. Runtime CRM context remains read-only for CRM records, and the CRM Context Settings surface configures presentation fields only. Unlink, relink, automatic CRM record creation, ambiguity ranking, `additionalPhones` matching, anchor selection/change, CRM field editing, related lists, CRM realtime, Meta/Web wiring, and AI/Agents remain unimplemented. The composer provides a file picker, secure outbound upload UX, honest selection/upload/finalization states, retry and remove, local previews, capability-driven captions, and media send through opaque `outboundUploadIds`. The native inbox also provides server-backed `ALL | UNREAD | FAVORITES | PENDING` views, unread visual treatment, personal Favorite controls, shared Pending controls, manual Mark Read/Mark Unread, and conservative automatic read through a server-derived snapshot target.
+Current authoritative checkpoint: 2026-10-07.
+
+In addition to the F13A/F13B exact-phone path, F13C now includes persisted auto-create configuration, fail-closed structural eligibility, a provisioned technical Automation WorkspaceMember with readiness and drift validation, caller-owned transaction composition through normal Common Create, a private normal-authorized CRM create executor with a narrow write receipt, and generic complete INSERT event snapshots sourced from the same authorized statement through internal `RETURNING *`. The secure CRM-record creation foundation and executor are implemented and physically validated, but inbound `NO_MATCH -> create -> link` orchestration, its advisory identity lock and unique-race recovery, and runtime auto-create activation are not yet wired. Current inbound background handling still links only an existing exact `UNIQUE` CRM record; `NO_MATCH`, `AMBIGUOUS`, `INVALID`, and `DISABLED` remain `UNASSIGNED`. Unlink, relink, fuzzy/ranked matching, and the other explicitly pending capabilities below also remain unimplemented. `effectiveEnabled` remains false, and no local validation described here implies production deployment.
+
+This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The 2026-10-07 checkpoint on `feature/inconnect-messaging` retains the implemented inbound, media, outbound, templates, secure CRM Context, F12 manual linking, work-state, and F13A/F13B exact-phone capabilities documented below. F13C now adds auto-create configuration and structural eligibility, the real technical Automation WorkspaceMember, caller-owned normal Common Create composition, a private normal-authorized CRM create executor with a narrow write receipt, physical commit/rollback validation, and the generic same-INSERT `RETURNING *` event snapshot fix. Runtime CRM context remains read-only and Settings remains presentation/configuration only. Unlink, relink, inbound `NO_MATCH -> create -> link` orchestration, its identity lock and unique-race recovery, fuzzy or ranked ambiguity matching, `additionalPhones` matching, anchor selection/change, CRM field editing, related lists, CRM realtime, Meta/Web wiring, and AI/Agents remain unimplemented. The native inbox and existing provider/media behavior are unchanged by this checkpoint.
 
 Conversation work state is implemented end to end: personal Favorite, personal derived Unread, shared manual Pending, `ConversationMemberState`, a PostgreSQL-owned unread rollout baseline, authorized SQL filtering, visible inbox controls, work-state mutations, and the durable shared-Pending `CONVERSATION_UPDATED` hint. Immediate personal Favorite/read cross-device realtime is not implemented; personal state in other tabs or devices converges through normal refetch or reconnect. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical, and local validation never implies that a migration or command ran in production.
 
@@ -570,9 +574,147 @@ The linked tuple is either fully null or fully present, and a composite FK requi
 
 `MessagingConfiguration` is a singleton per workspace. Its real identity is `workspaceId`; it has no independent `id`. `ContextField` must never introduce or persist an artificial `messagingConfigurationId`. Its persisted fields are `id`, `workspaceId`, `objectMetadataId`, `fieldMetadataId`, `ordinal`, `createdAt`, and `updatedAt`, and the workspace singleton is the logical configuration identity.
 
+The same singleton now persists the F13C tuple `autoCreateEnabled`, `autoCreateAnchorObjectMetadataId`, `autoCreateOwnerStrategy`, `autoCreateOwnerRoleId`, and `autoCreateLabelPolicy`, plus the server-owned `automationUserWorkspaceId` reference. These are configuration and principal references on the existing entity, not a new standalone syncable entity. The auto-create anchor snapshot must continue matching the live `anchorObjectMetadataId`; workspace isolation and metadata authority remain unchanged.
+
 The physical configuration/anchor FK is `(ContextField.workspaceId, ContextField.objectMetadataId) -> (MessagingConfiguration.workspaceId, MessagingConfiguration.anchorObjectMetadataId)`. It guarantees that every configured field belongs to the same workspace and the exact configured Messaging anchor; another object in the same workspace is not valid. The physical metadata FK is `(ContextField.fieldMetadataId, ContextField.objectMetadataId, ContextField.workspaceId) -> (FieldMetadata.id, FieldMetadata.objectMetadataId, FieldMetadata.workspaceId)`, so a configured Field must belong to that exact object and workspace. Uniqueness is `(workspaceId, fieldMetadataId)` and `(workspaceId, ordinal)`, with `ordinal >= 0`; ordering is deterministic. The application maximum is 20 configured fields and is intentionally not a PostgreSQL maximum check.
 
 `ContextField` cascades from Workspace, the MessagingConfiguration anchor relation, and FieldMetadata. Presentation rows cannot remain as cross-workspace or cross-object orphans. Removing presentation configuration never deletes or rewrites CRM record data.
+
+### Implemented F13C Auto-Create Foundation and Transactional CRM Create
+
+F13C.1A through F13C.2A3 are implemented. This is a secure CRM-record creation foundation and a private executor, not inbound runtime activation. F13C.2B remains the separate boundary that will connect an inbound `NO_MATCH` outcome to create and link orchestration.
+
+#### Persisted Auto-Create Configuration
+
+`InconnectMessagingConfigurationEntity` remains the workspace-scoped Messaging singleton and now also stores:
+
+- `autoCreateEnabled`, which expresses administrative intent only;
+- `autoCreateAnchorObjectMetadataId`, the configured snapshot/reference for the current CRM anchor;
+- `autoCreateOwnerStrategy`, currently limited to `UNIQUE_ACTIVE_MEMBER_OF_ROLE`;
+- `autoCreateOwnerRoleId`;
+- `autoCreateLabelPolicy`, currently limited to `OMIT`; and
+- `automationUserWorkspaceId`, the server-owned reference to the technical automation principal.
+
+The disabled state requires the auto-create tuple to be absent; an enabled configuration must be complete. Enabling administrative intent does not activate inbound creation. Readiness may be structurally ready while `effectiveEnabled` remains false because F13C.2B runtime orchestration is not implemented.
+
+The public management surface consists only of the metadata GraphQL query `inconnectMessagingAutoCreateConfiguration` and mutation `replaceInconnectMessagingAutoCreateConfiguration`, both protected by `MANAGE_INCONNECT_MESSAGING`. The executor, authority, plan, provisioning, principal resolution, and principal validation services are private backend capabilities and are not GraphQL, REST, or public CRM APIs.
+
+#### Fail-Closed Structural Eligibility
+
+Eligibility is structural validation, never authorization. It requires the stored anchor to equal the current active workspace anchor; exactly one active `PRIMARY` `PHONES` Field; a valid Workspace Member Owner relation; compatible live metadata and physical schema; supported required/default Fields; and one ready, live, unconditional physical unique index over the canonical PRIMARY phone component columns. The uniqueness scope is all physical rows, so soft-deleted rows remain authoritative. Missing columns, unknown required physical columns, metadata/schema drift, an expression or partial index, anchor drift, PRIMARY drift, or any other unsupported shape denies readiness.
+
+#### Caller-Owned Transaction and Write Receipt
+
+Normal Common Create can run on an already-active caller-owned `WorkspaceQueryRunner`. The caller alone owns begin, commit, rollback, release, and after-commit lifecycle. The operation stays in the normal preprocessing, hooks, permissions, ORM INSERT, and transaction-bound event pipeline; no parallel raw CRM insertion path exists.
+
+`CommonCreateOneQueryRunnerService.executeCreateOnlyForWriteReceiptWithQueryRunner` is an internal create-only primitive. It performs exactly one normal create, requests only identity, skips the ordinary result refetch, and returns only:
+
+```ts
+{
+  objectMetadataId,
+  recordId,
+}
+```
+
+The authoritative record ID must agree across the actual `InsertResult.identifiers`, `generatedMaps`, and `raw` representations that are present. Malformed or contradictory INSERT output fails closed; caller-supplied input IDs are never a fallback. The receipt is not a general public API, grants no CRM READ authority, and preserves normal transaction-owned event behavior.
+
+#### Technical Automation WorkspaceMember
+
+Each configured workspace has a real technical principal conceptually named `INCONNECT Messaging Automation`: a technical User, UserWorkspace, WorkspaceMember, dedicated Role, RoleTarget, least-privilege ObjectPermission, deterministic FieldPermissions, an ordinary INCONNECT Record Access policy, and the server-owned persisted `automationUserWorkspaceId` reference. It has no external login, API, OAuth, or App credentials and is not Admin or Supervisor impersonation, a generic SYSTEM CRM authority, an Application principal, or a client-selectable member. Local deterministic identifiers are implementation details, not architecture constants.
+
+Runtime validation fails closed on stale principal reference; missing, deleted, or disabled identity where modeled; wrong Role or RoleTarget; unexpected object authority; unexpected READ; unexpected writable business Fields; PRIMARY or Owner permission mismatch; canonical position mismatch; Record Access policy mismatch; anchor drift; and PRIMARY drift. Newly introduced Fields cannot silently widen write authority.
+
+The exact persisted automation Record Access policy is:
+
+- `recordEffect = ownRecords`;
+- `createPolicy = standardPermissionsOnly`;
+- `ownerTransferPolicy = denied`;
+- `ownerRequirement = required`;
+- `missingOwnerPolicy = requireExplicit`; and
+- no default Owner Role on this policy.
+
+F13C create does not use sealed dual-grant authorization, a generic system `AuthContext`, permission or Record Access bypass, Actor override, or Supervisor impersonation. It builds a normal user `WorkspaceAuthContext` for the technical WorkspaceMember and passes existing Role resolution, object and Field permissions, INCONNECT Record Access, Owner integrity, Actor behavior, Common Create, and ORM enforcement.
+
+Keep these identities separate:
+
+- permission principal: Automation WorkspaceMember;
+- CRM `createdBy` / `updatedBy`: Automation WorkspaceMember through normal Actor behavior;
+- CRM Owner: the independently resolved business WorkspaceMember selected through current `UNIQUE_ACTIVE_MEMBER_OF_ROLE` semantics; and
+- automatic Conversation-link provenance: the separate existing background/system identity semantics.
+
+The Automation WorkspaceMember must not become CRM Owner merely because it performs the create.
+
+#### CREATE Is Not READ
+
+AUTHORIZED CREATE does not imply CRM READ authority. The validated Role deliberately has `canReadObjectRecords = false` while retaining the minimum valid create authority. When it creates a Supervisor-owned record under `ownRecords`, the Automation WorkspaceMember is not the Owner and gains no ordinary read access to the record. This contrast has been physically validated; normal CRM SELECT remains subject to standard permissions and INCONNECT Record Access.
+
+#### Exact Payload and Position Authority
+
+Messaging deliberately supplies only the current PRIMARY `PHONES` value and the Owner relation. Phone input comes from the canonical international identity and current metadata. Owner is expressed through Twenty's canonical relation operation shape, conceptually `connect -> where -> id`, with the actual Field derived from metadata. `MATCH_ONLY` is never written by F13C. The caller cannot choose the object, Owner, Role, principal, Actor, or arbitrary Fields.
+
+Normal Twenty Create additionally injects the canonical system `position` Field. The automation Role therefore has only the minimum normal write authority for the canonical current-anchor `position` Field. `position` is not part of the Messaging deliberate Field allowlist, and this rule must never be generalized to make every `systemSideEffect` Field writable. Readiness and provisioning derive canonical position metadata and fail closed on a mismatch or any unexpected writable business Field.
+
+#### Private CRM Create Executor
+
+`InconnectMessagingAutomationRecordCreateService` requires a current transaction-bound F13C authority/plan, revalidates that plan and the current automation principal, builds the normal user `WorkspaceAuthContext`, constructs the exact PRIMARY-plus-Owner input, and invokes the normal Common Create write-receipt primitive. It returns only `objectMetadataId` and `recordId`. It starts no transaction, needs no external credential, performs no inbound orchestration, and does not link a Conversation. Merely having this private executor does not activate inbound auto-create.
+
+#### Generic INSERT Event Snapshot
+
+F13C physical validation exposed a generic ORM correctness issue: post-INSERT event hydration previously used a SELECT, so a valid create could succeed while the creator lacked READ scope over the newly inserted Owner-controlled row. `WorkspaceInsertQueryBuilder` now uses this permanent architecture:
+
+```text
+authorized INSERT
+-> INSERT ... RETURNING *
+-> internal complete normalized event snapshot
+-> CREATED
+-> UPSERTED
+-> transaction buffer
+```
+
+The previous post-INSERT event-hydration SELECT is removed. The complete `RETURNING *` rows are internal write-side-effect authority scoped to the same authorized INSERT statement; they are not a generic read primitive and do not grant caller READ. There is no Record Access bypass, `WorkspaceSelectQueryBuilder` exception, arbitrary-ID read, system impersonation, or Messaging-specific branch.
+
+Caller output is a separate representation reconstructed according to the original requested RETURNING projection. A narrow identity caller therefore does not receive additional `raw` or `generatedMaps` columns. Event snapshots are normalized with existing metadata and driver formatting so composites such as `PHONES` and `ACTOR`, relation foreign-key information, timestamps, defaults, generated/stored values, and system Fields retain the normal logical event shape rather than leaking physical component columns.
+
+For CreateMany, canonical returned IDs and complete rows must have exact one-to-one correspondence. Missing, extra, duplicate, or invalid IDs fail closed, and snapshots are reordered by authoritative identifier order rather than PostgreSQL physical RETURNING order. Normal CRM Create continues producing both `CREATED` and `UPSERTED` with complete normalized persisted `after` snapshots. Those internal event snapshots may contain database defaults and system values even when the caller cannot READ them; caller projection remains narrow. Commit publishes the buffered events and rollback discards both rows and events.
+
+PostgreSQL INSERT `RETURNING` reflects defaults, generated values, and BEFORE INSERT trigger changes in the row produced by that statement. It does not claim support for later UPDATE callbacks or postcommit rereads.
+
+The accepted transaction contract is the same QueryRunner, connection, and active transaction. A separate technical observation remains around TypeORM `DataSource.createEntityManager(queryRunner)` replacing `queryRunner.manager`; this is not a current F13 correctness failure and is not addressed by this checkpoint.
+
+#### 2026-10-07 Physical and Regression Checkpoint
+
+Disposable PostgreSQL evidence covers real normal-authorized CRM INSERTs with canonical +52 and explicit non-MX +1 phones; a business Owner distinct from the automation principal; `createdBy` / `updatedBy` from the Automation WorkspaceMember; canonical position, timestamps, defaults, and generated values; `canReadObjectRecords = false`; the same caller-owned transaction; complete `CREATED` and `UPSERTED`; preserved narrow caller projection; successful COMMIT; successful ROLLBACK; and a normal post-create automation read that remains denied/outside `ownRecords` scope.
+
+Accepted E1 validation was 9/9 PostgreSQL physical cases; 15 focused ORM, Actor, event, and F13 suites / 125 tests; 29 Record Access suites / 312 tests; and 49 Messaging backend suites / 509 tests. Typecheck, build, typed lint, diff lint, format, and `git diff --check` were green. These totals are checkpoint evidence, not permanent architecture invariants. This was development/disposable validation and does not imply production migration, provisioning, data creation, runtime activation, or deployment.
+
+#### Current Inbound Runtime and Next F13C.2B Boundary
+
+Current inbound background behavior remains F13B: an exact `UNIQUE` existing CRM record may be linked. `NO_MATCH`, `AMBIGUOUS`, `INVALID`, and `DISABLED` remain `UNASSIGNED`. `NO_MATCH` remains unassigned because F13C.2B orchestration is not yet wired, not because the secure CRM-create foundation or executor is absent. `effectiveEnabled` remains false.
+
+The selected next boundary is F13C.2B, explicitly not implemented:
+
+```text
+durable inbound already committed
+-> background worker
+-> transaction-scoped identity advisory lock
+-> Conversation FOR UPDATE
+-> current exact re-resolution
+
+UNIQUE
+-> existing F13B link path
+
+NO_MATCH + current auto-create readiness
+-> automation CRM create
+-> write receipt
+-> Conversation UNASSIGNED -> LINKED
+-> CONVERSATION_LINKED Outbox
+-> COMMIT
+
+AMBIGUOUS / INVALID / DISABLED / not-ready
+-> remain UNASSIGNED
+```
+
+Planned F13C.2B concurrency rules are also not current behavior: use a transaction-scoped advisory identity lock; keep the physical phone UNIQUE constraint as final race authority; handle a human/API create race with rollback followed by fresh bounded re-resolution, never by continuing an aborted PostgreSQL transaction; fail closed on soft-deleted uniqueness conflicts; converge same-phone Conversations on one CRM record; and never relink an already-linked Conversation.
 
 ### Implemented Phone Identity Resolution and Automatic Existing-Record Linking
 
@@ -586,7 +728,7 @@ F13A provides the shared pure function `normalizePhoneIdentity(input, { defaultC
 
 Provider transport identity and canonical CRM phone identity are separate domains. `externalAddressNormalized`, `waId`, `normalizeWhatsappAddress`, provider routing, and dispatch destination retain their transport/correlation meanings. F13 does not redefine them. CRM identity is derived separately through `normalizePhoneIdentity`; the inbound auto-link currently starts from the trusted provider transport identity in `Conversation.externalAddressNormalized`, which Twilio supplies in explicit international form, so it does not hardcode Mexico when a country code is already present. Message body, `waId`, frontend input, labels, text search, and CRM heuristics are not CRM phone authority.
 
-`InconnectMessagingPhoneIdentityFieldEntity` stores ordered workspace/anchor/FieldMetadata configuration in `core.inconnectMessagingPhoneIdentityField`. Roles are `PRIMARY` and `MATCH_ONLY`. Empty configuration means phone resolution is `DISABLED`; every non-empty configuration must contain exactly one `PRIMARY`. Both roles participate equally in matching. `PRIMARY` additionally identifies the future destination Field for the planned F13C create flow, but it does not create records today. Matches are deduplicated by CRM record ID. Fields are metadata-driven rather than hardcoded to Lead or `celular`: every configured Field must be an active valid `PHONES` Field belonging to the current workspace and exact current Messaging anchor. `PhoneIdentityField` is identity/resolution configuration; `ContextField` is presentation configuration. Never conflate them.
+`InconnectMessagingPhoneIdentityFieldEntity` stores ordered workspace/anchor/FieldMetadata configuration in `core.inconnectMessagingPhoneIdentityField`. Roles are `PRIMARY` and `MATCH_ONLY`. Empty configuration means phone resolution is `DISABLED`; every non-empty configuration must contain exactly one `PRIMARY`. Both roles participate equally in matching. `PRIMARY` additionally identifies the authoritative phone destination Field used by the implemented private F13C create executor; `MATCH_ONLY` is never written by F13C. Current inbound `NO_MATCH` processing still does not invoke that executor because F13C.2B orchestration is not wired. Matches are deduplicated by CRM record ID. Fields are metadata-driven rather than hardcoded to Lead or `celular`: every configured Field must be an active valid `PHONES` Field belonging to the current workspace and exact current Messaging anchor. `PhoneIdentityField` is identity/resolution configuration; `ContextField` is presentation configuration. Never conflate them.
 
 The management metadata GraphQL API is:
 
@@ -622,7 +764,7 @@ Concurrency and retries preserve one-way link authority: a human link may win; s
 
 Background workspace-wide matching grants no human access. After auto-link, every human Conversation and context read again requires current Messaging authorization, standard CRM permissions, and INCONNECT Record Access. There is no grandfathered access from prior `UNASSIGNED` visibility. Realtime recipients are calculated from current post-link state. `CONVERSATION_LINKED` continues to publish through the existing public `CONVERSATION_UPDATED` hint; no CRM realtime was added. Known architectural follow-up: because auto-link currently runs in the inbound Outbox publication path, a transient CRM-resolution failure may delay the inbound realtime hint even though Message persistence is already durable. This is not a durability or correctness failure, and no second durable event is implemented.
 
-The explicit F12A/F12B candidate flow remains the human fallback for `AMBIGUOUS`, `INVALID`, `DISABLED`, `NO_MATCH` until F13C, and allowed operational correction within the current one-way model. Manual candidate search is explicit human text search and must never infer or prefill sender identity. It is not the automatic exact-phone resolver. Automatic CRM record creation, including `NO_MATCH -> create`, is not implemented.
+The explicit F12A/F12B candidate flow remains the human fallback for `AMBIGUOUS`, `INVALID`, `DISABLED`, and `NO_MATCH`, and allowed operational correction within the current one-way model. Manual candidate search is explicit human text search and must never infer or prefill sender identity. It is not the automatic exact-phone resolver. The secure F13C CRM-create foundation and private executor are implemented, but inbound `NO_MATCH -> create -> link` orchestration is not yet wired; those runtime outcomes therefore remain unassigned.
 
 ### Implemented Dynamic CRM Conversation Context
 
@@ -669,7 +811,7 @@ Normalization uses Twenty's actual composite shapes. `FULL_NAME` becomes determi
 
 `RELATION` and `MORPH_RELATION` are unsupported ContextFields. They are absent from candidates, rejected by replacement validation, never dynamically joined, and never expose related IDs. There is not yet a generic OSS relation resolver that preserves standard permissions, target-object Record Access, and workspace isolation simultaneously; owner relations are not special-cased. Related Folio ISO or child lists, Activities, Tasks, and arbitrary relations are not implemented, and no Lead-specific related query exists.
 
-Context values are live reads. Messaging stores neither a CRM value snapshot nor actor-specific field-access results. PostgreSQL CRM records, live metadata, and current permissions remain authority. The runtime context query remains read-only for CRM records and itself performs no matching, linking, or creation. Editing CRM fields, owner/stage/phase changes, unlink/relink, and automatic record creation are not implemented. Separate F12 human linking and F13 post-persistence exact-phone auto-link may change only the Messaging Conversation linkage tuple plus operational Outbox; neither edits the target CRM record. Configuration mutations change presentation or phone-identity configuration only. No generic CRM-object realtime/SSE was introduced; existing Messaging realtime remains the delivery mechanism, and live CRM-context realtime requires separate design.
+Context values are live reads. Messaging stores neither a CRM value snapshot nor actor-specific field-access results. PostgreSQL CRM records, live metadata, and current permissions remain authority. The runtime context query remains read-only for CRM records and itself performs no matching, linking, or creation. Editing CRM fields, owner/stage/phase changes, unlink/relink, and inbound `NO_MATCH -> create -> link` orchestration are not implemented. The separate private F13C create foundation/executor is never invoked by the context query. Separate F12 human linking and F13 post-persistence exact-phone auto-link may change only the Messaging Conversation linkage tuple plus operational Outbox; neither edits the target CRM record. Configuration mutations change presentation, phone-identity, or auto-create administrative configuration only. No generic CRM-object realtime/SSE was introduced; existing Messaging realtime remains the delivery mechanism, and live CRM-context realtime requires separate design.
 
 Context configuration management exposes `inconnectMessagingContextConfiguration` and `replaceInconnectMessagingContextConfiguration(fieldMetadataIds)`. The management query returns the current ordered configuration, safe supported candidates, and a minimal safe anchor summary, never CRM values or physical metadata. Candidates belong to the same workspace and exact configured anchor, use a supported type, and have deterministic ordering without product-specific priority.
 
@@ -1082,7 +1224,7 @@ All defaults are `false`:
 
 #### Unassigned Conversations
 
-A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `linkedRecordId` are null. Human access requires `INCONNECT_MESSAGING AND TRIAGE_INCONNECT_MESSAGING`. There is no Messaging owner or parallel Team. The native inbox labels authorized unassigned Conversations. Explicit manual candidate search, one-way `UNASSIGNED -> LINKED` mutation, and the visible manual linking UI are implemented. Separately, an inbound `UNASSIGNED` Conversation can transition automatically to `LINKED` when the configured F13 background phone resolver returns one existing exact `UNIQUE` record. Unlink, relink, sender-derived manual search, email matching, `additionalPhones` matching, ambiguity ranking, and automatic CRM record creation remain absent.
+A Conversation is unassigned only when both `linkedRecordObjectMetadataId` and `linkedRecordId` are null. Human access requires `INCONNECT_MESSAGING AND TRIAGE_INCONNECT_MESSAGING`. There is no Messaging owner or parallel Team. The native inbox labels authorized unassigned Conversations. Explicit manual candidate search, one-way `UNASSIGNED -> LINKED` mutation, and the visible manual linking UI are implemented. Separately, an inbound `UNASSIGNED` Conversation can transition automatically to `LINKED` when the configured F13 background phone resolver returns one existing exact `UNIQUE` record. Unlink, relink, sender-derived manual search, email matching, `additionalPhones` matching, ambiguity ranking, and inbound `NO_MATCH -> create -> link` orchestration remain absent. The private F13C create foundation/executor does not change this runtime behavior.
 
 ### Implemented Read API
 
@@ -1257,6 +1399,7 @@ Relevant queries are:
 - `inconnectMessagingConversationLinkCandidates(conversationId, search, paging)`
 - `inconnectMessagingContextConfiguration`
 - `inconnectMessagingPhoneIdentityConfiguration`
+- `inconnectMessagingAutoCreateConfiguration`
 
 Conversation read/list DTOs expose `isFavorite`, `isUnread`, and `isPending`. The first two are personal to the current actor; Pending is shared. The Message connection additionally exposes nullable `readThroughMessageId`, an opaque, server-derived, snapshot-safe automatic-read target.
 
@@ -1272,6 +1415,7 @@ Mutations are:
 - `linkInconnectMessagingConversation(conversationId, recordId)`
 - `replaceInconnectMessagingContextConfiguration`
 - `replaceInconnectMessagingPhoneIdentityConfiguration(fields)`
+- `replaceInconnectMessagingAutoCreateConfiguration(input)`
 
 `sendInconnectMessagingMessage` accepts opaque `outboundUploadIds`. Public GraphQL does not expose or accept `FileEntity` IDs, storage paths, provider URLs/tokens, sender, Provider Connection, authoritative MIME, raw personal-state rows, member IDs for work-state operations, `manualUnread`, read cursors, or the tracking baseline. The subscription remains `onInconnectMessagingEvent`. Fase 9B metadata GraphQL codegen, including the work-state operations, DTO fields, and snapshot-safe `readThroughMessageId`, was regenerated and validated successfully, and the frontend continues to consume generated metadata types rather than a parallel handwritten contract.
 
@@ -1299,8 +1443,12 @@ The required Messaging upgrade chain is registered and discoverable by the norma
 - Conversation Work State — `1790006024000`
 - CRM Context Fields — `1790010000000`
 - Phone Identity Fields — `1790550000000`
+- Auto Create Configuration — `1790793305698`
+- Automation Principal — `1790793305700`
 
-The registered Slow command is Webhook Backfill — `1789040000001`. Current registration inspection found eight Messaging Fast Instance Commands, the one existing Messaging Slow Instance Command, and the existing Workspace Command in the normal provider discovery. The real upgrade mechanism groups and orders all Fast commands in the Fast sequence, then all Slow commands in the Slow sequence, then workspace commands; Slow is not interleaved globally with Fast by timestamp. The missing registrations previously identified for Webhook Projection Fast, Webhook Backfill Slow, and Outbound Upload Fast were corrected before this checkpoint. Permanent rule: every new Messaging Instance Command must be registered so that the normal upgrade runner can discover it.
+The registered Slow command is Webhook Backfill — `1789040000001`. Current registration inspection found ten Messaging Fast Instance Commands, the one existing Messaging Slow Instance Command, and the existing Workspace Command in the normal provider discovery. The real upgrade mechanism groups and orders all Fast commands in the Fast sequence, then all Slow commands in the Slow sequence, then workspace commands; Slow is not interleaved globally with Fast by timestamp. The missing registrations previously identified for Webhook Projection Fast, Webhook Backfill Slow, and Outbound Upload Fast were corrected before this checkpoint. Permanent rule: every new Messaging Instance Command must be registered so that the normal upgrade runner can discover it.
+
+The F13C commands are `2-32-instance-command-fast-1790793305698-add-inconnect-messaging-auto-create-configuration.ts`, implemented by `AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand`, and `2-32-instance-command-fast-1790793305700-add-inconnect-messaging-automation-principal.ts`, implemented by `AddInconnectMessagingAutomationPrincipalFastInstanceCommand`. Both are registered for `2.32.0` at their filename timestamps. Registration and disposable validation do not imply execution in production.
 
 The CRM Context Fields command is `2-32-instance-command-fast-1790010000000-add-inconnect-messaging-context-fields.ts`. It adds `core.inconnectMessagingContextField` with seven columns, a UUID primary key, Workspace FK, configuration/anchor composite FK, FieldMetadata/object/workspace composite FK, unique workspace + field, unique workspace + ordinal, `ordinal >= 0`, and cascading presentation-row lifecycle. It has no `messagingConfigurationId` column and requires no Slow Command. Its `down` removes only the ContextField table and its owned constraints/indexes; MessagingConfiguration, Conversations, Messages, ConversationMemberState, ObjectMetadata, FieldMetadata, and CRM record data remain. Loss of presentation configuration on downgrade is acceptable.
 
@@ -1370,11 +1518,11 @@ The secure dynamic CRM Conversation context capability **IS IMPLEMENTED END TO E
 
 Secure Manual CRM Linking **IS IMPLEMENTED END TO END**. The Fase 12A backend provides Conversation-scoped candidate search, base Messaging plus TRIAGE authorization, server-derived dynamic anchor, canonical-readable-TEXT-label-only search, safe normalized candidate DTOs, SQL-scoped Record Access, authorized raw count and cursor pagination, atomic one-way `UNASSIGNED -> LINKED`, Conversation `FOR UPDATE`, target `FOR SHARE`, idempotent same-target retry, non-overwriting different-target conflict, and transactional `CONVERSATION_LINKED` Outbox persistence. The Fase 12B frontend provides the Link action, explicit human-submitted search, candidate list, single selection, mandatory confirmation, exact Link mutation, backend-authoritative context/list/detail refresh, stale-result protection, and responsive third-pane/fullscreen-Context UX.
 
-Canonical phone identity, metadata-driven PhoneIdentityField configuration, secure human exact-phone resolution, narrow workspace-wide background resolution, and inbound automatic linking to an existing exact `UNIQUE` CRM record **ARE IMPLEMENTED**. This does not add automatic creation, fuzzy matching, or broad CRM system authority.
+Canonical phone identity, metadata-driven PhoneIdentityField configuration, secure human exact-phone resolution, narrow workspace-wide background resolution, and inbound automatic linking to an existing exact `UNIQUE` CRM record **ARE IMPLEMENTED**. The F13C secure create foundation and private executor are also implemented, but this does not yet add inbound `NO_MATCH` create/link orchestration, fuzzy matching, or broad CRM system authority.
 
-Still **NOT IMPLEMENTED**: unlink or relink; automatic CRM record creation; ambiguity ranking or confidence scoring; `additionalPhones` matching; email identity matching; sender-derived manual candidate search; CRM field editing; owner, stage, or phase changes; anchor selection/change; CRM record preview in Settings; related lists or Folio ISO context; `RELATION`/`MORPH_RELATION` linking or context rendering; generic CRM realtime; cross-page context-configuration realtime; open-record navigation; Meta/Web provider wiring; AI/Agents integration; immediate cross-device realtime for personal Favorite/read mutations; automatic Pending business rules; per-filter numeric counts; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates.
+Still **NOT IMPLEMENTED**: unlink or relink; inbound `NO_MATCH -> create -> link` orchestration and its unique-race recovery; ambiguity ranking or confidence scoring; `additionalPhones` matching; email identity matching; sender-derived manual candidate search; CRM field editing; owner, stage, or phase changes; anchor selection/change; CRM record preview in Settings; related lists or Folio ISO context; `RELATION`/`MORPH_RELATION` linking or context rendering; generic CRM realtime; cross-page context-configuration realtime; open-record navigation; Meta/Web provider wiring; AI/Agents integration; immediate cross-device realtime for personal Favorite/read mutations; automatic Pending business rules; per-filter numeric counts; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates.
 
-The selected next boundary is **F13C — Automatic CRM Record Creation on `NO_MATCH`**, and it remains planned/not implemented. Its conceptual contract is inbound -> `NO_MATCH` -> transactional revalidation -> if still `NO_MATCH`, create the configured anchor record through supported Twenty write primitives, populate the `PRIMARY` PhoneIdentityField, and link the Conversation. If revalidation becomes `UNIQUE`, link the existing record; if it becomes `AMBIGUOUS`, do not create. Owner, name, stage, and other creation policies are intentionally undecided and must not be inferred from this outline.
+The selected next boundary is **F13C.2B — transactional inbound `NO_MATCH` auto-create plus Conversation link orchestration**, and it remains planned/not implemented. The create configuration, eligibility, automation principal, transaction primitive, authority/plan, executor, write receipt, and generic INSERT event snapshot are already implemented. F13C.2B will add only the runtime coordination described in the dedicated F13C section above; it must use the configured PRIMARY and independently resolved Owner, not invent new name, stage, Actor, principal, Role, object, or Field authority.
 
 Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assisted, AI first-response, AI-managed, and human takeover modes. None is implemented. AI or automation must not bypass the Messaging send pipeline: future automated outbound must converge on the existing Message -> session policy -> idempotency -> DispatchAttempt -> Outbox -> provider -> status state machine. Durable actor attribution must distinguish human, system automation, and a future AI agent. `SYSTEM_PHONE_IDENTITY_RESOLUTION` is narrow deterministic system automation, not an AI authority or generic CRM bypass.
 
@@ -1585,7 +1733,13 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Linking state is local, Conversation-scoped, and non-durable; never persist it in Jotai authority, `localStorage`, or `sessionStorage`.
 - Linking UI must preserve Favorite, Unread, read cursor, Pending, automatic-read behavior, and same-Conversation composer/draft/template/upload/send-intention state.
 - Desktop linking uses the existing CRM third pane and narrow/mobile linking uses the existing fullscreen Context modal. Never add a nested linking modal.
-- Exact configured-phone matching and inbound auto-link to one existing `UNIQUE` CRM record are implemented only through the F13 background Outbox path. There is no fuzzy/confidence-ranked matching, `additionalPhones` or email matching, sender-derived manual search, automatic record creation, unlink, or relink.
+- Exact configured-phone matching and inbound auto-link to one existing `UNIQUE` CRM record are implemented only through the F13 background Outbox path. There is no fuzzy/confidence-ranked matching, `additionalPhones` or email matching, sender-derived manual search, inbound `NO_MATCH -> create -> link` orchestration, unlink, or relink. The implemented private F13C create executor does not activate itself from inbound processing.
+- The F13C Automation WorkspaceMember is a real technical principal using normal Twenty user authorization. It is distinct from the independently resolved CRM Owner and from automatic Conversation-link provenance; never replace it with Admin/Supervisor impersonation, a generic SYSTEM CRM authority, a sealed dual grant, or a permission/Record Access bypass.
+- AUTHORIZED CREATE does not imply CRM READ. The automation Role may create with `canReadObjectRecords = false`; ordinary CRM reads remain subject to standard object/Field permissions and INCONNECT Record Access, including after the automation principal creates a record owned by another WorkspaceMember under `ownRecords`.
+- F13C deliberate business input is exactly the current PRIMARY `PHONES` Field plus the metadata-derived Owner relation in canonical connect form. `MATCH_ONLY` is never written. The caller must never choose object, Owner, Role, principal, Actor, or arbitrary Fields.
+- Canonical `position` is minimum normal system-required Create authority and is not part of the Messaging deliberate Field allowlist. Never generalize this to all `systemSideEffect` Fields. Principal, Role, ObjectPermission, FieldPermission, position, Record Access policy, anchor, and PRIMARY drift must fail closed; new Fields must not silently widen authority.
+- The private F13C executor requires and revalidates its transaction-bound plan, starts no transaction, performs no inbound/link action, and returns only the internal `{ objectMetadataId, recordId }` write receipt. Its existence alone never changes `effectiveEnabled` or current inbound behavior.
+- Workspace INSERT events must build their complete normalized `CREATED` and `UPSERTED` snapshots from internal rows returned by the same authorized `INSERT ... RETURNING *`, never from a post-INSERT event-hydration SELECT. Keep `RETURNING *` internal, validate exact CreateMany identifier correspondence/order, preserve the caller's original narrow `InsertResult` projection, grant no READ or Record Access exception, and let commit publish while rollback discards transaction-buffered events.
 - `RELATION` and `MORPH_RELATION` remain unsupported until a generic resolver can preserve target-object standard permissions, Record Access, and workspace isolation.
 - The runtime `inconnectMessagingConversationContext` query for an `UNASSIGNED` Conversation performs no candidate search, matching, auto-link, or record creation. The separate explicit TRIAGE candidate-search API is the only implemented manual lookup path; the separate F13 background resolver is the automatic exact-phone path and is not invoked by the context query.
 - Context values are live read-only CRM reads. Never duplicate/cache record values or durable actor-specific readable fields in Messaging, and never introduce CRM writes silently.
