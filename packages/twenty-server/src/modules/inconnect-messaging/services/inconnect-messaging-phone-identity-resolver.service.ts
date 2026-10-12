@@ -7,7 +7,12 @@ import {
 } from 'libphonenumber-js';
 import { FieldMetadataType } from 'twenty-shared/types';
 import { normalizePhoneIdentity } from 'twenty-shared/utils';
-import { DataSource, type EntityManager, In } from 'typeorm';
+import {
+  DataSource,
+  type EntityManager,
+  type ObjectLiteral,
+  type SelectQueryBuilder,
+} from 'typeorm';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
@@ -17,6 +22,8 @@ import { computeCompositeColumnName } from 'src/engine/metadata-modules/field-me
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { computeObjectTargetTable } from 'src/engine/utils/compute-object-target-table.util';
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { escapeIdentifier } from 'src/engine/workspace-manager/workspace-migration/utils/remove-sql-injection.util';
 import { INCONNECT_MESSAGING_MAX_PHONE_IDENTITY_FIELDS } from 'src/modules/inconnect-messaging/constants/inconnect-messaging-context.constant';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
@@ -51,7 +58,16 @@ type PhoneIdentityResolutionAuthority =
       workspaceId: string;
     };
 
-type PhoneIdentityResolutionPersistence = DataSource | EntityManager;
+type TransactionBoundPhoneIdentityResolutionPersistence = {
+  queryRunner: WorkspaceQueryRunner;
+  coreQueryBuilderService: WorkspaceQueryRunnerCoreQueryBuilderService;
+  createDynamicRecordQueryBuilder: () => SelectQueryBuilder<ObjectLiteral>;
+};
+
+type PhoneIdentityResolutionPersistence =
+  | DataSource
+  | EntityManager
+  | TransactionBoundPhoneIdentityResolutionPersistence;
 
 export type InconnectMessagingPhoneIdentityLinkResolution =
   | Exclude<InconnectMessagingPhoneIdentityResolution, { state: 'UNIQUE' }>
@@ -167,24 +183,41 @@ const resolvePhoneIdentityWithAuthority = async ({
     authority.kind === 'HUMAN'
       ? authority.authContext.workspace.id
       : authority.workspaceId;
-  const manager = 'manager' in persistence ? persistence.manager : persistence;
-  const configuration = await manager
-    .getRepository(InconnectMessagingConfigurationEntity)
-    .findOne({
-      where: { workspaceId },
-      ...(lockAuthority ? { lock: { mode: 'pessimistic_read' as const } } : {}),
-    });
+  const isTransactionBound =
+    'coreQueryBuilderService' in persistence && 'queryRunner' in persistence;
+  const createCoreQueryBuilder = <TEntity extends object>(
+    target: new () => TEntity,
+    alias: string,
+  ) =>
+    isTransactionBound
+      ? persistence.coreQueryBuilderService.createCoreQueryBuilder({
+          queryRunner: persistence.queryRunner,
+          target,
+          alias,
+        })
+      : persistence.getRepository(target).createQueryBuilder(alias);
+  const configurationQuery = createCoreQueryBuilder(
+    InconnectMessagingConfigurationEntity,
+    'configuration',
+  ).where('configuration.workspaceId = :workspaceId', { workspaceId });
+
+  if (lockAuthority) {
+    configurationQuery.setLock('pessimistic_read');
+  }
+
+  const configuration = await configurationQuery.getOne();
 
   if (configuration === null) {
     return { state: 'DISABLED' };
   }
 
-  const configuredFields = await manager
-    .getRepository(InconnectMessagingPhoneIdentityFieldEntity)
-    .find({
-      where: { workspaceId },
-      order: { ordinal: 'ASC' },
-    });
+  const configuredFields = await createCoreQueryBuilder(
+    InconnectMessagingPhoneIdentityFieldEntity,
+    'phoneIdentityField',
+  )
+    .where('phoneIdentityField.workspaceId = :workspaceId', { workspaceId })
+    .orderBy('phoneIdentityField.ordinal', 'ASC')
+    .getMany();
 
   if (
     configuredFields.length === 0 ||
@@ -193,14 +226,15 @@ const resolvePhoneIdentityWithAuthority = async ({
     return { state: 'DISABLED' };
   }
 
-  const objectMetadata = await manager
-    .getRepository(ObjectMetadataEntity)
-    .findOne({
-      where: {
-        id: configuration.anchorObjectMetadataId,
-        workspaceId,
-      },
-    });
+  const objectMetadata = await createCoreQueryBuilder(
+    ObjectMetadataEntity,
+    'objectMetadata',
+  )
+    .where('objectMetadata.id = :objectMetadataId', {
+      objectMetadataId: configuration.anchorObjectMetadataId,
+    })
+    .andWhere('objectMetadata.workspaceId = :workspaceId', { workspaceId })
+    .getOne();
 
   if (
     objectMetadata === null ||
@@ -213,15 +247,20 @@ const resolvePhoneIdentityWithAuthority = async ({
     return { state: 'DISABLED' };
   }
 
-  const fieldMetadata = await manager.getRepository(FieldMetadataEntity).find({
-    where: {
-      id: In(configuredFields.map((field) => field.fieldMetadataId)),
-      workspaceId,
+  const fieldMetadata = await createCoreQueryBuilder(
+    FieldMetadataEntity,
+    'fieldMetadata',
+  )
+    .where('fieldMetadata.id IN (:...fieldMetadataIds)', {
+      fieldMetadataIds: configuredFields.map((field) => field.fieldMetadataId),
+    })
+    .andWhere('fieldMetadata.workspaceId = :workspaceId', { workspaceId })
+    .andWhere('fieldMetadata.objectMetadataId = :objectMetadataId', {
       objectMetadataId: objectMetadata.id,
-      isActive: true,
-      type: FieldMetadataType.PHONES,
-    },
-  });
+    })
+    .andWhere('fieldMetadata.isActive = :isActive', { isActive: true })
+    .andWhere('fieldMetadata.type = :type', { type: FieldMetadataType.PHONES })
+    .getMany();
 
   if (fieldMetadata.length !== configuredFields.length) {
     return { state: 'DISABLED' };
@@ -262,10 +301,10 @@ const resolvePhoneIdentityWithAuthority = async ({
 
     databaseSchema = authority.authContext.workspace.databaseSchema;
   } else {
-    const workspace = await manager.getRepository(WorkspaceEntity).findOne({
-      select: { id: true, databaseSchema: true },
-      where: { id: workspaceId },
-    });
+    const workspace = await createCoreQueryBuilder(WorkspaceEntity, 'workspace')
+      .select(['workspace.id', 'workspace.databaseSchema'])
+      .where('workspace.id = :workspaceId', { workspaceId })
+      .getOne();
 
     if (workspace === null || !isNonEmptyString(workspace.databaseSchema)) {
       return { state: 'DISABLED' };
@@ -321,8 +360,11 @@ const resolvePhoneIdentityWithAuthority = async ({
       numberColumn,
     )} = :phoneIdentityNationalNumber)`;
   });
-  const queryBuilder = persistence
-    .createQueryBuilder()
+  const queryBuilder = (
+    isTransactionBound
+      ? persistence.createDynamicRecordQueryBuilder()
+      : persistence.createQueryBuilder()
+  )
     .select(`${escapedRecordAlias}."id"`, 'recordId')
     .from(qualifiedTableName, recordAlias)
     .where(`${escapedRecordAlias}."deletedAt" IS NULL`)
@@ -420,6 +462,7 @@ export class InconnectMessagingBackgroundPhoneIdentityResolverService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly workspaceCacheService: WorkspaceCacheService,
+    private readonly coreQueryBuilderService: WorkspaceQueryRunnerCoreQueryBuilderService,
   ) {}
 
   async resolvePhoneIdentity({
@@ -448,16 +491,22 @@ export class InconnectMessagingBackgroundPhoneIdentityResolverService {
   }
 
   async resolvePhoneIdentityForLink({
-    manager,
+    queryRunner,
     workspaceId,
     input,
   }: {
-    manager: EntityManager;
+    queryRunner: WorkspaceQueryRunner;
     workspaceId: string;
     input: string | null | undefined;
   }): Promise<InconnectMessagingPhoneIdentityLinkResolution> {
     return resolvePhoneIdentityWithAuthority({
-      persistence: manager,
+      persistence: {
+        queryRunner,
+        coreQueryBuilderService: this.coreQueryBuilderService,
+        // This narrow dynamic CRM lookup remains outside the Core gateway.
+        createDynamicRecordQueryBuilder: () =>
+          this.dataSource.createQueryBuilder(queryRunner),
+      },
       workspaceCacheService: this.workspaceCacheService,
       authority: {
         kind: INCONNECT_MESSAGING_BACKGROUND_PHONE_IDENTITY_ACTOR,

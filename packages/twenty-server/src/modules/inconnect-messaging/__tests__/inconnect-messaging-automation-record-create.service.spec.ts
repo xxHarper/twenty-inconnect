@@ -1,6 +1,4 @@
 import { FieldMetadataType } from 'twenty-shared/types';
-import { type DataSource, type EntityManager } from 'typeorm';
-
 import { type CommonCreateOneQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-create-one-query-runner.service';
 import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { type WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
@@ -148,7 +146,9 @@ const userWorkspace = {
 
 const buildHarness = () => {
   const authority = Object.freeze({}) as InconnectMessagingAutoCreateAuthority;
+  const originalManager = Object.freeze({});
   const queryRunner = {
+    manager: originalManager,
     isReleased: false,
     isTransactionActive: true,
     startTransaction: jest.fn(),
@@ -156,14 +156,17 @@ const buildHarness = () => {
     rollbackTransaction: jest.fn(),
     release: jest.fn(),
   } as unknown as WorkspaceQueryRunner;
-  const manager = {
-    getRepository: jest.fn(() => ({
-      findOne: jest.fn().mockResolvedValue(userWorkspace),
-    })),
-  } as unknown as EntityManager;
-  const dataSource = {
-    createEntityManager: jest.fn().mockReturnValue(manager),
-  } as unknown as DataSource;
+  const userWorkspaceQueryBuilder = {
+    innerJoinAndSelect: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    getOne: jest.fn().mockResolvedValue(userWorkspace),
+  };
+  const coreQueryBuilderService = {
+    createCoreQueryBuilder: jest
+      .fn()
+      .mockReturnValue(userWorkspaceQueryBuilder),
+  };
   const authorityService = {
     revalidateCreatePlan: jest.fn().mockResolvedValue(plan),
     assertCreateScope: jest.fn().mockResolvedValue(plan),
@@ -190,7 +193,7 @@ const buildHarness = () => {
       .mockResolvedValue({ objectMetadataId: OBJECT_ID, recordId: RECORD_ID }),
   } as unknown as CommonCreateOneQueryRunnerService;
   const service = new InconnectMessagingAutomationRecordCreateService(
-    dataSource,
+    coreQueryBuilderService as never,
     authorityService,
     automationPrincipalService,
     workspaceCacheService,
@@ -202,6 +205,8 @@ const buildHarness = () => {
     authorityService,
     automationPrincipalService,
     commonCreateOneQueryRunnerService,
+    coreQueryBuilderService,
+    originalManager,
     queryRunner,
     service,
     workspaceCacheService,
@@ -258,7 +263,12 @@ describe('InconnectMessagingAutomationRecordCreateService', () => {
         workspaceId: WORKSPACE_ID,
       });
       expect(harness.automationPrincipalService.validate).toHaveBeenCalledWith(
-        expect.objectContaining({ lock: true, workspaceId: WORKSPACE_ID }),
+        expect.objectContaining({
+          lock: true,
+          workspaceId: WORKSPACE_ID,
+          queryRunner: harness.queryRunner,
+          coreQueryBuilderService: harness.coreQueryBuilderService,
+        }),
       );
       expect(harness.authorityService.assertCreateScope).toHaveBeenCalledWith({
         authority: harness.authority,
@@ -302,6 +312,7 @@ describe('InconnectMessagingAutomationRecordCreateService', () => {
       expect(harness.queryRunner.commitTransaction).not.toHaveBeenCalled();
       expect(harness.queryRunner.rollbackTransaction).not.toHaveBeenCalled();
       expect(harness.queryRunner.release).not.toHaveBeenCalled();
+      expect(harness.queryRunner.manager).toBe(harness.originalManager);
     },
   );
 

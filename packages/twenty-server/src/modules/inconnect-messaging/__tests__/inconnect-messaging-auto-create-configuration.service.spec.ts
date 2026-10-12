@@ -204,7 +204,7 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
     expect(result.effectiveEnabled).toBe(false);
   });
 
-  it('reports future runtime readiness for an eligible configuration while keeping runtime disabled', async () => {
+  it('reports effective runtime enablement for a fully ready configuration', async () => {
     const { service, configurationRepository } = buildService();
 
     const result = await service.replaceConfiguration({
@@ -234,10 +234,8 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
     expect(result.readiness).toBe(
       InconnectMessagingAutoCreateReadinessDTO.READY_FOR_RUNTIME,
     );
-    expect(result.validationIssues).toEqual([
-      InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
-    ]);
-    expect(result.effectiveEnabled).toBe(false);
+    expect(result.validationIssues).toEqual([]);
+    expect(result.effectiveEnabled).toBe(true);
   });
 
   it('requires human Messaging management authority', async () => {
@@ -412,7 +410,6 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
     );
     expect(result.validationIssues).toEqual([
       InconnectMessagingAutoCreateValidationIssueDTO.PHONE_UNIQUENESS_NOT_GUARANTEED,
-      InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
     ]);
     expect(result.effectiveEnabled).toBe(false);
   });
@@ -440,7 +437,6 @@ describe('InconnectMessagingAutoCreateConfigurationService', () => {
     );
     expect(result.validationIssues).toEqual([
       InconnectMessagingAutoCreateValidationIssueDTO.AUTOMATION_PRINCIPAL_NEEDS_PROVISIONING,
-      InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
     ]);
     expect(result.effectiveEnabled).toBe(false);
     expect(result).not.toHaveProperty('automationUserWorkspaceId');

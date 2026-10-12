@@ -105,17 +105,83 @@ const buildService = ({
   const configurationRepository = {
     findOne: jest.fn().mockResolvedValue(existingConfiguration),
   };
-  const repositories = new Map<unknown, unknown>([
-    [InconnectMessagingConfigurationEntity, configurationRepository],
+  const buildCoreBuilder = ({
+    one = null,
+    many = [],
+  }: {
+    one?: unknown;
+    many?: unknown[];
+  }) => {
+    const builder = {
+      select: jest.fn().mockReturnThis(),
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(one),
+      getMany: jest.fn().mockResolvedValue(many),
+    };
+
+    return builder;
+  };
+  const coreBuilders = new Map<unknown, ReturnType<typeof buildCoreBuilder>>([
+    [
+      InconnectMessagingConfigurationEntity,
+      buildCoreBuilder({ one: existingConfiguration }),
+    ],
     [
       InconnectMessagingPhoneIdentityFieldEntity,
-      { find: jest.fn().mockResolvedValue(configuredFields) },
+      buildCoreBuilder({ many: configuredFields }),
+    ],
+    [ObjectMetadataEntity, buildCoreBuilder({ one: objectMetadata })],
+    [FieldMetadataEntity, buildCoreBuilder({ many: fieldMetadata })],
+    [
+      WorkspaceEntity,
+      buildCoreBuilder({
+        one:
+          workspaceSchema === null
+            ? null
+            : { id: WORKSPACE_ID, databaseSchema: workspaceSchema },
+      }),
+    ],
+  ]);
+  const repositories = new Map<unknown, unknown>([
+    [
+      InconnectMessagingConfigurationEntity,
+      {
+        ...configurationRepository,
+        createQueryBuilder: jest.fn(() =>
+          coreBuilders.get(InconnectMessagingConfigurationEntity),
+        ),
+      },
+    ],
+    [
+      InconnectMessagingPhoneIdentityFieldEntity,
+      {
+        find: jest.fn().mockResolvedValue(configuredFields),
+        createQueryBuilder: jest.fn(() =>
+          coreBuilders.get(InconnectMessagingPhoneIdentityFieldEntity),
+        ),
+      },
     ],
     [
       ObjectMetadataEntity,
-      { findOne: jest.fn().mockResolvedValue(objectMetadata) },
+      {
+        findOne: jest.fn().mockResolvedValue(objectMetadata),
+        createQueryBuilder: jest.fn(() =>
+          coreBuilders.get(ObjectMetadataEntity),
+        ),
+      },
     ],
-    [FieldMetadataEntity, { find: jest.fn().mockResolvedValue(fieldMetadata) }],
+    [
+      FieldMetadataEntity,
+      {
+        find: jest.fn().mockResolvedValue(fieldMetadata),
+        createQueryBuilder: jest.fn(() =>
+          coreBuilders.get(FieldMetadataEntity),
+        ),
+      },
+    ],
     [
       WorkspaceEntity,
       {
@@ -126,6 +192,7 @@ const buildService = ({
               ? { id: WORKSPACE_ID, databaseSchema: workspaceSchema }
               : null,
           ),
+        createQueryBuilder: jest.fn(() => coreBuilders.get(WorkspaceEntity)),
       },
     ],
   ]);
@@ -135,8 +202,15 @@ const buildService = ({
   };
   const dataSource = {
     manager,
+    getRepository: jest.fn((entity) => repositories.get(entity)),
     createQueryBuilder: jest.fn(() => queryBuilder),
   };
+  const coreQueryBuilderService = {
+    createCoreQueryBuilder: jest.fn(({ target }: { target: unknown }) =>
+      coreBuilders.get(target),
+    ),
+  };
+  const queryRunner = { manager: Object.freeze({}) };
   const authorizationService = {
     filterReadableFieldMetadataIds: jest
       .fn()
@@ -178,12 +252,16 @@ const buildService = ({
       new InconnectMessagingBackgroundPhoneIdentityResolverService(
         dataSource as never,
         workspaceCacheService as never,
+        coreQueryBuilderService as never,
       ),
     dataSource,
     queryBuilder,
     authorizationService,
     recordAccessAuthorizationService,
     configurationRepository,
+    coreBuilders,
+    coreQueryBuilderService,
+    queryRunner,
   };
 };
 
@@ -569,14 +647,15 @@ describe('InconnectMessagingBackgroundPhoneIdentityResolverService', () => {
   it('locks current configuration and exact matching targets for link revalidation', async () => {
     const {
       backgroundService,
-      dataSource,
       queryBuilder,
-      configurationRepository,
+      coreBuilders,
+      coreQueryBuilderService,
+      queryRunner,
     } = buildService({ rows: [{ recordId: RECORD_A_ID }] });
 
     await expect(
       backgroundService.resolvePhoneIdentityForLink({
-        manager: dataSource.manager as never,
+        queryRunner: queryRunner as never,
         workspaceId: WORKSPACE_ID,
         input: '+525514552571',
       }),
@@ -585,10 +664,15 @@ describe('InconnectMessagingBackgroundPhoneIdentityResolverService', () => {
       recordId: RECORD_A_ID,
       objectMetadataId: OBJECT_ID,
     });
-    expect(configurationRepository.findOne).toHaveBeenCalledWith({
-      where: { workspaceId: WORKSPACE_ID },
-      lock: { mode: 'pessimistic_read' },
-    });
+    expect(coreQueryBuilderService.createCoreQueryBuilder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryRunner,
+        target: InconnectMessagingConfigurationEntity,
+      }),
+    );
+    expect(
+      coreBuilders.get(InconnectMessagingConfigurationEntity)?.setLock,
+    ).toHaveBeenCalledWith('pessimistic_read');
     expect(queryBuilder.setLock).toHaveBeenCalledWith('pessimistic_read');
     expect(queryBuilder.distinct).not.toHaveBeenCalled();
   });

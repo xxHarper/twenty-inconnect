@@ -17,6 +17,8 @@ import { isCompositeFieldMetadataType } from 'src/engine/metadata-modules/field-
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { computeObjectTargetTable } from 'src/engine/utils/compute-object-target-table.util';
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { InconnectMessagingAutoCreatePrimaryStatusDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { type PrimaryPhoneIdentityEvaluation } from 'src/modules/inconnect-messaging/services/inconnect-messaging-auto-create-primary-validator.service';
@@ -143,12 +145,16 @@ export class InconnectMessagingAutoCreateEligibilityService {
 
   async evaluate({
     manager,
+    queryRunner,
+    coreQueryBuilderService,
     configuration,
     anchorObject,
     ownerRoleIsValid,
     primaryPhoneIdentity,
   }: {
-    manager: EntityManager;
+    manager?: EntityManager;
+    queryRunner?: WorkspaceQueryRunner;
+    coreQueryBuilderService?: WorkspaceQueryRunnerCoreQueryBuilderService;
     configuration: InconnectMessagingConfigurationEntity;
     anchorObject: ObjectMetadataEntity | null;
     ownerRoleIsValid: boolean;
@@ -216,6 +222,8 @@ export class InconnectMessagingAutoCreateEligibilityService {
     try {
       return await this.evaluateMetadataAndPhysicalSchema({
         manager,
+        queryRunner,
+        coreQueryBuilderService,
         configuration,
         anchorObject,
         primaryFieldMetadataId: primaryPhoneIdentity.summary.fieldMetadataId,
@@ -229,17 +237,39 @@ export class InconnectMessagingAutoCreateEligibilityService {
 
   private async evaluateMetadataAndPhysicalSchema({
     manager,
+    queryRunner,
+    coreQueryBuilderService,
     configuration,
     anchorObject,
     primaryFieldMetadataId,
   }: {
-    manager: EntityManager;
+    manager?: EntityManager;
+    queryRunner?: WorkspaceQueryRunner;
+    coreQueryBuilderService?: WorkspaceQueryRunnerCoreQueryBuilderService;
     configuration: InconnectMessagingConfigurationEntity;
     anchorObject: ObjectMetadataEntity;
     primaryFieldMetadataId: string;
   }): Promise<InconnectMessagingAutoCreateEligibilityResult> {
-    const [workspace, fields, workspaceMemberObject, cache] = await Promise.all(
-      [
+    const executeQuery = async <TRow>(
+      statement: string,
+      parameters: unknown[],
+    ): Promise<TRow[]> => {
+      if (manager !== undefined) {
+        return manager.query<TRow[]>(statement, parameters);
+      }
+
+      if (queryRunner === undefined) {
+        throw new Error('Core query context is required');
+      }
+
+      return queryRunner.query(statement, parameters) as Promise<TRow[]>;
+    };
+    let workspace: WorkspaceEntity | null;
+    let fields: FieldMetadataEntity[];
+    let workspaceMemberObject: ObjectMetadataEntity | null;
+
+    if (manager !== undefined) {
+      [workspace, fields, workspaceMemberObject] = await Promise.all([
         manager.getRepository(WorkspaceEntity).findOne({
           select: { id: true, databaseSchema: true },
           where: { id: configuration.workspaceId },
@@ -257,10 +287,59 @@ export class InconnectMessagingAutoCreateEligibilityService {
               STANDARD_OBJECTS.workspaceMember.universalIdentifier,
           },
         }),
-        this.workspaceCacheService.getOrRecompute(configuration.workspaceId, [
-          'flatObjectMetadataMaps',
-        ]),
-      ],
+      ]);
+    } else {
+      if (queryRunner === undefined || coreQueryBuilderService === undefined) {
+        throw new Error('Core query context is required');
+      }
+
+      [workspace, fields, workspaceMemberObject] = await Promise.all([
+        coreQueryBuilderService
+          .createCoreQueryBuilder({
+            queryRunner,
+            target: WorkspaceEntity,
+            alias: 'workspace',
+          })
+          .select(['workspace.id', 'workspace.databaseSchema'])
+          .where('workspace.id = :workspaceId', {
+            workspaceId: configuration.workspaceId,
+          })
+          .getOne(),
+        coreQueryBuilderService
+          .createCoreQueryBuilder({
+            queryRunner,
+            target: FieldMetadataEntity,
+            alias: 'fieldMetadata',
+          })
+          .where('fieldMetadata.workspaceId = :workspaceId', {
+            workspaceId: configuration.workspaceId,
+          })
+          .andWhere('fieldMetadata.objectMetadataId = :objectMetadataId', {
+            objectMetadataId: anchorObject.id,
+          })
+          .getMany(),
+        coreQueryBuilderService
+          .createCoreQueryBuilder({
+            queryRunner,
+            target: ObjectMetadataEntity,
+            alias: 'workspaceMemberObject',
+          })
+          .where('workspaceMemberObject.workspaceId = :workspaceId', {
+            workspaceId: configuration.workspaceId,
+          })
+          .andWhere(
+            'workspaceMemberObject.universalIdentifier = :universalIdentifier',
+            {
+              universalIdentifier:
+                STANDARD_OBJECTS.workspaceMember.universalIdentifier,
+            },
+          )
+          .getOne(),
+      ]);
+    }
+    const cache = await this.workspaceCacheService.getOrRecompute(
+      configuration.workspaceId,
+      ['flatObjectMetadataMaps'],
     );
 
     if (
@@ -317,7 +396,7 @@ export class InconnectMessagingAutoCreateEligibilityService {
 
     const tableName = computeObjectTargetTable(flatObjectMetadata);
     const [physicalColumns, physicalIndexes] = await Promise.all([
-      manager.query<PhysicalColumn[]>(
+      executeQuery<PhysicalColumn>(
         `SELECT
           column_name AS "columnName",
           is_nullable AS "isNullable",
@@ -327,7 +406,7 @@ export class InconnectMessagingAutoCreateEligibilityService {
         WHERE table_schema = $1 AND table_name = $2`,
         [workspace.databaseSchema, tableName],
       ),
-      manager.query<PhysicalIndex[]>(
+      executeQuery<PhysicalIndex>(
         `SELECT
           index_data.indisunique AS "isUnique",
           index_data.indisvalid AS "isValid",

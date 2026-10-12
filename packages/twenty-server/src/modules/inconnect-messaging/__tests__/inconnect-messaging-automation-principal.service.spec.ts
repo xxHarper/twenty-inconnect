@@ -321,10 +321,20 @@ const buildService = () => {
       };
     }
     if (entity === AppTokenEntity) {
-      return { count: jest.fn(async () => state.credentialCount) };
+      return {
+        count: jest.fn(async () => state.credentialCount),
+        createQueryBuilder: () => ({
+          ...createQueryBuilder(() => []),
+          getCount: jest.fn(async () => state.credentialCount),
+        }),
+      };
     }
     if (entity === ApplicationEntity) {
-      return { findOne: jest.fn(async () => state.application) };
+      return {
+        findOne: jest.fn(async () => state.application),
+        createQueryBuilder: () =>
+          createQueryBuilder(() => asRows(state.application)),
+      };
     }
     if (entity === RoleEntity) {
       return {
@@ -337,13 +347,23 @@ const buildService = () => {
       };
     }
     if (entity === ObjectMetadataEntity) {
-      return { findOne: jest.fn(async () => state.anchorObject) };
+      return {
+        findOne: jest.fn(async () => state.anchorObject),
+        createQueryBuilder: () =>
+          createQueryBuilder(() => asRows(state.anchorObject)),
+      };
     }
     if (entity === InconnectMessagingPhoneIdentityFieldEntity) {
-      return { find: jest.fn(async () => state.primaryRows) };
+      return {
+        find: jest.fn(async () => state.primaryRows),
+        createQueryBuilder: () => createQueryBuilder(() => state.primaryRows),
+      };
     }
     if (entity === FieldMetadataEntity) {
-      return { find: jest.fn(async () => state.fields) };
+      return {
+        find: jest.fn(async () => state.fields),
+        createQueryBuilder: () => createQueryBuilder(() => state.fields),
+      };
     }
     if (entity === InconnectRecordAccessManagedObjectEntity) {
       return {

@@ -11,6 +11,8 @@ import {
 } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 import { InconnectMessagingPhoneIdentityFieldEntity } from 'src/modules/inconnect-messaging/entities/phone-identity-field.entity';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 
 export type PrimaryPhoneIdentityEvaluation = {
   summary: InconnectMessagingAutoCreatePrimaryPhoneIdentityDTO;
@@ -21,17 +23,48 @@ export type PrimaryPhoneIdentityEvaluation = {
 export class InconnectMessagingAutoCreatePrimaryValidatorService {
   async evaluate({
     manager,
+    queryRunner,
+    coreQueryBuilderService,
     configuration,
   }: {
-    manager: EntityManager;
+    manager?: EntityManager;
+    queryRunner?: WorkspaceQueryRunner;
+    coreQueryBuilderService?: WorkspaceQueryRunnerCoreQueryBuilderService;
     configuration: InconnectMessagingConfigurationEntity;
   }): Promise<PrimaryPhoneIdentityEvaluation> {
-    const primaryRows = await manager
-      .getRepository(InconnectMessagingPhoneIdentityFieldEntity)
-      .find({
-        where: { workspaceId: configuration.workspaceId, role: 'PRIMARY' },
-        order: { ordinal: 'ASC', id: 'ASC' },
-      });
+    const primaryRows =
+      manager !== undefined
+        ? await manager
+            .getRepository(InconnectMessagingPhoneIdentityFieldEntity)
+            .find({
+              where: {
+                workspaceId: configuration.workspaceId,
+                role: 'PRIMARY',
+              },
+              order: { ordinal: 'ASC', id: 'ASC' },
+            })
+        : await (() => {
+            if (
+              queryRunner === undefined ||
+              coreQueryBuilderService === undefined
+            ) {
+              throw new Error('Core query context is required');
+            }
+
+            return coreQueryBuilderService
+              .createCoreQueryBuilder({
+                queryRunner,
+                target: InconnectMessagingPhoneIdentityFieldEntity,
+                alias: 'phoneIdentityField',
+              })
+              .where('phoneIdentityField.workspaceId = :workspaceId', {
+                workspaceId: configuration.workspaceId,
+              })
+              .andWhere('phoneIdentityField.role = :role', { role: 'PRIMARY' })
+              .orderBy('phoneIdentityField.ordinal', 'ASC')
+              .addOrderBy('phoneIdentityField.id', 'ASC')
+              .getMany();
+          })();
 
     if (primaryRows.length === 0) {
       return this.emptyEvaluation(
@@ -48,9 +81,30 @@ export class InconnectMessagingAutoCreatePrimaryValidatorService {
     }
 
     const primaryRow = primaryRows[0];
-    const fieldMetadata = await manager
-      .getRepository(FieldMetadataEntity)
-      .findOne({ where: { id: primaryRow.fieldMetadataId } });
+    const fieldMetadata =
+      manager !== undefined
+        ? await manager
+            .getRepository(FieldMetadataEntity)
+            .findOne({ where: { id: primaryRow.fieldMetadataId } })
+        : await (() => {
+            if (
+              queryRunner === undefined ||
+              coreQueryBuilderService === undefined
+            ) {
+              throw new Error('Core query context is required');
+            }
+
+            return coreQueryBuilderService
+              .createCoreQueryBuilder({
+                queryRunner,
+                target: FieldMetadataEntity,
+                alias: 'fieldMetadata',
+              })
+              .where('fieldMetadata.id = :fieldMetadataId', {
+                fieldMetadataId: primaryRow.fieldMetadataId,
+              })
+              .getOne();
+          })();
 
     if (fieldMetadata === null) {
       return this.emptyEvaluation(

@@ -1,16 +1,11 @@
 import { FieldMetadataType } from 'twenty-shared/types';
-import { type DataSource, type EntityManager } from 'typeorm';
-
-import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { InconnectRecordAccessException } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.exception';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { RelationType } from 'src/engine/metadata-modules/field-metadata/interfaces/relation-type.interface';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
-import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
 import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { InconnectMessagingAutoCreatePrimaryStatusDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
-import { InconnectMessagingPhoneIdentityFieldEntity } from 'src/modules/inconnect-messaging/entities/phone-identity-field.entity';
 import {
   InconnectMessagingAutoCreateAuthorityException,
   InconnectMessagingAutoCreateAuthorityExceptionCode,
@@ -137,6 +132,13 @@ const buildHarness = ({
     workspaceMemberObject: buildLockedQueryBuilder({
       one: workspaceMemberObject,
     }),
+    ownerRole: buildLockedQueryBuilder({
+      one: {
+        id: OWNER_ROLE_ID,
+        workspaceId: WORKSPACE_ID,
+        canBeAssignedToUsers: true,
+      },
+    }),
     field: buildLockedQueryBuilder({ many: [primaryField, ownerField] }),
     phoneIdentityField: buildLockedQueryBuilder({
       many: [
@@ -151,47 +153,11 @@ const buildHarness = ({
       ],
     }),
   };
-  const repositories = new Map<unknown, unknown>([
-    [
-      InconnectMessagingConfigurationEntity,
-      {
-        createQueryBuilder: jest.fn(() => buildersByAlias.configuration),
-      },
-    ],
-    [
-      WorkspaceEntity,
-      { createQueryBuilder: jest.fn(() => buildersByAlias.workspace) },
-    ],
-    [
-      ObjectMetadataEntity,
-      {
-        createQueryBuilder: jest.fn((alias: string) => buildersByAlias[alias]),
-      },
-    ],
-    [
-      RoleEntity,
-      {
-        findOne: jest.fn().mockResolvedValue({
-          id: OWNER_ROLE_ID,
-          workspaceId: WORKSPACE_ID,
-          canBeAssignedToUsers: true,
-        }),
-      },
-    ],
-    [
-      FieldMetadataEntity,
-      { createQueryBuilder: jest.fn(() => buildersByAlias.field) },
-    ],
-    [
-      InconnectMessagingPhoneIdentityFieldEntity,
-      {
-        createQueryBuilder: jest.fn(() => buildersByAlias.phoneIdentityField),
-      },
-    ],
-  ]);
-  const manager = {
-    getRepository: jest.fn((entity: unknown) => repositories.get(entity)),
-  } as unknown as EntityManager;
+  const coreQueryBuilderService = {
+    createCoreQueryBuilder: jest.fn(
+      ({ alias }: { alias: string }) => buildersByAlias[alias],
+    ),
+  };
   let transactionIdIndex = 0;
   const queryRunner = {
     isReleased: false,
@@ -218,9 +184,6 @@ const buildHarness = ({
       throw new Error(`Unexpected SQL: ${sql}`);
     }),
   } as unknown as WorkspaceQueryRunner;
-  const dataSource = {
-    createEntityManager: jest.fn().mockReturnValue(manager),
-  } as unknown as DataSource;
   const eligibilityService = {
     evaluate: jest.fn().mockResolvedValue({
       status: 'ELIGIBLE',
@@ -254,7 +217,7 @@ const buildHarness = ({
     }),
   } as unknown as InconnectMessagingAutomationPrincipalService;
   const service = new InconnectMessagingAutoCreateAuthorityService(
-    dataSource,
+    coreQueryBuilderService as never,
     eligibilityService,
     primaryValidatorService,
     automationPrincipalService,
@@ -262,9 +225,8 @@ const buildHarness = ({
 
   return {
     buildersByAlias,
-    dataSource,
+    coreQueryBuilderService,
     eligibilityService,
-    manager,
     queryRunner,
     service,
   };
@@ -303,15 +265,27 @@ describe('InconnectMessagingAutoCreateAuthorityService', () => {
     expect(plan.automationWorkspaceMemberId).not.toBe(
       plan.ownerWorkspaceMemberId,
     );
-    expect(harness.dataSource.createEntityManager).toHaveBeenCalledWith(
-      harness.queryRunner,
+    expect(
+      harness.coreQueryBuilderService.createCoreQueryBuilder,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ queryRunner: harness.queryRunner }),
     );
     expect(harness.eligibilityService.evaluate).toHaveBeenCalledWith(
-      expect.objectContaining({ manager: harness.manager }),
+      expect.objectContaining({
+        queryRunner: harness.queryRunner,
+        coreQueryBuilderService: harness.coreQueryBuilderService,
+      }),
     );
     expect(
-      Object.values(harness.buildersByAlias).every((builder) =>
-        builder.setLock.mock.calls.some(
+      [
+        'configuration',
+        'workspace',
+        'anchorObject',
+        'workspaceMemberObject',
+        'field',
+        'phoneIdentityField',
+      ].every((alias) =>
+        harness.buildersByAlias[alias].setLock.mock.calls.some(
           ([lockMode]) => lockMode === 'pessimistic_read',
         ),
       ),

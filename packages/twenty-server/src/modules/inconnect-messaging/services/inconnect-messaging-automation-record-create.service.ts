@@ -3,7 +3,6 @@ import { Injectable } from '@nestjs/common';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { FieldMetadataType } from 'twenty-shared/types';
 import { isDefined, normalizePhoneIdentity } from 'twenty-shared/utils';
-import { DataSource, IsNull, type EntityManager } from 'typeorm';
 
 import { CommonCreateOneQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-create-one-query-runner.service';
 import { type InternalCreateWriteReceipt } from 'src/engine/api/common/types/internal-create-write-receipt.type';
@@ -14,6 +13,7 @@ import { fromWorkspaceEntityToFlat } from 'src/engine/core-modules/workspace/uti
 import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/utils/find-flat-entity-by-id-in-flat-entity-maps.util';
 import { buildObjectIdByNameMaps } from 'src/engine/metadata-modules/flat-object-metadata/utils/build-object-id-by-name-maps.util';
 import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import {
   INCONNECT_MESSAGING_AUTOMATION_PRINCIPAL_FIRST_NAME,
@@ -71,7 +71,7 @@ const assertExactDeliberateFields = (
 @Injectable()
 export class InconnectMessagingAutomationRecordCreateService {
   constructor(
-    private readonly dataSource: DataSource,
+    private readonly coreQueryBuilderService: WorkspaceQueryRunnerCoreQueryBuilderService,
     private readonly authorityService: InconnectMessagingAutoCreateAuthorityService,
     private readonly automationPrincipalService: InconnectMessagingAutomationPrincipalService,
     private readonly workspaceCacheService: WorkspaceCacheService,
@@ -84,14 +84,15 @@ export class InconnectMessagingAutomationRecordCreateService {
     authority,
     queryRunner,
   }: ExecuteAutomationRecordCreateInput): Promise<InternalCreateWriteReceipt> {
+    const originalManager = queryRunner.manager;
     const plan = await this.authorityService.revalidateCreatePlan({
       authority,
       queryRunner,
       workspaceId,
     });
-    const manager = this.dataSource.createEntityManager(queryRunner);
     const principalValidation = await this.automationPrincipalService.validate({
-      manager,
+      queryRunner,
+      coreQueryBuilderService: this.coreQueryBuilderService,
       workspaceId,
       lock: true,
     });
@@ -186,7 +187,7 @@ export class InconnectMessagingAutomationRecordCreateService {
     }
 
     const userWorkspace = await this.resolveUserWorkspace({
-      manager,
+      queryRunner,
       plan,
       workspaceId,
     });
@@ -238,40 +239,63 @@ export class InconnectMessagingAutomationRecordCreateService {
       flatObjectMetadataMaps,
     );
 
-    return this.commonCreateOneQueryRunnerService.executeCreateOnlyForWriteReceiptWithQueryRunner(
-      { data: deliberatePayload },
-      {
-        authContext,
-        flatObjectMetadata,
-        flatObjectMetadataMaps,
-        flatFieldMetadataMaps,
-        flatIndexMaps,
-        objectIdByNameSingular: idByNameSingular,
-      },
-      queryRunner,
-    );
+    if (queryRunner.manager !== originalManager) {
+      return throwAuthorityDenied(
+        'Messaging automation create lost its original WorkspaceEntityManager',
+      );
+    }
+
+    const receipt =
+      await this.commonCreateOneQueryRunnerService.executeCreateOnlyForWriteReceiptWithQueryRunner(
+        { data: deliberatePayload },
+        {
+          authContext,
+          flatObjectMetadata,
+          flatObjectMetadataMaps,
+          flatFieldMetadataMaps,
+          flatIndexMaps,
+          objectIdByNameSingular: idByNameSingular,
+        },
+        queryRunner,
+      );
+
+    if (queryRunner.manager !== originalManager) {
+      return throwAuthorityDenied(
+        'Messaging automation create replaced its original WorkspaceEntityManager',
+      );
+    }
+
+    return receipt;
   }
 
   private async resolveUserWorkspace({
-    manager,
+    queryRunner,
     plan,
     workspaceId,
   }: {
-    manager: EntityManager;
+    queryRunner: WorkspaceQueryRunner;
     plan: InconnectMessagingAutoCreateAuthorityPlan;
     workspaceId: string;
   }): Promise<UserWorkspaceEntity> {
-    const userWorkspace = await manager
-      .getRepository(UserWorkspaceEntity)
-      .findOne({
-        where: {
-          id: plan.automationUserWorkspaceId,
-          userId: plan.automationUserId,
-          workspaceId,
-          deletedAt: IsNull(),
-        },
-        relations: { user: true, workspace: true },
-      });
+    const userWorkspace = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: UserWorkspaceEntity,
+        alias: 'userWorkspace',
+      })
+      .innerJoinAndSelect('userWorkspace.user', 'user')
+      .innerJoinAndSelect('userWorkspace.workspace', 'workspace')
+      .where('userWorkspace.id = :userWorkspaceId', {
+        userWorkspaceId: plan.automationUserWorkspaceId,
+      })
+      .andWhere('userWorkspace.userId = :userId', {
+        userId: plan.automationUserId,
+      })
+      .andWhere('userWorkspace.workspaceId = :workspaceId', { workspaceId })
+      .andWhere('userWorkspace.deletedAt IS NULL')
+      .andWhere('user.deletedAt IS NULL')
+      .andWhere('workspace.deletedAt IS NULL')
+      .getOne();
 
     if (
       userWorkspace === null ||

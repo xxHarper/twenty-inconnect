@@ -323,10 +323,6 @@ export class InconnectMessagingAutoCreateConfigurationService {
           this.mapEligibilityReasonToValidationIssue(eligibility.reason),
         );
       }
-
-      validationIssues.push(
-        InconnectMessagingAutoCreateValidationIssueDTO.RUNTIME_NOT_IMPLEMENTED,
-      );
     }
 
     return {
@@ -360,7 +356,10 @@ export class InconnectMessagingAutoCreateConfigurationService {
         })),
       readiness,
       validationIssues,
-      effectiveEnabled: false,
+      effectiveEnabled:
+        configuration.autoCreateEnabled &&
+        readiness ===
+          InconnectMessagingAutoCreateReadinessDTO.READY_FOR_RUNTIME,
     };
   }
 

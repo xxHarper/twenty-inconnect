@@ -20,6 +20,8 @@ import { ObjectPermissionEntity } from 'src/engine/metadata-modules/object-permi
 import { RolePermissionFlagEntity } from 'src/engine/metadata-modules/role-permission-flag/role-permission-flag.entity';
 import { RoleTargetEntity } from 'src/engine/metadata-modules/role-target/role-target.entity';
 import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import {
   getInconnectMessagingAutomationFieldPermissionId,
   getInconnectMessagingAutomationInternalEmail,
@@ -89,19 +91,55 @@ export class InconnectMessagingAutomationPrincipalService {
 
   async validate({
     manager,
+    queryRunner,
+    coreQueryBuilderService,
     workspaceId,
     lock = false,
   }: {
-    manager: EntityManager;
+    manager?: EntityManager;
+    queryRunner?: WorkspaceQueryRunner;
+    coreQueryBuilderService?: WorkspaceQueryRunnerCoreQueryBuilderService;
     workspaceId: string;
     lock?: boolean;
   }): Promise<InconnectMessagingAutomationPrincipalValidation> {
+    const createCoreQueryBuilder = <TEntity extends object>(
+      target: new () => TEntity,
+      alias: string,
+    ) => {
+      if (manager !== undefined) {
+        return manager.getRepository(target).createQueryBuilder(alias);
+      }
+
+      if (queryRunner === undefined || coreQueryBuilderService === undefined) {
+        throw new Error('Core query context is required');
+      }
+
+      return coreQueryBuilderService.createCoreQueryBuilder({
+        queryRunner,
+        target,
+        alias,
+      });
+    };
+    const executeWorkspaceQuery = async <TRow>(
+      statement: string,
+      parameters: unknown[],
+    ): Promise<TRow[]> => {
+      if (manager !== undefined) {
+        return manager.query<TRow[]>(statement, parameters);
+      }
+
+      if (queryRunner === undefined) {
+        throw new Error('Workspace query context is required');
+      }
+
+      return queryRunner.query(statement, parameters) as Promise<TRow[]>;
+    };
     const expectedIds =
       getInconnectMessagingAutomationPrincipalIds(workspaceId);
-    const configurationQuery = manager
-      .getRepository(InconnectMessagingConfigurationEntity)
-      .createQueryBuilder('configuration')
-      .where('configuration.workspaceId = :workspaceId', { workspaceId });
+    const configurationQuery = createCoreQueryBuilder(
+      InconnectMessagingConfigurationEntity,
+      'configuration',
+    ).where('configuration.workspaceId = :workspaceId', { workspaceId });
 
     if (lock) {
       configurationQuery.setLock('pessimistic_read');
@@ -124,21 +162,18 @@ export class InconnectMessagingAutomationPrincipalService {
       );
     }
 
-    const workspaceQuery = manager
-      .getRepository(WorkspaceEntity)
-      .createQueryBuilder('workspace')
+    const workspaceQuery = createCoreQueryBuilder(WorkspaceEntity, 'workspace')
       .withDeleted()
       .where('workspace.id = :workspaceId', { workspaceId });
-    const userWorkspaceQuery = manager
-      .getRepository(UserWorkspaceEntity)
-      .createQueryBuilder('userWorkspace')
+    const userWorkspaceQuery = createCoreQueryBuilder(
+      UserWorkspaceEntity,
+      'userWorkspace',
+    )
       .withDeleted()
       .where('userWorkspace.id = :userWorkspaceId', {
         userWorkspaceId: expectedIds.userWorkspaceId,
       });
-    const userQuery = manager
-      .getRepository(UserEntity)
-      .createQueryBuilder('user')
+    const userQuery = createCoreQueryBuilder(UserEntity, 'user')
       .withDeleted()
       .where('user.id = :userId', { userId: expectedIds.userId });
 
@@ -153,9 +188,9 @@ export class InconnectMessagingAutomationPrincipalService {
         workspaceQuery.getOne(),
         userWorkspaceQuery.getOne(),
         userQuery.getOne(),
-        manager.getRepository(AppTokenEntity).count({
-          where: { userId: expectedIds.userId },
-        }),
+        createCoreQueryBuilder(AppTokenEntity, 'appToken')
+          .where('appToken.userId = :userId', { userId: expectedIds.userId })
+          .getCount(),
       ],
     );
 
@@ -185,7 +220,7 @@ export class InconnectMessagingAutomationPrincipalService {
       );
     }
 
-    const workspaceMemberRows = (await manager.query(
+    const workspaceMemberRows = await executeWorkspaceQuery<WorkspaceMemberRow>(
       `SELECT
         workspace_member."id",
         workspace_member."userId",
@@ -197,7 +232,7 @@ export class InconnectMessagingAutomationPrincipalService {
         OR workspace_member."userId" = $2::uuid
       ${lock ? 'FOR SHARE OF workspace_member' : ''}`,
       [expectedIds.workspaceMemberId, expectedIds.userId],
-    )) as WorkspaceMemberRow[];
+    );
 
     if (
       workspaceMemberRows.length !== 1 ||
@@ -214,12 +249,15 @@ export class InconnectMessagingAutomationPrincipalService {
       );
     }
 
-    const application = await manager.getRepository(ApplicationEntity).findOne({
-      where: {
-        id: workspace.workspaceCustomApplicationId,
-        workspaceId,
-      },
-    });
+    const application = await createCoreQueryBuilder(
+      ApplicationEntity,
+      'application',
+    )
+      .where('application.id = :applicationId', {
+        applicationId: workspace.workspaceCustomApplicationId,
+      })
+      .andWhere('application.workspaceId = :workspaceId', { workspaceId })
+      .getOne();
 
     if (application === null || application.deletedAt !== null) {
       return invalid(
@@ -231,20 +269,20 @@ export class InconnectMessagingAutomationPrincipalService {
       applicationUniversalIdentifier: application.universalIdentifier,
       label: INCONNECT_MESSAGING_AUTOMATION_ROLE_LABEL,
     });
-    const roleQuery = manager
-      .getRepository(RoleEntity)
-      .createQueryBuilder('role')
-      .where('role.id = :roleId', { roleId: expectedIds.roleId });
-    const roleTargetsQuery = manager
-      .getRepository(RoleTargetEntity)
-      .createQueryBuilder('roleTarget')
-      .where(
-        '(roleTarget.roleId = :roleId OR roleTarget.userWorkspaceId = :userWorkspaceId)',
-        {
-          roleId: expectedIds.roleId,
-          userWorkspaceId: expectedIds.userWorkspaceId,
-        },
-      );
+    const roleQuery = createCoreQueryBuilder(RoleEntity, 'role').where(
+      'role.id = :roleId',
+      { roleId: expectedIds.roleId },
+    );
+    const roleTargetsQuery = createCoreQueryBuilder(
+      RoleTargetEntity,
+      'roleTarget',
+    ).where(
+      '(roleTarget.roleId = :roleId OR roleTarget.userWorkspaceId = :userWorkspaceId)',
+      {
+        roleId: expectedIds.roleId,
+        userWorkspaceId: expectedIds.userWorkspaceId,
+      },
+    );
 
     if (lock) {
       roleQuery.setLock('pessimistic_read');
@@ -299,6 +337,8 @@ export class InconnectMessagingAutomationPrincipalService {
       expectedIds,
       lock,
       manager,
+      queryRunner,
+      coreQueryBuilderService,
       workspaceId,
     });
 
@@ -314,6 +354,8 @@ export class InconnectMessagingAutomationPrincipalService {
         expectedRoleId: expectedIds.roleId,
         lock,
         manager,
+        queryRunner,
+        coreQueryBuilderService,
         workspaceId,
       }))
     ) {
@@ -341,48 +383,79 @@ export class InconnectMessagingAutomationPrincipalService {
     expectedIds,
     lock,
     manager,
+    queryRunner,
+    coreQueryBuilderService,
     workspaceId,
   }: {
     application: ApplicationEntity;
     configuration: InconnectMessagingConfigurationEntity;
     expectedIds: ReturnType<typeof getInconnectMessagingAutomationPrincipalIds>;
     lock: boolean;
-    manager: EntityManager;
+    manager?: EntityManager;
+    queryRunner?: WorkspaceQueryRunner;
+    coreQueryBuilderService?: WorkspaceQueryRunnerCoreQueryBuilderService;
     workspaceId: string;
   }): Promise<boolean> {
-    const anchorObject = await manager
-      .getRepository(ObjectMetadataEntity)
-      .findOne({
-        where: {
-          id: configuration.anchorObjectMetadataId,
-          workspaceId,
-        },
+    const createCoreQueryBuilder = <TEntity extends object>(
+      target: new () => TEntity,
+      alias: string,
+    ) => {
+      if (manager !== undefined) {
+        return manager.getRepository(target).createQueryBuilder(alias);
+      }
+
+      if (queryRunner === undefined || coreQueryBuilderService === undefined) {
+        throw new Error('Core query context is required');
+      }
+
+      return coreQueryBuilderService.createCoreQueryBuilder({
+        queryRunner,
+        target,
+        alias,
       });
+    };
+    const anchorObject = await createCoreQueryBuilder(
+      ObjectMetadataEntity,
+      'anchorObject',
+    )
+      .where('anchorObject.id = :objectMetadataId', {
+        objectMetadataId: configuration.anchorObjectMetadataId,
+      })
+      .andWhere('anchorObject.workspaceId = :workspaceId', { workspaceId })
+      .getOne();
 
     if (anchorObject === null) {
       return false;
     }
 
-    const primaryRows = await manager
-      .getRepository(InconnectMessagingPhoneIdentityFieldEntity)
-      .find({
-        where: {
-          workspaceId,
-          objectMetadataId: anchorObject.id,
-          role: 'PRIMARY',
-        },
-      });
-    const fields = await manager.getRepository(FieldMetadataEntity).find({
-      where: {
+    const primaryRows = await createCoreQueryBuilder(
+      InconnectMessagingPhoneIdentityFieldEntity,
+      'phoneIdentityField',
+    )
+      .where('phoneIdentityField.workspaceId = :workspaceId', { workspaceId })
+      .andWhere('phoneIdentityField.objectMetadataId = :objectMetadataId', {
         objectMetadataId: anchorObject.id,
-        workspaceId,
-      },
-    });
-    const managedObjects = await manager
-      .getRepository(InconnectRecordAccessManagedObjectEntity)
-      .find({
-        where: { objectMetadataId: anchorObject.id, workspaceId },
-      });
+      })
+      .andWhere('phoneIdentityField.role = :role', { role: 'PRIMARY' })
+      .getMany();
+    const fields = await createCoreQueryBuilder(
+      FieldMetadataEntity,
+      'fieldMetadata',
+    )
+      .where('fieldMetadata.objectMetadataId = :objectMetadataId', {
+        objectMetadataId: anchorObject.id,
+      })
+      .andWhere('fieldMetadata.workspaceId = :workspaceId', { workspaceId })
+      .getMany();
+    const managedObjects = await createCoreQueryBuilder(
+      InconnectRecordAccessManagedObjectEntity,
+      'managedObject',
+    )
+      .where('managedObject.objectMetadataId = :objectMetadataId', {
+        objectMetadataId: anchorObject.id,
+      })
+      .andWhere('managedObject.workspaceId = :workspaceId', { workspaceId })
+      .getMany();
 
     if (primaryRows.length !== 1 || managedObjects.length !== 1) {
       return false;
@@ -397,24 +470,24 @@ export class InconnectMessagingAutomationPrincipalService {
     if (fieldAuthority === null) {
       return false;
     }
-    const objectPermissionQuery = manager
-      .getRepository(ObjectPermissionEntity)
-      .createQueryBuilder('objectPermission')
-      .where('objectPermission.roleId = :roleId', {
-        roleId: expectedIds.roleId,
-      });
-    const fieldPermissionQuery = manager
-      .getRepository(FieldPermissionEntity)
-      .createQueryBuilder('fieldPermission')
-      .where('fieldPermission.roleId = :roleId', {
-        roleId: expectedIds.roleId,
-      });
-    const permissionFlagQuery = manager
-      .getRepository(RolePermissionFlagEntity)
-      .createQueryBuilder('rolePermissionFlag')
-      .where('rolePermissionFlag.roleId = :roleId', {
-        roleId: expectedIds.roleId,
-      });
+    const objectPermissionQuery = createCoreQueryBuilder(
+      ObjectPermissionEntity,
+      'objectPermission',
+    ).where('objectPermission.roleId = :roleId', {
+      roleId: expectedIds.roleId,
+    });
+    const fieldPermissionQuery = createCoreQueryBuilder(
+      FieldPermissionEntity,
+      'fieldPermission',
+    ).where('fieldPermission.roleId = :roleId', {
+      roleId: expectedIds.roleId,
+    });
+    const permissionFlagQuery = createCoreQueryBuilder(
+      RolePermissionFlagEntity,
+      'rolePermissionFlag',
+    ).where('rolePermissionFlag.roleId = :roleId', {
+      roleId: expectedIds.roleId,
+    });
 
     if (lock) {
       objectPermissionQuery.setLock('pessimistic_read');

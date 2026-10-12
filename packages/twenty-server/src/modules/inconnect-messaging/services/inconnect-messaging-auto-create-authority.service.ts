@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
 import { STANDARD_OBJECTS } from 'twenty-shared/metadata';
-import { DataSource, type EntityManager } from 'typeorm';
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { computeMorphOrRelationFieldJoinColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-morph-or-relation-field-join-column-name.util';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { RoleEntity } from 'src/engine/metadata-modules/role/role.entity';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
 import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { resolveInconnectSingleActiveMemberOfRole } from 'src/engine/core-modules/inconnect-record-access/utils/resolve-inconnect-single-active-member-of-role.util';
 import { InconnectMessagingAutoCreatePrimaryStatusDTO } from 'src/modules/inconnect-messaging/dtos/inconnect-messaging-auto-create.dto';
@@ -116,7 +116,7 @@ export class InconnectMessagingAutoCreateAuthorityService {
   >();
 
   constructor(
-    private readonly dataSource: DataSource,
+    private readonly coreQueryBuilderService: WorkspaceQueryRunnerCoreQueryBuilderService,
     private readonly eligibilityService: InconnectMessagingAutoCreateEligibilityService,
     private readonly primaryValidatorService: InconnectMessagingAutoCreatePrimaryValidatorService,
     private readonly automationPrincipalService: InconnectMessagingAutomationPrincipalService,
@@ -132,8 +132,7 @@ export class InconnectMessagingAutoCreateAuthorityService {
     this.assertTransactionActive(queryRunner);
 
     const transactionId = await this.getTransactionId(queryRunner);
-    const manager = this.dataSource.createEntityManager(queryRunner);
-    const plan = await this.buildPlan({ manager, queryRunner, workspaceId });
+    const plan = await this.buildPlan({ queryRunner, workspaceId });
     const authority = Object.freeze(
       {},
     ) as InconnectMessagingAutoCreateAuthority;
@@ -239,9 +238,7 @@ export class InconnectMessagingAutoCreateAuthorityService {
       queryRunner,
       workspaceId,
     });
-    const manager = this.dataSource.createEntityManager(queryRunner);
     const currentPlan = await this.buildPlan({
-      manager,
       queryRunner,
       workspaceId,
     });
@@ -257,17 +254,18 @@ export class InconnectMessagingAutoCreateAuthorityService {
   }
 
   private async buildPlan({
-    manager,
     queryRunner,
     workspaceId,
   }: {
-    manager: EntityManager;
     queryRunner: WorkspaceQueryRunner;
     workspaceId: string;
   }): Promise<InconnectMessagingAutoCreateAuthorityPlan> {
-    const configuration = await manager
-      .getRepository(InconnectMessagingConfigurationEntity)
-      .createQueryBuilder('configuration')
+    const configuration = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: InconnectMessagingConfigurationEntity,
+        alias: 'configuration',
+      })
       .setLock('pessimistic_read')
       .where('configuration.workspaceId = :workspaceId', { workspaceId })
       .getOne();
@@ -289,24 +287,33 @@ export class InconnectMessagingAutoCreateAuthorityService {
       );
     }
 
-    const workspace = await manager
-      .getRepository(WorkspaceEntity)
-      .createQueryBuilder('workspace')
+    const workspace = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: WorkspaceEntity,
+        alias: 'workspace',
+      })
       .setLock('pessimistic_read')
       .where('workspace.id = :workspaceId', { workspaceId })
       .getOne();
-    const anchorObject = await manager
-      .getRepository(ObjectMetadataEntity)
-      .createQueryBuilder('anchorObject')
+    const anchorObject = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: ObjectMetadataEntity,
+        alias: 'anchorObject',
+      })
       .setLock('pessimistic_read')
       .where('anchorObject.id = :anchorObjectMetadataId', {
         anchorObjectMetadataId: configuration.anchorObjectMetadataId,
       })
       .andWhere('anchorObject.workspaceId = :workspaceId', { workspaceId })
       .getOne();
-    const workspaceMemberObject = await manager
-      .getRepository(ObjectMetadataEntity)
-      .createQueryBuilder('workspaceMemberObject')
+    const workspaceMemberObject = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: ObjectMetadataEntity,
+        alias: 'workspaceMemberObject',
+      })
       .setLock('pessimistic_read')
       .where('workspaceMemberObject.workspaceId = :workspaceId', {
         workspaceId,
@@ -339,12 +346,17 @@ export class InconnectMessagingAutoCreateAuthorityService {
         workspaceSchema: workspace.databaseSchema,
         roleId: configuration.autoCreateOwnerRoleId,
       });
-    const ownerRole = await manager.getRepository(RoleEntity).findOne({
-      where: {
-        id: configuration.autoCreateOwnerRoleId,
-        workspaceId,
-      },
-    });
+    const ownerRole = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: RoleEntity,
+        alias: 'ownerRole',
+      })
+      .where('ownerRole.id = :roleId', {
+        roleId: configuration.autoCreateOwnerRoleId,
+      })
+      .andWhere('ownerRole.workspaceId = :workspaceId', { workspaceId })
+      .getOne();
 
     if (ownerRole?.canBeAssignedToUsers !== true) {
       return throwAuthorityException(
@@ -353,18 +365,24 @@ export class InconnectMessagingAutoCreateAuthorityService {
       );
     }
 
-    const fields = await manager
-      .getRepository(FieldMetadataEntity)
-      .createQueryBuilder('field')
+    const fields = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: FieldMetadataEntity,
+        alias: 'field',
+      })
       .setLock('pessimistic_read')
       .where('field.workspaceId = :workspaceId', { workspaceId })
       .andWhere('field.objectMetadataId = :objectMetadataId', {
         objectMetadataId: anchorObject.id,
       })
       .getMany();
-    const phoneIdentityFields = await manager
-      .getRepository(InconnectMessagingPhoneIdentityFieldEntity)
-      .createQueryBuilder('phoneIdentityField')
+    const phoneIdentityFields = await this.coreQueryBuilderService
+      .createCoreQueryBuilder({
+        queryRunner,
+        target: InconnectMessagingPhoneIdentityFieldEntity,
+        alias: 'phoneIdentityField',
+      })
       .setLock('pessimistic_read')
       .where('phoneIdentityField.workspaceId = :workspaceId', {
         workspaceId,
@@ -373,11 +391,13 @@ export class InconnectMessagingAutoCreateAuthorityService {
       .addOrderBy('phoneIdentityField.id', 'ASC')
       .getMany();
     const primaryPhoneIdentity = await this.primaryValidatorService.evaluate({
-      manager,
+      queryRunner,
+      coreQueryBuilderService: this.coreQueryBuilderService,
       configuration,
     });
     const eligibility = await this.eligibilityService.evaluate({
-      manager,
+      queryRunner,
+      coreQueryBuilderService: this.coreQueryBuilderService,
       configuration,
       anchorObject,
       ownerRoleIsValid: true,
@@ -422,7 +442,8 @@ export class InconnectMessagingAutoCreateAuthorityService {
     const ownerField = ownerFields[0];
     const principalValidation = await this.automationPrincipalService.validate({
       lock: true,
-      manager,
+      queryRunner,
+      coreQueryBuilderService: this.coreQueryBuilderService,
       workspaceId,
     });
 

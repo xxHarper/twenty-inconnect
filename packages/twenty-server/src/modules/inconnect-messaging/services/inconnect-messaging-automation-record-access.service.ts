@@ -6,6 +6,8 @@ import { InconnectRecordAccessConfigurationEntity } from 'src/engine/core-module
 import { InconnectRecordAccessManagedObjectEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-managed-object.entity';
 import { InconnectRecordAccessPolicyEntity } from 'src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-policy.entity';
 import { InconnectRecordAccessConfigurationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-configuration.service';
+import { WorkspaceQueryRunnerCoreQueryBuilderService } from 'src/engine/twenty-orm/query-runner/workspace-query-runner-core-query-builder.service';
+import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { InconnectMessagingConfigurationEntity } from 'src/modules/inconnect-messaging/entities/messaging-configuration.entity';
 
 @Injectable()
@@ -20,30 +22,54 @@ export class InconnectMessagingAutomationRecordAccessService {
     expectedRoleId,
     lock,
     manager,
+    queryRunner,
+    coreQueryBuilderService,
     workspaceId,
   }: {
     configuration: InconnectMessagingConfigurationEntity;
     expectedRoleId: string;
     lock: boolean;
-    manager: EntityManager;
+    manager?: EntityManager;
+    queryRunner?: WorkspaceQueryRunner;
+    coreQueryBuilderService?: WorkspaceQueryRunnerCoreQueryBuilderService;
     workspaceId: string;
   }): Promise<boolean> {
-    const recordAccessConfigurationQuery = manager
-      .getRepository(InconnectRecordAccessConfigurationEntity)
-      .createQueryBuilder('recordAccessConfiguration')
-      .where('recordAccessConfiguration.workspaceId = :workspaceId', {
-        workspaceId,
+    const createCoreQueryBuilder = <TEntity extends object>(
+      target: new () => TEntity,
+      alias: string,
+    ) => {
+      if (manager !== undefined) {
+        return manager.getRepository(target).createQueryBuilder(alias);
+      }
+
+      if (queryRunner === undefined || coreQueryBuilderService === undefined) {
+        throw new Error('Core query context is required');
+      }
+
+      return coreQueryBuilderService.createCoreQueryBuilder({
+        queryRunner,
+        target,
+        alias,
       });
-    const managedObjectQuery = manager
-      .getRepository(InconnectRecordAccessManagedObjectEntity)
-      .createQueryBuilder('managedObject')
+    };
+    const recordAccessConfigurationQuery = createCoreQueryBuilder(
+      InconnectRecordAccessConfigurationEntity,
+      'recordAccessConfiguration',
+    ).where('recordAccessConfiguration.workspaceId = :workspaceId', {
+      workspaceId,
+    });
+    const managedObjectQuery = createCoreQueryBuilder(
+      InconnectRecordAccessManagedObjectEntity,
+      'managedObject',
+    )
       .where('managedObject.workspaceId = :workspaceId', { workspaceId })
       .andWhere('managedObject.objectMetadataId = :objectMetadataId', {
         objectMetadataId: configuration.anchorObjectMetadataId,
       });
-    const policiesQuery = manager
-      .getRepository(InconnectRecordAccessPolicyEntity)
-      .createQueryBuilder('policy')
+    const policiesQuery = createCoreQueryBuilder(
+      InconnectRecordAccessPolicyEntity,
+      'policy',
+    )
       .where('policy.workspaceId = :workspaceId', { workspaceId })
       .andWhere('policy.roleId = :roleId', { roleId: expectedRoleId });
 

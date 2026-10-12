@@ -204,11 +204,15 @@ describeWithDisposablePostgres(
         ),
       };
       const objectMetadataRepository = {
-        findOne: jest.fn(async ({ where: { workspaceId, id } }) => {
-          const objectMetadata = objectMetadataByWorkspace.get(workspaceId);
+        findOne: jest.fn(
+          async ({ where: { workspaceId, id, objectMetadataId } }) => {
+            const objectMetadata = objectMetadataByWorkspace.get(workspaceId);
 
-          return objectMetadata?.id === id ? objectMetadata : null;
-        }),
+            return objectMetadata?.id === (id ?? objectMetadataId)
+              ? objectMetadata
+              : null;
+          },
+        ),
       };
       const fieldMetadataRepository = {
         find: jest.fn(
@@ -218,23 +222,85 @@ describeWithDisposablePostgres(
       };
       const workspaceRepository = {
         findOne: jest.fn(
-          async ({ where: { id } }) => workspaceById.get(id) ?? null,
+          async ({ where: { id, workspaceId } }) =>
+            workspaceById.get(id ?? workspaceId) ?? null,
         ),
       };
+      const withQueryBuilder = (repository: {
+        findOne?: (input: {
+          where: Record<string, unknown>;
+        }) => Promise<unknown>;
+        find?: (input: {
+          where: Record<string, unknown>;
+        }) => Promise<unknown[]>;
+      }) => ({
+        ...repository,
+        createQueryBuilder: jest.fn(() => {
+          const parameters: Record<string, unknown> = {};
+          type FixtureQueryBuilder = {
+            select: (...parameters: unknown[]) => FixtureQueryBuilder;
+            where: (
+              statement: string,
+              parameters: Record<string, unknown>,
+            ) => FixtureQueryBuilder;
+            andWhere: (
+              statement: string,
+              parameters: Record<string, unknown>,
+            ) => FixtureQueryBuilder;
+            orderBy: (...parameters: unknown[]) => FixtureQueryBuilder;
+            setLock: (...parameters: unknown[]) => FixtureQueryBuilder;
+            getOne: () => Promise<unknown> | undefined;
+            getMany: () => Promise<unknown[]> | undefined;
+          };
+          const queryBuilder: FixtureQueryBuilder = {
+            select: jest.fn(() => queryBuilder),
+            where: jest.fn(
+              (_statement: string, nextParameters: Record<string, unknown>) => {
+                Object.assign(parameters, nextParameters);
+
+                return queryBuilder;
+              },
+            ),
+            andWhere: jest.fn(
+              (_statement: string, nextParameters: Record<string, unknown>) => {
+                Object.assign(parameters, nextParameters);
+
+                return queryBuilder;
+              },
+            ),
+            orderBy: jest.fn(() => queryBuilder),
+            setLock: jest.fn(() => queryBuilder),
+            getOne: jest.fn(() => repository.findOne?.({ where: parameters })),
+            getMany: jest.fn(() => repository.find?.({ where: parameters })),
+          };
+
+          return queryBuilder;
+        }),
+      });
       const repositories = new Map<unknown, unknown>([
-        [InconnectMessagingConfigurationEntity, configurationRepository],
+        [
+          InconnectMessagingConfigurationEntity,
+          withQueryBuilder(configurationRepository as never),
+        ],
         [
           InconnectMessagingPhoneIdentityFieldEntity,
-          phoneIdentityFieldRepository,
+          withQueryBuilder(phoneIdentityFieldRepository as never),
         ],
-        [ObjectMetadataEntity, objectMetadataRepository],
-        [FieldMetadataEntity, fieldMetadataRepository],
-        [WorkspaceEntity, workspaceRepository],
+        [
+          ObjectMetadataEntity,
+          withQueryBuilder(objectMetadataRepository as never),
+        ],
+        [
+          FieldMetadataEntity,
+          withQueryBuilder(fieldMetadataRepository as never),
+        ],
+        [WorkspaceEntity, withQueryBuilder(workspaceRepository as never)],
       ]);
       const serviceDataSource = {
         manager: {
           getRepository: jest.fn((entity) => repositories.get(entity)),
         },
+        getRepository: jest.fn((entity) => repositories.get(entity)),
         createQueryBuilder:
           physicalDataSource.createQueryBuilder.bind(physicalDataSource),
       };
@@ -283,6 +349,7 @@ describeWithDisposablePostgres(
         new InconnectMessagingBackgroundPhoneIdentityResolverService(
           serviceDataSource as never,
           workspaceCacheService as never,
+          {} as never,
         );
       humanService = new InconnectMessagingPhoneIdentityResolverService(
         serviceDataSource as never,
