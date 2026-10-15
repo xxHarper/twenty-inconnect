@@ -1,5 +1,9 @@
 # AGENTS.md
 
+**Execution warning:** `yarn start`, worker startup, `setup-dev-env.sh`, `database:reset`, `database:init`, `database:migrate`, `database:migrate:generate`, integration tests with DB reset, and scripts that initialize databases or workers are **not harmless validation commands**. They require action-specific user authorization when they can create resources, modify data, run migrations, start consumers, or cause external side effects. Command examples in this document are reference documentation and do not authorize execution.
+
+For normal source-only tasks, prefer focused Jest tests, TypeScript, lint, and formatting without starting services or databases. Keep normal PostgreSQL `default` separate from any intended disposable test target; a changed port or database name alone does not establish physical isolation.
+
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -14,7 +18,100 @@ Twenty is an open-source CRM built with modern technologies in a monorepo struct
 - The syncable-entity skills apply only when actually creating or modifying syncable metadata entities.
 - Record-level authorization work must not be treated as creation of a syncable entity unless explicitly justified.
 
+## Current INCONNECT Operational Checkpoint — 2026-10-14
+
+This dated operational snapshot extends the historical 2026-10-12 product/runtime checkpoint below.
+It takes precedence for execution readiness; all existing licensing, security, authorization,
+transaction, Messaging, and Record Access contracts remain in force.
+Git and database state must be rechecked before action under the applicable authorization;
+this documentation update performs no database inspection or physical execution.
+
+### Product status and deployment boundary
+
+- **IMPLEMENTED — F13A/B:** canonical phone resolution and automatic existing-record linking.
+- **IMPLEMENTED / PHYSICALLY VERIFIED IN DEVELOPMENT — F13C.2B:** conditional fresh
+  `NO_MATCH -> CRM create -> link` orchestration, physically accepted in disposable development PostgreSQL.
+  This acceptance does not imply production activation, deployment, or environment provisioning.
+- **PENDING — F13C.3:** deployment/migration preparation remains pending.
+- **NOT ACTIVATED by this checkpoint:** no migration, principal provisioning, configuration activation,
+  or deployment in normal local `default`, another environment, or production is asserted.
+- Registered Fast Instance Commands: `1790793305698` (Auto Create Configuration) and
+  `1790793305700` (Automation Principal); required order is **5698 before 5700**.
+  Registration, local commits, and test success never authorize migration execution.
+  Do not claim either command ran in normal local `default` or production without checking actual
+  environment-specific tracking through a separately authorized inspection.
+
+### Committed development preparation
+
+- Exact-upgrade guards and writer-session verification tooling were committed locally:
+  `ab6845a6489069db6663bc86c274e981e2478929` and `da8f1ab090805b2f89f5b12f105a24fddadbce59`.
+- PG0 disposable physical-harness preparation was committed locally at
+  `bd4b762e35b22c21cf5c57353eb5907d16df7c79`, adding exactly **16 files**.
+  Its tests passed; its physical execution gate remains **BLOCKED**.
+- The operational exact-upgrade executor also remains **BLOCKED**.
+- Earlier documentation preflight matched branch `feature/inconnect-messaging` and HEAD
+  `bd4b762e35b22c21cf5c57353eb5907d16df7c79`, with no tracked modifications or staged changes
+  and exactly the 11 untracked lifecycle files described below. This is a snapshot, not a future guarantee.
+
+### PG1 isolation evidence and limits
+
+The following are reported results of earlier probes, not probes performed by this update:
+
+- Rootless user/network/mount/PID namespaces work inside the normal Codex WSL sandbox.
+- Private loopback and private procfs work.
+- Minimal filesystem fencing hid the normal PostgreSQL socket and data directory for the
+  inspected harmless workload; this is not blanket isolation acceptance for a database workload.
+- Parent mounts and networking remained unchanged in successful probes.
+- Supervised normal exit passed; a forced-timeout cleanup test passed.
+
+Remaining limits and gates:
+
+- Supervisor SIGTERM lifecycle acceptance remains incomplete.
+- Automatic supervisor death propagation was not established.
+- SIGKILL Stage D was not executed; guardian death recovery was not validated.
+- Disposable PostgreSQL provisioning, session inspection, and physical command execution were not authorized.
+- Successful namespace tests are not proof of a production-ready PostgreSQL supervisor.
+
+### F13C.3B1 lifecycle tooling — SOURCE-ONLY IMPLEMENTATION COMPLETE
+
+Exactly **11 source/test files** under
+`packages/twenty-server/src/database/scripts/inconnect-exact-upgrade/physical-harness/lifecycle-probe/`
+are accepted **ONLY as inert source-only development preparation** for a local development commit.
+There is no live process adapter, no real filesystem evidence writer, and no physical lifecycle
+acceptance. The tooling is not integrated into a live runner.
+
+- **P1-A:** corrected and regression-tested.
+- **P1-B:** corrected and regression-tested.
+- **P1-C:** validated under the pure source contract; this does not establish kernel-backed identity authority.
+- **P2-A:** historical reporting, current acceptance, and revocation reconciled.
+- **P2-B:** malformed inventories fail closed while independently safe finalization continues.
+- **P2-C:** kernel process identity, approved executable provenance, exec transitions, and partial
+  acquisition are modeled separately.
+
+Final independent review: **PASS_WITH_CONDITIONS**. Its only condition was documentation
+reconciliation, satisfied by this checkpoint update. This supersedes the earlier M1-R failure,
+pending P1-A/P1-B corrections, and pending M2 source review.
+
+Latest reported validation: **4 focused Jest suites / 256 tests PASS**; server typecheck **PASS**;
+targeted typed lint **PASS**; formatting and whitespace **PASS**; inert imports **PASS**.
+These source-validation results were not rerun by this documentation update and do not authorize
+physical lifecycle execution, PostgreSQL upgrades, or production activation.
+
+### Execution boundary
+
+- **BLOCKED:** Stage C5, PG1 physical execution, PG0 physical execution, and the operational
+  exact-upgrade executor. Source tests and local commits do not lift these gates.
+- Do not run Stage C or Stage D, enable PG1, provision disposable PostgreSQL, or inspect sessions
+  without action-specific user authorization and satisfaction of the relevant acceptance gates.
+- Do not run F13C Fast Commands 5698 or 5700, database setup/reset, or BullMQ consumers;
+  do not modify normal PostgreSQL or change the current Codex WSL sandbox repair bind mount.
+  This checkpoint grants no execution permission.
+- Fixture IDs, local Workspace/Role IDs, and cluster identities are temporary evidence,
+  never permanent product constants. Normal local `default` and disposable targets remain distinct.
+
 ## Key Commands
+
+All examples below are references subject to the execution warning and action-specific authorization.
 
 ### Development
 ```bash
@@ -28,6 +125,9 @@ npx nx run twenty-server:worker  # Start background worker
 ```
 
 ### Testing
+
+Prefer source-only focused tests. Integration tests with DB reset require explicit authorization for that reset and target.
+
 ```bash
 # Preferred: run a single test file (fast)
 npx jest path/to/test.test.ts --config=packages/PROJECT/jest.config.mjs
@@ -77,6 +177,9 @@ npx nx build twenty-server
 ```
 
 ### Database Operations
+
+Setup, reset, initialization, migration, and migration generation require action-specific authorization; listing them here grants none.
+
 ```bash
 # Database management
 npx nx database:reset twenty-server         # Reset database
@@ -173,7 +276,7 @@ packages/
 - **PostgreSQL** as primary database
 - **Redis** for caching and sessions
 - **ClickHouse** for analytics (when enabled)
-- When changing entity files, generate an **instance command** (`database:migrate:generate --name <name> --type <fast|slow>`)
+- When changing entity files, an **instance command** is required; run its generator only with action-specific authorization (`database:migrate:generate --name <name> --type <fast|slow>`)
 - **Fast** instance commands handle schema changes; **slow** ones add a `runDataMigration` step for data backfills
 - **Workspace commands** iterate over all active/suspended workspaces for per-workspace upgrades
 - Commands use `@RegisteredInstanceCommand` and `@RegisteredWorkspaceCommand` decorators for automatic discovery
@@ -192,7 +295,7 @@ IMPORTANT: When Context7 is available and appropriate, use it for code generatio
 ### Before Making Changes
 1. Always run linting (`lint:diff-with-main`) and type checking after code changes
 2. Test changes with relevant test suites (prefer single-file test runs)
-3. Ensure instance commands are generated for entity changes (`database:migrate:generate`)
+3. Ensure entity changes include instance commands; running `database:migrate:generate` requires action-specific authorization
 4. Check that GraphQL schema changes are backward compatible
 5. Run `graphql:generate` after any GraphQL schema changes
 
@@ -212,18 +315,18 @@ IMPORTANT: When Context7 is available and appropriate, use it for code generatio
 
 ## Dev Environment Setup
 
-All dev environments (Codex web, Cursor, local) use one script:
+For explicitly authorized environment setup, dev environments (Codex web, Cursor, local) use one script:
 
 ```bash
 bash packages/twenty-utils/setup-dev-env.sh
 ```
 
-This handles everything: starts Postgres + Redis (auto-detects local services vs Docker), creates databases, copies `.env` files, and initializes the database schema (runs migrations) on a fresh database. Idempotent — safe to run multiple times.
+This script starts Postgres + Redis (auto-detecting local services versus Docker), creates databases, copies `.env` files, and initializes the database schema by running migrations on a fresh database. It is designed to be idempotent, but repeated runs can still start services, create resources, modify files/data, or run migrations. Each invocation requires action-specific user authorization for its target and possible side effects; idempotence does not make it harmless validation.
 
 - `--docker` — force Docker mode (uses `packages/twenty-docker/docker-compose.dev.yml`)
 - `--down` — stop services
 - `--reset` — wipe data and restart fresh
-- **Skip the setup script** for tasks that only read code — architecture questions, code review, documentation, etc.
+- **Skip the setup script** for source-only tasks, including architecture questions, code review, documentation, and focused source validation. Prefer Jest, TypeScript, lint, and formatting without starting services or databases.
 
 **Note:** CI workflows (GitHub Actions) manage services via Actions service containers and run setup steps individually — they don't use this script.
 
@@ -235,11 +338,11 @@ This handles everything: starts Postgres + Redis (auto-detects local services vs
 
 # INCONNECT - Stable Project State / Handoff
 
-Current authoritative checkpoint: 2026-10-12.
+Historical product/runtime checkpoint: 2026-10-12, extended by the **Current INCONNECT Operational Checkpoint — 2026-10-14** near the beginning of this file. The newer checkpoint governs operational readiness and execution gates.
 
 F13A canonical phone identity, F13B existing-record `UNIQUE` linking, F13C.1A/B configuration and eligibility, F13C.1C caller-owned transaction composition, F13C.1D authority/plan, F13C.2A2 technical Automation WorkspaceMember, F13C.2A3 normal-authorized CRM create executor, the internal write receipt, generic same-INSERT `RETURNING *` event snapshots, and F13C.2B inbound transactional `NO_MATCH -> create -> link` orchestration are implemented and physically accepted in development. Current inbound processing conditionally creates only for a fresh exact `NO_MATCH` when `autoCreateEnabled` is true and all current readiness, authority, principal, Owner, and transaction validations pass. `UNIQUE` links the existing record without creating; `AMBIGUOUS`, `INVALID`, `DISABLED`, and not-ready outcomes remain `UNASSIGNED`; an already-linked Conversation is never relinked. `effectiveEnabled` is conditional rather than permanently false. None of this implies that migrations, provisioning, activation, or deployment occurred in production.
 
-This section is the authoritative technical handoff for INCONNECT. It supplements the repository-wide instructions above and describes current capabilities rather than implementation chronology. The historical 2026-10-07 checkpoint on `feature/inconnect-messaging` remains recorded below; the 2026-10-12 checkpoint extends it with the completed F13C.2B runtime and the feature-neutral transaction-bound Core QueryBuilder gateway. Runtime CRM Context remains read-only and Settings remains presentation/configuration only. Unlink, relink, fuzzy or ranked ambiguity matching, `additionalPhones` matching, email identity matching, anchor selection/change, CRM field editing, related lists, CRM realtime, Meta/Web wiring, and AI/Agents remain unimplemented. The native inbox and existing provider/media behavior are unchanged by this checkpoint.
+This section preserves the technical product/runtime handoff for INCONNECT as of 2026-10-12, subject to the newer operational checkpoint above. It supplements the repository-wide instructions and describes implemented capabilities rather than implementation chronology. The historical 2026-10-07 checkpoint on `feature/inconnect-messaging` remains recorded below; the 2026-10-12 checkpoint extends it with the completed F13C.2B runtime and the feature-neutral transaction-bound Core QueryBuilder gateway. Runtime CRM Context remains read-only and Settings remains presentation/configuration only. Unlink, relink, fuzzy or ranked ambiguity matching, `additionalPhones` matching, email identity matching, anchor selection/change, CRM field editing, related lists, CRM realtime, Meta/Web wiring, and AI/Agents remain unimplemented. The native inbox and existing provider/media behavior are unchanged by this checkpoint.
 
 Conversation work state is implemented end to end: personal Favorite, personal derived Unread, shared manual Pending, `ConversationMemberState`, a PostgreSQL-owned unread rollout baseline, authorized SQL filtering, visible inbox controls, work-state mutations, and the durable shared-Pending `CONVERSATION_UPDATED` hint. Immediate personal Favorite/read cross-device realtime is not implemented; personal state in other tabs or devices converges through normal refetch or reconnect. This feature branch is a development checkpoint, not a stable product release. Live Git state remains authority; older dated evidence below is historical, and local validation never implies that a migration or command ran in production.
 
@@ -1468,7 +1571,7 @@ The Phone Identity Fields command is `2-32-instance-command-fast-1790550000000-a
 
 ### Validation Checkpoint
 
-The current Messaging checkpoint has green composer tests and complete frontend Messaging regression coverage, green backend send-capabilities/template-catalog tests, and focused generic upload-transport regression coverage. Direct frontend TypeScript typecheck, touched-file typed lint, diff lint, format, metadata codegen, and diff checks passed. Validation covers stale remove/replace and Conversation-switch upload completions, object URL cleanup, and alignment of safe MIME, size, and caption hints with backend policy. Send capabilities no longer call `provider.listTemplates()` or depend on Twilio Content API; remote template catalog access remains isolated to template-specific flows. No database change was required for the attachment composer, and validation made no real Twilio, WhatsApp, provider catalog, storage, or upload calls.
+The historical Messaging product/runtime validation below records green composer tests and complete frontend Messaging regression coverage, green backend send-capabilities/template-catalog tests, and focused generic upload-transport regression coverage. These results do not establish acceptance of the later lifecycle source or lift the current operational gates. Direct frontend TypeScript typecheck, touched-file typed lint, diff lint, format, metadata codegen, and diff checks passed. Validation covers stale remove/replace and Conversation-switch upload completions, object URL cleanup, and alignment of safe MIME, size, and caption hints with backend policy. Send capabilities no longer call `provider.listTemplates()` or depend on Twilio Content API; remote template catalog access remains isolated to template-specific flows. No database change was required for the attachment composer, and validation made no real Twilio, WhatsApp, provider catalog, storage, or upload calls.
 
 Outbound upload/media tests and core `FileUploadService` regression tests are green. Read, subscription, human file-access, and provider-media paths preserve their authorization boundaries, including non-disclosing attachment access. Metadata codegen confirmed the upload mutations and opaque send references without exposing file/storage/provider authority. Review found no provider JWT token-type confusion; the provider endpoint is exact Attachment/workspace scoped, and the core `FileUploadService` coupling to INCONNECT was removed.
 
@@ -1558,11 +1661,11 @@ Dotenv files must never silently replace caller-provided configuration from a sh
 
 Normal local development retains its existing fallback. When `PG_DATABASE_URL` is absent from the external environment and the selected dotenv file contains it, the application and CLI receive that value; developers do not need to export it manually. Environment-file discovery itself was not redesigned, so fallback still depends on the existing working-directory assumptions, including `packages/twenty-server` for the relevant direct loaders. This is a non-blocking tooling limitation, not a product defect.
 
-For destructive or disposable database validation, explicit `PG_DATABASE_URL` is now reliable, but defense in depth still applies. When appropriate, verify `current_database()`, `inet_server_port()`, and `current_setting('data_directory')` before a write. A physically isolated PostgreSQL cluster remains a strong option for especially sensitive write or concurrency tests; it is not universally mandatory.
+For separately authorized destructive or disposable database validation, explicit `PG_DATABASE_URL` retains the precedence above, but defense in depth still applies. Under that authorization, verify the actual target and command tracking before an environment-specific execution claim or write, including `current_database()`, `inet_server_port()`, and `current_setting('data_directory')` where appropriate. A changed port or database name alone does not establish physical isolation. The current F13 physical-execution gates above remain blocked; this guidance does not authorize connecting, probing, provisioning, or running commands.
 
 #### Historical Fase 12A Tooling Incident
 
-This note is historical and does not describe current environment-precedence behavior. Before the hardening, the then-active `override: true` policy caused a Fase 12A run intended for a disposable database to use the local `default` database. The mismatch was detected and stopped; it was local development only and never production. Read-only forensic review found no evidence of application-data DML, the Messaging tables were empty, and the valid registered Messaging upgrade chain remained applied and marked complete locally. The local `default` database was intentionally left at the valid current Messaging schema state; no rollback is implied.
+This note is historical and does not describe current environment-precedence behavior. Before the hardening, the then-active `override: true` policy caused a Fase 12A run intended for a disposable database to use the local `default` database. The mismatch was detected and stopped; it was local development only and never production. Read-only forensic review found no evidence of application-data DML, the Messaging tables were empty, and the Messaging upgrade chain registered at that time remained applied and marked complete locally. The local `default` database was intentionally left at the valid Messaging schema state of that incident; no rollback is implied. This historical observation is not current command tracking and makes no execution claim for the later F13C commands 5698 or 5700.
 
 ## Local F13 Checkpoint (2026-09-29)
 
