@@ -69,11 +69,18 @@ export class EntityEventsToDbListener {
     batchEvent: WorkspaceEventBatch<T>,
     action: DatabaseEventAction,
   ) {
+    const isGenericPublicationAllowed =
+      await this.objectRecordEventPublisher.isGenericPublicationAllowed(
+        batchEvent,
+      );
+
     if (
       batchEvent.objectMetadata.universalIdentifier ===
       STANDARD_OBJECTS.timelineActivity.universalIdentifier
     ) {
-      await this.objectRecordEventPublisher.publish(batchEvent);
+      if (isGenericPublicationAllowed) {
+        await this.objectRecordEventPublisher.publish(batchEvent);
+      }
 
       return;
     }
@@ -88,24 +95,29 @@ export class EntityEventsToDbListener {
       },
     };
 
-    const promises = [
-      this.objectRecordEventPublisher.publish(batchEvent),
-      this.webhookQueueService.add<WorkspaceEventBatchForWebhook<T>>(
-        CallWebhookJobsJob.name,
-        batchEventForWebhook,
-        {
-          retryLimit: 3,
-        },
-      ),
-    ];
+    // Webhooks and database triggers receive full snapshots without recipient
+    // Record Access. Timeline materialization can publish a secondary object event.
+    const promises: Promise<unknown>[] = isGenericPublicationAllowed
+      ? [
+          this.objectRecordEventPublisher.publish(batchEvent),
+          this.webhookQueueService.add<WorkspaceEventBatchForWebhook<T>>(
+            CallWebhookJobsJob.name,
+            batchEventForWebhook,
+            {
+              retryLimit: 3,
+            },
+          ),
+        ]
+      : [];
 
-    promises.push(
-      this.triggerQueueService.add<WorkspaceEventBatch<T>>(
-        CallDatabaseEventTriggerJobsJob.name,
-        batchEvent,
-        { retryLimit: 3 },
-      ),
-    );
+    if (isGenericPublicationAllowed)
+      promises.push(
+        this.triggerQueueService.add<WorkspaceEventBatch<T>>(
+          CallDatabaseEventTriggerJobsJob.name,
+          batchEvent,
+          { retryLimit: 3 },
+        ),
+      );
 
     if (isAuditLogBatchEvent && action !== DatabaseEventAction.DESTROYED) {
       promises.push(
@@ -115,14 +127,15 @@ export class EntityEventsToDbListener {
         ),
       );
 
-      promises.push(
-        this.entityEventsToDbQueueService.add<
-          WorkspaceEventBatch<ObjectRecordNonDestructiveEvent>
-        >(
-          UpsertTimelineActivityFromInternalEvent.name,
-          batchEvent as WorkspaceEventBatch<ObjectRecordNonDestructiveEvent>,
-        ),
-      );
+      if (isGenericPublicationAllowed)
+        promises.push(
+          this.entityEventsToDbQueueService.add<
+            WorkspaceEventBatch<ObjectRecordNonDestructiveEvent>
+          >(
+            UpsertTimelineActivityFromInternalEvent.name,
+            batchEvent as WorkspaceEventBatch<ObjectRecordNonDestructiveEvent>,
+          ),
+        );
     }
 
     await Promise.all(promises);

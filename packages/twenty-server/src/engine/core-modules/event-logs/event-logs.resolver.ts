@@ -1,9 +1,17 @@
 /* @license Enterprise */
 
-import { UseFilters, UseGuards, UsePipes } from '@nestjs/common';
+import {
+  ForbiddenException,
+  UseFilters,
+  UseGuards,
+  UsePipes,
+} from '@nestjs/common';
 import { Args, Query } from '@nestjs/graphql';
 
 import { PermissionFlagType } from 'twenty-shared/constants';
+import { EventLogTable } from 'twenty-shared/types';
+
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 
 import { MetadataResolver } from 'src/engine/api/graphql/graphql-config/decorators/metadata-resolver.decorator';
 import { AuthGraphqlApiExceptionFilter } from 'src/engine/core-modules/auth/filters/auth-graphql-api-exception.filter';
@@ -32,7 +40,10 @@ import { EventLogQueryResult } from './dtos/event-log-result.dto';
 )
 @UsePipes(ResolverValidationPipe)
 export class EventLogsResolver {
-  constructor(private readonly eventLogsService: EventLogsService) {}
+  constructor(
+    private readonly eventLogsService: EventLogsService,
+    private readonly recordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
+  ) {}
 
   @UseGuards(
     WorkspaceAuthGuard,
@@ -43,6 +54,28 @@ export class EventLogsResolver {
     @AuthWorkspace() workspace: WorkspaceEntity,
     @Args('input') input: EventLogQueryInput,
   ): Promise<EventLogQueryResult> {
-    return this.eventLogsService.queryEventLogs(workspace.id, input);
+    await this.assertHistoryAllowed(workspace.id, input.table);
+    const result = await this.eventLogsService.queryEventLogs(
+      workspace.id,
+      input,
+    );
+
+    await this.assertHistoryAllowed(workspace.id, input.table);
+
+    return result;
+  }
+
+  private async assertHistoryAllowed(
+    workspaceId: string,
+    table: EventLogTable,
+  ) {
+    if (
+      table === EventLogTable.OBJECT_EVENT &&
+      !(await this.recordAccessAuthorizationService.isGenericRecordEventHistoryAllowed(
+        workspaceId,
+      ))
+    ) {
+      throw new ForbiddenException('Object event history is unavailable');
+    }
   }
 }

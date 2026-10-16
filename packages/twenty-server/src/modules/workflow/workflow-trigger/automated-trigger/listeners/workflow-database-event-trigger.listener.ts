@@ -15,6 +15,7 @@ import { In, Raw } from 'typeorm';
 
 import { OnDatabaseBatchEvent } from 'src/engine/api/graphql/graphql-query-runner/decorators/on-database-batch-event.decorator';
 import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner/enums/database-event-action';
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { FeatureFlagService } from 'src/engine/core-modules/feature-flag/services/feature-flag.service';
 import { InjectMessageQueue } from 'src/engine/core-modules/message-queue/decorators/message-queue.decorator';
 import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queue.constants';
@@ -72,6 +73,7 @@ export class WorkflowDatabaseEventTriggerListener {
     private readonly workflowCommonWorkspaceService: WorkflowCommonWorkspaceService,
     private readonly featureFlagService: FeatureFlagService,
     private readonly workspaceCacheService: WorkspaceCacheService,
+    private readonly inconnectRecordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
   ) {}
 
   @OnDatabaseBatchEvent('*', DatabaseEventAction.CREATED)
@@ -172,6 +174,15 @@ export class WorkflowDatabaseEventTriggerListener {
       workspaceId,
     );
 
+    if (
+      flatObjectMetadata.id !== payload.objectMetadata.id ||
+      flatObjectMetadata.workspaceId !== workspaceId
+    ) {
+      throw new Error(
+        'Workflow enrichment object metadata does not match the event',
+      );
+    }
+
     await this.enrichRecordsWithRelations({
       records: payload.events.map((event) => event.properties.after),
       workspaceId,
@@ -193,6 +204,15 @@ export class WorkflowDatabaseEventTriggerListener {
       payload.objectMetadata.nameSingular,
       workspaceId,
     );
+
+    if (
+      flatObjectMetadata.id !== payload.objectMetadata.id ||
+      flatObjectMetadata.workspaceId !== workspaceId
+    ) {
+      throw new Error(
+        'Workflow enrichment object metadata does not match the event',
+      );
+    }
 
     await this.enrichRecordsWithRelations({
       records: payload.events.map((event) => event.properties.before),
@@ -223,6 +243,15 @@ export class WorkflowDatabaseEventTriggerListener {
       workspaceId,
     );
 
+    if (
+      flatObjectMetadata.id !== payload.objectMetadata.id ||
+      flatObjectMetadata.workspaceId !== workspaceId
+    ) {
+      throw new Error(
+        'Workflow enrichment object metadata does not match the event',
+      );
+    }
+
     await this.enrichRecordsWithRelations({
       records: payload.events.map((event) => event.properties.before),
       workspaceId,
@@ -244,6 +273,15 @@ export class WorkflowDatabaseEventTriggerListener {
       payload.objectMetadata.nameSingular,
       workspaceId,
     );
+
+    if (
+      flatObjectMetadata.id !== payload.objectMetadata.id ||
+      flatObjectMetadata.workspaceId !== workspaceId
+    ) {
+      throw new Error(
+        'Workflow enrichment object metadata does not match the event',
+      );
+    }
 
     await this.enrichRecordsWithRelations({
       records: payload.events.map((event) => event.properties.before),
@@ -298,15 +336,30 @@ export class WorkflowDatabaseEventTriggerListener {
           continue;
         }
 
-        const relatedObjectMetadataNameSingular =
-          findFlatEntityByIdInFlatEntityMaps({
-            flatEntityId: relatedObjectMetadataId,
-            flatEntityMaps: flatObjectMetadataMaps,
-          })?.nameSingular;
+        const relatedObjectMetadata = findFlatEntityByIdInFlatEntityMaps({
+          flatEntityId: relatedObjectMetadataId,
+          flatEntityMaps: flatObjectMetadataMaps,
+        });
 
-        if (!isDefined(relatedObjectMetadataNameSingular)) {
-          continue;
+        if (
+          joinField.workspaceId !== workspaceId ||
+          joinField.objectMetadataId !== flatObjectMetadata.id ||
+          flatObjectMetadata.workspaceId !== workspaceId ||
+          relatedObjectMetadata?.id !== relatedObjectMetadataId ||
+          relatedObjectMetadata.workspaceId !== workspaceId ||
+          !(await this.inconnectRecordAccessAuthorizationService.isGenericRecordEventPublicationAllowed(
+            {
+              workspaceId,
+              objectMetadataId: relatedObjectMetadataId,
+            },
+          ))
+        ) {
+          // Never use SYSTEM to hydrate a dependency without disclosure authority.
+          throw new Error('Workflow relation enrichment is not authorized');
         }
+
+        const relatedObjectMetadataNameSingular =
+          relatedObjectMetadata.nameSingular;
 
         const relatedObjectRepository =
           await this.globalWorkspaceOrmManager.getRepository(
@@ -316,7 +369,7 @@ export class WorkflowDatabaseEventTriggerListener {
           );
 
         const relatedRecords = await relatedObjectRepository.find({
-          where: { id: In(joinRecordIds) },
+          where: { id: In([...new Set(joinRecordIds)]) },
         });
 
         for (const record of records) {
@@ -335,16 +388,27 @@ export class WorkflowDatabaseEventTriggerListener {
     const databaseEventName = payload.name;
 
     if (!workspaceId || !databaseEventName) {
-      this.logger.error(
-        `Missing workspaceId or eventName in payload ${JSON.stringify(
-          payload,
-        )}`,
-      );
+      this.logger.error('Missing workspaceId or eventName in workflow event');
 
       return true;
     }
 
-    return false;
+    // Workflow triggers are an independent full-snapshot consumer, including UPSERTED.
+    if (payload.objectMetadata.workspaceId !== workspaceId) {
+      return true;
+    }
+
+    try {
+      return !(await this.inconnectRecordAccessAuthorizationService.isGenericRecordEventPublicationAllowed(
+        {
+          workspaceId,
+          objectMetadataId: payload.objectMetadata.id,
+          eventProperties: payload.events.map((event) => event.properties),
+        },
+      ));
+    } catch {
+      return true;
+    }
   }
 
   private async handleEvent({
@@ -371,11 +435,15 @@ export class WorkflowDatabaseEventTriggerListener {
         });
 
         if (shouldTriggerJob) {
+          // Enrichment and listener discovery may have outlived their authority.
+          if (await this.shouldIgnoreEvent(payload)) return;
+
           await this.messageQueueService.add<WorkflowTriggerJobData>(
             WorkflowTriggerJob.name,
             {
               workspaceId,
               workflowId: eventListener.workflowId,
+              recordEventObjectMetadataId: payload.objectMetadata.id,
               payload: eventPayload,
             },
             { retryLimit: 3 },

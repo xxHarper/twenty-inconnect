@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { isDefined } from 'twenty-shared/utils';
 
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { type WorkspaceEventEnvelope } from 'src/engine/core-modules/event-logs/types/workspace-event-envelope.type';
 import { InjectCacheStorage } from 'src/engine/core-modules/cache-storage/decorators/cache-storage.decorator';
 import { CacheStorageService } from 'src/engine/core-modules/cache-storage/services/cache-storage.service';
@@ -24,6 +25,7 @@ export class EventLogLiveService {
     @InjectCacheStorage(CacheStorageNamespace.EngineSubscriptions)
     private readonly cacheStorageService: CacheStorageService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly recordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
   ) {}
 
   private getPresenceKey(workspaceId: string, key: string): string {
@@ -44,6 +46,50 @@ export class EventLogLiveService {
     );
 
     return isDefined(value);
+  }
+
+  async filterPublishableRows(
+    workspaceId: string,
+    table: string,
+    rows: Record<string, unknown>[],
+  ): Promise<Record<string, unknown>[]> {
+    const workspaceRows = rows.filter((row) => row.workspaceId === workspaceId);
+
+    if (table !== 'objectEvent') return workspaceRows;
+
+    const byObjectId = new Map<string, Record<string, unknown>[]>();
+
+    for (const row of workspaceRows) {
+      if (typeof row.objectMetadataId !== 'string') continue;
+      const group = byObjectId.get(row.objectMetadataId) ?? [];
+
+      group.push(row);
+      byObjectId.set(row.objectMetadataId, group);
+    }
+
+    const allowedRows: Record<string, unknown>[] = [];
+
+    for (const [objectMetadataId, group] of byObjectId) {
+      try {
+        // SECURITY is not a CRM READ grant. Resolve authority once per object/batch.
+        const decisions =
+          await this.recordAccessAuthorizationService.getGenericRecordEventPublicationDecisions(
+            {
+              workspaceId,
+              objectMetadataId,
+              eventPropertiesGroups: group.map((row) => [row.properties]),
+            },
+          );
+
+        allowedRows.push(
+          ...group.filter((_row, index) => decisions[index] === true),
+        );
+      } catch {
+        // Persistence is independent of distribution authority failures.
+      }
+    }
+
+    return allowedRows;
   }
 
   async publishWatched(events: WorkspaceEventEnvelope[]): Promise<void> {
@@ -73,10 +119,19 @@ export class EventLogLiveService {
           return;
         }
 
+        // Presence lookup is not authorization; classify after the await.
+        const publishableRows = await this.filterPublishableRows(
+          workspaceId,
+          table,
+          rows,
+        );
+
+        if (publishableRows.length === 0) return;
+
         await this.subscriptionService.publish({
           channel: SubscriptionChannel.WORKSPACE_EVENTS_CHANNEL,
           workspaceId,
-          payload: { table, rows },
+          payload: { table, rows: publishableRows },
         });
       }),
     );

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 
 import { ensureAbsoluteUrl } from 'twenty-shared/utils';
 
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { EventLogEmitterService } from 'src/engine/core-modules/event-logs/emit/event-log-emitter.service';
 import { WEBHOOK_RESPONSE_EVENT } from 'src/engine/core-modules/event-logs/emit/events/workspace-event/webhook/webhook-response';
 import { Process } from 'src/engine/core-modules/message-queue/decorators/process.decorator';
@@ -18,6 +19,7 @@ export class CallWebhookJob {
     private readonly eventLogEmitterService: EventLogEmitterService,
     private readonly metricsService: MetricsService,
     private readonly secureHttpClientService: SecureHttpClientService,
+    private readonly recordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
   ) {}
 
   private generateSignature(
@@ -41,6 +43,18 @@ export class CallWebhookJob {
   }
 
   private async callWebhook(data: WebhookJobData): Promise<void> {
+    if (
+      'objectMetadata' in data &&
+      !(await this.recordAccessAuthorizationService.isGenericRecordEventPublicationAllowed(
+        {
+          workspaceId: data.workspaceId,
+          objectMetadataId: data.objectMetadata.id,
+          eventProperties: [{ after: data.record }],
+        },
+      ))
+    )
+      return;
+
     const commonPayload = {
       url: data.targetUrl,
       webhookId: data.webhookId,

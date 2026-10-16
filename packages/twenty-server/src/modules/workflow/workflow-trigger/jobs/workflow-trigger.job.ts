@@ -4,6 +4,7 @@ import isEmpty from 'lodash.isempty';
 import { FieldActorSource } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
 
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { Process } from 'src/engine/core-modules/message-queue/decorators/process.decorator';
 import { Processor } from 'src/engine/core-modules/message-queue/decorators/processor.decorator';
 import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queue.constants';
@@ -19,6 +20,7 @@ export type WorkflowTriggerJobData = {
   workspaceId: string;
   workflowId: string;
   payload: object;
+  recordEventObjectMetadataId?: string;
 };
 
 const DEFAULT_WORKFLOW_NAME = 'Workflow';
@@ -30,10 +32,12 @@ export class WorkflowTriggerJob {
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
     private readonly workflowCommonWorkspaceService: WorkflowCommonWorkspaceService,
     private readonly workflowRunnerWorkspaceService: WorkflowRunnerWorkspaceService,
+    private readonly recordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
   ) {}
 
   @Process(WorkflowTriggerJob.name)
   async handle(data: WorkflowTriggerJobData): Promise<void> {
+    if (!(await this.isPayloadAllowed(data))) return;
     const authContext = buildSystemAuthContext(data.workspaceId);
 
     await this.globalWorkspaceOrmManager.executeInWorkspaceContext(async () => {
@@ -81,6 +85,8 @@ export class WorkflowTriggerJob {
         return;
       }
 
+      if (!(await this.isPayloadAllowed(data))) return;
+
       await this.workflowRunnerWorkspaceService.run({
         workspaceId: data.workspaceId,
         workflowVersionId: workflow.lastPublishedVersionId,
@@ -96,5 +102,28 @@ export class WorkflowTriggerJob {
         },
       });
     }, authContext);
+  }
+  private async isPayloadAllowed(
+    data: WorkflowTriggerJobData,
+  ): Promise<boolean> {
+    const payload = data.payload;
+    const isRecordEvent = 'recordId' in payload && 'properties' in payload;
+
+    if (!data.recordEventObjectMetadataId) {
+      // Legacy record-event jobs lack trustworthy object provenance.
+      return !isRecordEvent;
+    }
+    if (!isRecordEvent) return false;
+    try {
+      return await this.recordAccessAuthorizationService.isGenericRecordEventPublicationAllowed(
+        {
+          workspaceId: data.workspaceId,
+          objectMetadataId: data.recordEventObjectMetadataId,
+          eventProperties: [payload.properties],
+        },
+      );
+    } catch {
+      return false;
+    }
   }
 }

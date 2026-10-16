@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { CacheStorageModule } from 'src/engine/core-modules/cache-storage/cache-storage.module';
+import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { CronModule } from 'src/engine/core-modules/cron/cron.module';
 import { FeatureFlagModule } from 'src/engine/core-modules/feature-flag/feature-flag.module';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
@@ -22,6 +23,7 @@ import { WorkflowDatabaseEventTriggerListener } from 'src/modules/workflow/workf
     WorkflowCommonModule,
     WorkspaceCacheModule,
     WorkspaceDataSourceModule,
+    InconnectRecordAccessModule,
   ],
   providers: [
     AutomatedTriggerWorkspaceService,

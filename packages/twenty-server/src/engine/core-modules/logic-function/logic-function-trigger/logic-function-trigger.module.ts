@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { TokenModule } from 'src/engine/core-modules/auth/token/token.module';
 import { CronModule } from 'src/engine/core-modules/cron/cron.module';
 import { WorkspaceDomainsModule } from 'src/engine/core-modules/domain/workspace-domains/workspace-domains.module';
@@ -16,6 +17,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
 
 @Module({
   imports: [
+    InconnectRecordAccessModule,
     TypeOrmModule.forFeature([LogicFunctionEntity, WorkspaceEntity]),
     TokenModule,
     WorkspaceDomainsModule,

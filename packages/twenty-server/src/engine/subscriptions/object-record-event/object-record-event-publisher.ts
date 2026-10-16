@@ -24,6 +24,7 @@ import { DatabaseEventAction } from 'src/engine/api/graphql/graphql-query-runner
 import { GraphqlQueryParser } from 'src/engine/api/graphql/graphql-query-runner/graphql-query-parsers/graphql-query.parser';
 import { type FlatApplicationCacheMaps } from 'src/engine/core-modules/application/types/flat-application-cache-maps.type';
 import { findActiveFlatApplicationById } from 'src/engine/core-modules/application/utils/find-active-flat-application-by-id.util';
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { type SerializableAuthContext } from 'src/engine/core-modules/auth/types/serializable-auth-context.type';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { type FlatWorkspaceMemberMaps } from 'src/engine/core-modules/user/types/flat-workspace-member-maps.type';
@@ -74,11 +75,37 @@ export class ObjectRecordEventPublisher {
     private readonly workspaceManyOrAllFlatEntityMapsCacheService: WorkspaceManyOrAllFlatEntityMapsCacheService,
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
     private readonly commonSelectFieldsHelper: CommonSelectFieldsHelper,
+    private readonly inconnectRecordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
   ) {}
+
+  async isGenericPublicationAllowed(
+    eventBatch: WorkspaceEventBatch<ObjectRecordEvent>,
+  ): Promise<boolean> {
+    if (eventBatch.objectMetadata.workspaceId !== eventBatch.workspaceId) {
+      return false;
+    }
+
+    try {
+      return await this.inconnectRecordAccessAuthorizationService.isGenericRecordEventPublicationAllowed(
+        {
+          workspaceId: eventBatch.workspaceId,
+          objectMetadataId: eventBatch.objectMetadata.id,
+          eventProperties: eventBatch.events.map((event) => event.properties),
+        },
+      );
+    } catch {
+      return false;
+    }
+  }
 
   async publish(
     eventBatch: WorkspaceEventBatch<ObjectRecordEvent>,
   ): Promise<void> {
+    // Suppress before stream discovery, field filtering or relation enrichment.
+    if (!(await this.isGenericPublicationAllowed(eventBatch))) {
+      return;
+    }
+
     const workspaceId = eventBatch.workspaceId;
 
     const activeStreamIds =
@@ -101,6 +128,10 @@ export class ObjectRecordEventPublisher {
     for (const [streamChannelId, streamData] of streamsData) {
       if (!isDefined(streamData)) {
         streamIdsToRemove.push(streamChannelId);
+        continue;
+      }
+
+      if (streamData.workspaceId !== workspaceId) {
         continue;
       }
 

@@ -3,6 +3,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { BillingModule } from 'src/engine/core-modules/billing/billing.module';
 import { EnterpriseModule } from 'src/engine/core-modules/enterprise/enterprise.module';
 import { EventLogEmitterModule } from 'src/engine/core-modules/event-logs/emit/event-log-emitter.module';
@@ -22,6 +23,7 @@ import { EventLogsService } from './event-logs.service';
 @Module({
   imports: [
     ClickHouseModule,
+    InconnectRecordAccessModule,
     PermissionsModule,
     BillingModule,
     EnterpriseModule,

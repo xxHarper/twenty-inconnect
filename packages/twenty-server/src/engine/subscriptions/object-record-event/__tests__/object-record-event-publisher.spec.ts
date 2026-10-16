@@ -1,5 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
+
 import {
   FieldMetadataType,
   type ObjectsPermissions,
@@ -98,6 +100,10 @@ describe('ObjectRecordEventPublisher', () => {
   let mockGlobalWorkspaceOrmManager: jest.Mocked<
     Pick<GlobalWorkspaceOrmManager, 'getGlobalWorkspaceDataSourceReplica'>
   >;
+
+  const mockRecordAccessAuthorization = {
+    isGenericRecordEventPublicationAllowed: jest.fn(),
+  };
 
   const workspaceId = COMPANY_FLAT_OBJECT_MOCK.workspaceId;
   const streamChannelId = 'test-stream-channel-id';
@@ -231,6 +237,9 @@ describe('ObjectRecordEventPublisher', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockRecordAccessAuthorization.isGenericRecordEventPublicationAllowed.mockResolvedValue(
+      true,
+    );
 
     mockSubscriptionService = {
       publish: jest.fn().mockResolvedValue(undefined),
@@ -285,6 +294,10 @@ describe('ObjectRecordEventPublisher', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ObjectRecordEventPublisher,
+        {
+          provide: InconnectRecordAccessAuthorizationService,
+          useValue: mockRecordAccessAuthorization,
+        },
         {
           provide: SubscriptionService,
           useValue: mockSubscriptionService,
@@ -342,6 +355,151 @@ describe('ObjectRecordEventPublisher', () => {
         workspaceId,
       );
       expect(mockEventStreamService.getStreamsData).not.toHaveBeenCalled();
+      expect(
+        mockSubscriptionService.publishToEventStream,
+      ).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'previous-owner',
+      'new-owner',
+      'coordinator-outside-team',
+      'coordinator-inside-team',
+      'no-access',
+      'cross-workspace',
+    ])(
+      'should suppress managed event delivery for %s without exposing identity or fields',
+      async (recipient) => {
+        mockRecordAccessAuthorization.isGenericRecordEventPublicationAllowed.mockResolvedValue(
+          false,
+        );
+        mockEventStreamService.getStreamsData.mockResolvedValue(
+          new Map([
+            [
+              streamChannelId,
+              {
+                ...mockStreamData,
+                workspaceId:
+                  recipient === 'cross-workspace'
+                    ? 'other-workspace'
+                    : workspaceId,
+                authContext: {
+                  ...mockStreamData.authContext,
+                  workspaceMemberId: recipient,
+                },
+              },
+            ],
+          ]),
+        );
+        await service.publish({
+          name: 'company.updated',
+          workspaceId,
+          objectMetadata: companyObjectMetadata,
+          events: [
+            createMockEvent({
+              properties: {
+                before: {
+                  id: 'record-1',
+                  ownerId: 'previous-owner',
+                  name: 'secret-before',
+                },
+                after: {
+                  id: 'record-1',
+                  ownerId: 'new-owner',
+                  name: 'secret-after',
+                },
+              },
+            }),
+          ],
+        } as WorkspaceEventBatch<never>);
+        expect(
+          mockRecordAccessAuthorization.isGenericRecordEventPublicationAllowed,
+        ).toHaveBeenCalledWith({
+          workspaceId,
+          objectMetadataId: companyObjectMetadata.id,
+          eventProperties: [expect.any(Object)],
+        });
+        expect(
+          mockSubscriptionService.publishToEventStream,
+        ).not.toHaveBeenCalled();
+        expect(
+          mockEventStreamService.getActiveStreamIds,
+        ).not.toHaveBeenCalled();
+        expect(
+          mockProcessNestedRelationsHelper.processNestedRelations,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should fail closed if publication authority throws', async () => {
+      mockRecordAccessAuthorization.isGenericRecordEventPublicationAllowed.mockRejectedValue(
+        new Error('authority unavailable'),
+      );
+      await expect(
+        service.publish({
+          name: 'company.updated',
+          workspaceId,
+          objectMetadata: companyObjectMetadata,
+          events: [createMockEvent()],
+        } as WorkspaceEventBatch<never>),
+      ).resolves.toBeUndefined();
+      expect(
+        mockSubscriptionService.publishToEventStream,
+      ).not.toHaveBeenCalled();
+      expect(mockEventStreamService.getActiveStreamIds).not.toHaveBeenCalled();
+    });
+
+    it('should recheck revoked publication authority for the next batch', async () => {
+      const batch = {
+        name: 'company.created',
+        workspaceId,
+        objectMetadata: companyObjectMetadata,
+        events: [createMockEvent()],
+      } as WorkspaceEventBatch<never>;
+      await service.publish(batch);
+      expect(
+        mockSubscriptionService.publishToEventStream,
+      ).toHaveBeenCalledTimes(1);
+      mockRecordAccessAuthorization.isGenericRecordEventPublicationAllowed.mockResolvedValue(
+        false,
+      );
+      await service.publish(batch);
+      expect(
+        mockSubscriptionService.publishToEventStream,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockRecordAccessAuthorization.isGenericRecordEventPublicationAllowed,
+      ).toHaveBeenCalledTimes(2);
+    });
+
+    it('should reject cross-workspace event metadata before looking up streams', async () => {
+      await service.publish({
+        name: 'company.created',
+        workspaceId: 'other-workspace',
+        objectMetadata: companyObjectMetadata,
+        events: [createMockEvent()],
+      } as WorkspaceEventBatch<never>);
+      expect(
+        mockSubscriptionService.publishToEventStream,
+      ).not.toHaveBeenCalled();
+      expect(mockEventStreamService.getActiveStreamIds).not.toHaveBeenCalled();
+    });
+
+    it('should reject a cross-workspace recipient even for an unmanaged object', async () => {
+      mockEventStreamService.getStreamsData.mockResolvedValue(
+        new Map([
+          [
+            streamChannelId,
+            { ...mockStreamData, workspaceId: 'other-workspace' },
+          ],
+        ]),
+      );
+      await service.publish({
+        name: 'company.created',
+        workspaceId,
+        objectMetadata: companyObjectMetadata,
+        events: [createMockEvent()],
+      } as WorkspaceEventBatch<never>);
       expect(
         mockSubscriptionService.publishToEventStream,
       ).not.toHaveBeenCalled();

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { CacheStorageModule } from 'src/engine/core-modules/cache-storage/cache-storage.module';
 import { FeatureFlagModule } from 'src/engine/core-modules/feature-flag/feature-flag.module';
 import { CommandMenuItemModule } from 'src/engine/metadata-modules/command-menu-item/command-menu-item.module';
@@ -16,6 +17,7 @@ import { WorkflowTriggerWorkspaceService } from 'src/modules/workflow/workflow-t
 @Module({
   imports: [
     WorkflowCommonModule,
+    InconnectRecordAccessModule,
     CodeStepBuildModule,
     WorkflowRunnerModule,
     AutomatedTriggerModule,

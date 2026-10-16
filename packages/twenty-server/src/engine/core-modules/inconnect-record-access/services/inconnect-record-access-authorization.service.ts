@@ -12,6 +12,7 @@ import {
   type InconnectRecordAccessDecision,
   type InconnectRecordAccessWorkspacePolicy,
 } from 'src/engine/core-modules/inconnect-record-access/types/inconnect-record-access-workspace-policy.type';
+import { collectRecordEventPayloadDependencies } from 'src/engine/core-modules/inconnect-record-access/utils/collect-record-event-payload-dependencies.util';
 import { doesInconnectRecordAccessPolicyRequireTeamAuthority } from 'src/engine/core-modules/inconnect-record-access/utils/does-inconnect-record-access-policy-require-team-authority.util';
 import { invalidInconnectTeamAccessMaps } from 'src/engine/core-modules/inconnect-record-access/utils/parse-inconnect-team-access-maps.util';
 import { renderInconnectRecordAccessCondition } from 'src/engine/core-modules/inconnect-record-access/utils/render-inconnect-record-access-condition.util';
@@ -64,6 +65,120 @@ export class InconnectRecordAccessAuthorizationService {
     private readonly policySourceService: InconnectRecordAccessPolicySourceService,
     private readonly workspaceMemberService: InconnectWorkspaceMemberService,
   ) {}
+
+  // This is classification for a fail-closed delivery gate, never a READ grant.
+  // Historical snapshots cannot establish current recipient access to both versions.
+  async isGenericRecordEventPublicationAllowed(args: {
+    workspaceId: string;
+    objectMetadataId: string;
+    eventProperties?: unknown[];
+  }): Promise<boolean> {
+    return (
+      (
+        await this.getGenericRecordEventPublicationDecisions({
+          ...args,
+          eventPropertiesGroups: [args.eventProperties],
+        })
+      )[0] === true
+    );
+  }
+
+  // Shared metadata/policy retrieval, independent decisions for mixed live batches.
+  async getGenericRecordEventPublicationDecisions({
+    workspaceId,
+    objectMetadataId,
+    eventPropertiesGroups,
+  }: {
+    workspaceId: string;
+    objectMetadataId: string;
+    eventPropertiesGroups: (unknown[] | undefined)[];
+  }): Promise<boolean[]> {
+    try {
+      const { flatRoleMaps, flatObjectMetadataMaps, flatFieldMetadataMaps } =
+        await this.workspaceCacheService.getOrRecompute(workspaceId, [
+          'flatRoleMaps',
+          'flatObjectMetadataMaps',
+          'flatFieldMetadataMaps',
+        ]);
+      const universalIdentifier =
+        flatObjectMetadataMaps.universalIdentifierById[objectMetadataId];
+      const objectMetadata = universalIdentifier
+        ? flatObjectMetadataMaps.byUniversalIdentifier[universalIdentifier]
+        : undefined;
+
+      if (
+        !objectMetadata ||
+        objectMetadata.id !== objectMetadataId ||
+        objectMetadata.workspaceId !== workspaceId
+      ) {
+        return eventPropertiesGroups.map(() => false);
+      }
+
+      const policy = await this.policySourceService.resolveWorkspacePolicy({
+        workspaceId,
+        flatRoleMaps,
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+      });
+
+      return eventPropertiesGroups.map((eventProperties) => {
+        try {
+          const dependencies = eventProperties
+            ? collectRecordEventPayloadDependencies({
+                workspaceId,
+                objectMetadataId,
+                eventProperties,
+                flatObjectMetadataMaps,
+                flatFieldMetadataMaps,
+              })
+            : new Set([objectMetadataId]);
+
+          switch (policy.status) {
+            case 'not-configured':
+            case 'unmanaged':
+              return true;
+            case 'configured':
+              return !policy.managedObjectMetadataIds.some((id) =>
+                dependencies.has(id),
+              );
+            default:
+              return false;
+          }
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      return eventPropertiesGroups.map(() => false);
+    }
+  }
+
+  // Historical counts and deleted snapshots cannot be safely post-filtered.
+  // Until explicit audit authority exists, managed workspaces cannot distribute them.
+  async isGenericRecordEventHistoryAllowed(
+    workspaceId: string,
+  ): Promise<boolean> {
+    try {
+      const { flatRoleMaps, flatObjectMetadataMaps, flatFieldMetadataMaps } =
+        await this.workspaceCacheService.getOrRecompute(workspaceId, [
+          'flatRoleMaps',
+          'flatObjectMetadataMaps',
+          'flatFieldMetadataMaps',
+        ]);
+      const policy = await this.policySourceService.resolveWorkspacePolicy({
+        workspaceId,
+        flatRoleMaps,
+        flatObjectMetadataMaps,
+        flatFieldMetadataMaps,
+      });
+
+      return (
+        policy.status === 'not-configured' || policy.status === 'unmanaged'
+      );
+    } catch {
+      return false;
+    }
+  }
 
   async resolveReadScope(
     args: ResolveReadAuthorizationArgs,

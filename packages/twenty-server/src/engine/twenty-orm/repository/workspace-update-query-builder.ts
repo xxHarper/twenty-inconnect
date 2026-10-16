@@ -3,12 +3,14 @@ import { QUERY_MAX_RECORDS } from 'twenty-shared/constants';
 import { type ObjectsPermissions } from 'twenty-shared/types';
 import { isDefined } from 'twenty-shared/utils';
 import {
+  Brackets,
   UpdateQueryBuilder,
   type EntityTarget,
   type ObjectLiteral,
   type UpdateResult,
 } from 'typeorm';
 import { type QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
+import { type ReturningType } from 'typeorm/driver/Driver';
 import { type WhereClause } from 'typeorm/query-builder/WhereClause';
 
 import { type FeatureFlagMap } from 'src/engine/core-modules/feature-flag/interfaces/feature-flag-map.interface';
@@ -39,6 +41,7 @@ import { applyInconnectRecordAccessToMutationQueryBuilder } from 'src/engine/twe
 import { applyRowLevelPermissionPredicates } from 'src/engine/twenty-orm/utils/apply-row-level-permission-predicates.util';
 import { applyTableAliasOnWhereCondition } from 'src/engine/twenty-orm/utils/apply-table-alias-on-where-condition';
 import { computeEventSelectQueryBuilder } from 'src/engine/twenty-orm/utils/compute-event-select-query-builder.util';
+import { executeUpdateWithEventSnapshots } from 'src/engine/twenty-orm/utils/execute-update-with-event-snapshots.util';
 import { formatData } from 'src/engine/twenty-orm/utils/format-data.util';
 import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
@@ -62,6 +65,7 @@ export class WorkspaceUpdateQueryBuilder<
     partialEntity: QueryDeepPartialEntity<T>;
   }[];
   private internallyInjectedFieldNames: string[] = [];
+  private eventSnapshotReturning?: string;
 
   private _relationNestedQueries?: RelationNestedQueries;
   private _filesFieldSync?: FilesFieldSync;
@@ -140,23 +144,29 @@ export class WorkspaceUpdateQueryBuilder<
         featureFlagMap: this.featureFlagMap,
         expressionMap: this.expressionMap,
         objectRecordsPermissions: this.objectRecordsPermissions,
+        selectAllColumns: true,
       });
 
       const tableName = computeObjectTargetTable(objectMetadata);
 
-      const before = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
+      const before = await eventSelectQueryBuilder
+        .take(QUERY_MAX_RECORDS + 1)
+        .getMany({
+          noFormatting: true,
+        });
 
-      if (before.length > QUERY_MAX_RECORDS) {
-        throw new TwentyORMException(
-          `Cannot update more than ${QUERY_MAX_RECORDS} records at once`,
-          TwentyORMExceptionCode.TOO_MANY_RECORDS_TO_UPDATE,
-          {
-            userFriendlyMessage: msg`You can only update up to ${QUERY_MAX_RECORDS} records at once.`,
-          },
-        );
-      }
+      this.assertUpdateLimit(before.length);
+
+      // Keep concurrent new matches out of this bounded snapshot batch, while
+      // retaining the original filter and all mutation authorization predicates.
+      const originalWheres = this.expressionMap.wheres;
+
+      this.where(
+        new Brackets((whereBuilder) => {
+          (whereBuilder as UpdateQueryBuilder<T>).expressionMap.wheres =
+            originalWheres;
+        }),
+      ).andWhereInIds(before.map((record) => record.id));
 
       this.expressionMap.wheres = applyTableAliasOnWhereCondition({
         condition: this.expressionMap.wheres,
@@ -243,18 +253,15 @@ export class WorkspaceUpdateQueryBuilder<
         updatedRecords,
       });
 
-      const result = await super.execute();
+      const { result, recordsAfter } =
+        await this.executeWithEventSnapshots(before);
 
       if (isDefined(filesFieldFileIds)) {
         await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
       }
 
-      const after = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
-
       const formattedAfter = formatResult<T[]>(
-        after,
+        recordsAfter,
         objectMetadata,
         this.internalContext.flatObjectMetadataMaps,
         this.internalContext.flatFieldMetadataMaps,
@@ -315,6 +322,35 @@ export class WorkspaceUpdateQueryBuilder<
 
   public async executeMany(): Promise<UpdateResult> {
     try {
+      this.assertUpdateLimit(this.manyInputs.length);
+
+      this.manyInputs = this.manyInputs.map((input) => {
+        // PostgreSQL UUID equality is case insensitive. Do not restrict UUID versions.
+        if (
+          typeof input.criteria !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            input.criteria,
+          )
+        ) {
+          throw new TwentyORMException(
+            'UPDATE identities must be UUIDs',
+            TwentyORMExceptionCode.INVALID_INPUT,
+          );
+        }
+
+        return { ...input, criteria: input.criteria.toLowerCase() };
+      });
+
+      if (
+        new Set(this.manyInputs.map((input) => input.criteria)).size !==
+        this.manyInputs.length
+      ) {
+        throw new TwentyORMException(
+          'Duplicate UPDATE identities are not supported',
+          TwentyORMExceptionCode.INVALID_INPUT,
+        );
+      }
+
       for (const input of this.manyInputs) {
         const fakeExpressionMapToValidatePermissions = Object.assign(
           {},
@@ -350,15 +386,20 @@ export class WorkspaceUpdateQueryBuilder<
         featureFlagMap: this.featureFlagMap,
         expressionMap: this.expressionMap,
         objectRecordsPermissions: this.objectRecordsPermissions,
+        selectAllColumns: true,
       });
 
       eventSelectQueryBuilder.whereInIds(
         this.manyInputs.map((input) => input.criteria),
       );
 
-      const beforeRecords = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
+      const beforeRecords = await eventSelectQueryBuilder
+        .take(QUERY_MAX_RECORDS + 1)
+        .getMany({
+          noFormatting: true,
+        });
+
+      this.assertUpdateLimit(beforeRecords.length);
 
       const formattedBefore = formatResult<T[]>(
         beforeRecords,
@@ -368,6 +409,7 @@ export class WorkspaceUpdateQueryBuilder<
       );
 
       const results: UpdateResult[] = [];
+      const afterRecords: ObjectLiteral[] = [];
 
       const nestedRelationQueryBuilder = new WorkspaceSelectQueryBuilder(
         this as unknown as WorkspaceSelectQueryBuilder<T>,
@@ -469,18 +511,21 @@ export class WorkspaceUpdateQueryBuilder<
           updatedRecords,
         });
 
-        const result = await super.execute();
+        if (!beforeRecord) {
+          continue;
+        }
+
+        const { result, recordsAfter } = await this.executeWithEventSnapshots([
+          beforeRecord,
+        ]);
 
         results.push(result);
+        afterRecords.push(...recordsAfter);
       }
 
       if (isDefined(filesFieldFileIds)) {
         await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
       }
-
-      const afterRecords = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
 
       const formattedAfter = formatResult<T[]>(
         afterRecords,
@@ -543,6 +588,47 @@ export class WorkspaceUpdateQueryBuilder<
         this.internalContext,
       );
     }
+  }
+
+  private assertUpdateLimit(count: number): void {
+    if (count > QUERY_MAX_RECORDS) {
+      throw new TwentyORMException(
+        `Cannot update more than ${QUERY_MAX_RECORDS} records at once`,
+        TwentyORMExceptionCode.TOO_MANY_RECORDS_TO_UPDATE,
+        {
+          userFriendlyMessage: msg`You can only update up to ${QUERY_MAX_RECORDS} records at once.`,
+        },
+      );
+    }
+  }
+
+  protected override createReturningExpression(
+    returningType: ReturningType,
+  ): string {
+    return [
+      super.createReturningExpression(returningType),
+      this.eventSnapshotReturning,
+    ]
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  private executeWithEventSnapshots(before: ObjectLiteral[]) {
+    return executeUpdateWithEventSnapshots({
+      getReturningExpression: () => super.createReturningExpression('update'),
+      entityMetadata: this.expressionMap.mainAlias!.metadata,
+      driver: this.connection.driver,
+      escape: (identifier) => this.escape(identifier),
+      execute: async (snapshotReturning) => {
+        this.eventSnapshotReturning = snapshotReturning;
+        try {
+          return await super.execute();
+        } finally {
+          this.eventSnapshotReturning = undefined;
+        }
+      },
+      beforeIds: before.map((record) => record.id),
+    });
   }
 
   override set(

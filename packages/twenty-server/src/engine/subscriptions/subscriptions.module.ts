@@ -6,6 +6,7 @@ import { ProcessNestedRelationsHelper } from 'src/engine/api/common/common-neste
 import { CommonSelectFieldsHelper } from 'src/engine/api/common/common-select-fields/common-select-fields-helper';
 import { CacheLockModule } from 'src/engine/core-modules/cache-lock/cache-lock.module';
 import { CacheStorageModule } from 'src/engine/core-modules/cache-storage/cache-storage.module';
+import { InconnectRecordAccessModule } from 'src/engine/core-modules/inconnect-record-access/inconnect-record-access.module';
 import { I18nModule } from 'src/engine/core-modules/i18n/i18n.module';
 import { MetricsModule } from 'src/engine/core-modules/metrics/metrics.module';
 import { RedisClientModule } from 'src/engine/core-modules/redis-client/redis-client.module';
@@ -34,6 +35,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     WorkspaceManyOrAllFlatEntityMapsCacheModule,
     NavigationMenuItemModule,
     I18nModule,
+    InconnectRecordAccessModule,
   ],
   providers: [
     SubscriptionService,

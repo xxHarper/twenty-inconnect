@@ -1,5 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
+
 import { FeatureFlagService } from 'src/engine/core-modules/feature-flag/services/feature-flag.service';
 import { MessageQueueService } from 'src/engine/core-modules/message-queue/services/message-queue.service';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
@@ -17,6 +19,10 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
   let messageQueueService: jest.Mocked<MessageQueueService>;
   let featureFlagService: jest.Mocked<FeatureFlagService>;
   let workspaceCacheService: jest.Mocked<WorkspaceCacheService>;
+
+  const recordAccessAuthorization = {
+    isGenericRecordEventPublicationAllowed: jest.fn(),
+  };
 
   const mockRepository = {
     find: jest.fn(),
@@ -51,6 +57,9 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
     }) as FlatObjectMetadata;
 
   beforeEach(async () => {
+    recordAccessAuthorization.isGenericRecordEventPublicationAllowed
+      .mockReset()
+      .mockResolvedValue(true);
     globalWorkspaceOrmManager = {
       getRepository: jest.fn().mockResolvedValue(mockRepository),
       executeInWorkspaceContext: jest
@@ -74,6 +83,10 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkflowDatabaseEventTriggerListener,
+        {
+          provide: InconnectRecordAccessAuthorizationService,
+          useValue: recordAccessAuthorization,
+        },
         {
           provide: GlobalWorkspaceOrmManager,
           useValue: globalWorkspaceOrmManager,
@@ -111,6 +124,61 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
     listener = module.get<WorkflowDatabaseEventTriggerListener>(
       WorkflowDatabaseEventTriggerListener,
     );
+  });
+
+  it.each([
+    'handleObjectRecordCreateEvent',
+    'handleObjectRecordUpdateEvent',
+    'handleObjectRecordDeleteEvent',
+    'handleObjectRecordDestroyEvent',
+    'handleObjectRecordUpsertEvent',
+  ] as const)(
+    'suppresses managed snapshots before workflow enrichment or dispatch: %s',
+    async (method) => {
+      recordAccessAuthorization.isGenericRecordEventPublicationAllowed.mockResolvedValue(
+        false,
+      );
+      await listener[method]({
+        workspaceId: 'test-workspace',
+        name: 'testObject.updated',
+        objectMetadata: createMockFlatObjectMetadata({}),
+        events: [
+          {
+            recordId: 'secret-record',
+            properties: {
+              before: { name: 'secret-before' },
+              after: { name: 'secret-after' },
+            },
+          },
+        ],
+      } as never);
+      expect(
+        recordAccessAuthorization.isGenericRecordEventPublicationAllowed,
+      ).toHaveBeenCalledWith({
+        workspaceId: 'test-workspace',
+        objectMetadataId: 'test-object-metadata',
+        eventProperties: [expect.any(Object)],
+      });
+      expect(
+        globalWorkspaceOrmManager.executeInWorkspaceContext,
+      ).not.toHaveBeenCalled();
+      expect(featureFlagService.isFeatureEnabled).not.toHaveBeenCalled();
+      expect(messageQueueService.add).not.toHaveBeenCalled();
+    },
+  );
+
+  it('suppresses workflow dispatch if authority is unavailable', async () => {
+    recordAccessAuthorization.isGenericRecordEventPublicationAllowed.mockRejectedValue(
+      new Error('unavailable'),
+    );
+    await listener.handleObjectRecordUpsertEvent({
+      workspaceId: 'test-workspace',
+      name: 'testObject.upserted',
+      objectMetadata: createMockFlatObjectMetadata({}),
+      events: [],
+    } as never);
+    expect(messageQueueService.add).not.toHaveBeenCalled();
+    expect(featureFlagService.isFeatureEnabled).not.toHaveBeenCalled();
   });
 
   describe('handleObjectRecordUpdateEvent', () => {
@@ -155,6 +223,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: mockPayload.events[0],
         },
         { retryLimit: 3 },
@@ -178,6 +247,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: mockPayload.events[0],
         },
         { retryLimit: 3 },
@@ -263,6 +333,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: createPayload.events[0],
         },
         { retryLimit: 3 },
@@ -300,6 +371,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: deletePayload.events[0],
         },
         { retryLimit: 3 },
@@ -337,6 +409,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: destroyPayload.events[0],
         },
         { retryLimit: 3 },
@@ -380,6 +453,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: batchPayload.events[0],
         },
         { retryLimit: 3 },
@@ -390,6 +464,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: batchPayload.events[1],
         },
         { retryLimit: 3 },
@@ -428,6 +503,7 @@ describe('WorkflowDatabaseEventTriggerListener', () => {
         {
           workspaceId,
           workflowId,
+          recordEventObjectMetadataId: 'test-object-metadata',
           payload: positionOnlyPayload.events[0],
         },
         { retryLimit: 3 },

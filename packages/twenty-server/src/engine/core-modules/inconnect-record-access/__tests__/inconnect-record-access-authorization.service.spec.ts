@@ -169,6 +169,80 @@ const buildService = ({
 };
 
 describe('InconnectRecordAccessAuthorizationService', () => {
+  describe('generic event publication boundary', () => {
+    it.each(['ownRecords', 'ownAndTeamRecords', 'allRecords'] as const)(
+      'suppresses managed objects regardless of %s policy',
+      async (recordEffect) => {
+        const { service, queryBuilder, workspaceMemberService } = buildService({
+          policy: buildPolicy(recordEffect),
+        });
+        await expect(
+          service.isGenericRecordEventPublicationAllowed({
+            workspaceId: WORKSPACE_ID,
+            objectMetadataId: OBJECT_METADATA_ID,
+          }),
+        ).resolves.toBe(false);
+        expect(queryBuilder.getRawOne).not.toHaveBeenCalled();
+        expect(
+          workspaceMemberService.assertActiveWorkspaceMember,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      { status: 'unmanaged' },
+      { status: 'not-configured' },
+      {
+        status: 'configured',
+        managedObjectMetadataIds: ['another-object'],
+        rules: [],
+      },
+    ] as InconnectRecordAccessWorkspacePolicy[])(
+      'preserves explicitly unmanaged objects under $status',
+      async (policy) => {
+        const { service } = buildService({ policy });
+        await expect(
+          service.isGenericRecordEventPublicationAllowed({
+            workspaceId: WORKSPACE_ID,
+            objectMetadataId: OBJECT_METADATA_ID,
+          }),
+        ).resolves.toBe(true);
+      },
+    );
+
+    it.each([
+      {
+        policy: {
+          status: 'invalid',
+          reason: 'authority absent, invalid or revoked',
+        } as InconnectRecordAccessWorkspacePolicy,
+      },
+      { initialCacheFailure: true },
+      { metadataWorkspaceId: OTHER_WORKSPACE_ID },
+    ])(
+      'denies publication when current classification cannot be proven: %j',
+      async (options) => {
+        const { service } = buildService(options);
+        await expect(
+          service.isGenericRecordEventPublicationAllowed({
+            workspaceId: WORKSPACE_ID,
+            objectMetadataId: OBJECT_METADATA_ID,
+          }),
+        ).resolves.toBe(false);
+      },
+    );
+
+    it('denies unknown object identities', async () => {
+      const { service } = buildService({ policy: { status: 'unmanaged' } });
+      await expect(
+        service.isGenericRecordEventPublicationAllowed({
+          workspaceId: WORKSPACE_ID,
+          objectMetadataId: 'unknown',
+        }),
+      ).resolves.toBe(false);
+    });
+  });
+
   it('returns not-managed without turning it into universal authorization', async () => {
     const { service } = buildService({ policy: { status: 'unmanaged' } });
 

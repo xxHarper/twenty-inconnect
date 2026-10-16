@@ -1,5 +1,6 @@
 import { Logger, Scope } from '@nestjs/common';
 
+import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { Process } from 'src/engine/core-modules/message-queue/decorators/process.decorator';
 import { Processor } from 'src/engine/core-modules/message-queue/decorators/processor.decorator';
 import { MessageQueue } from 'src/engine/core-modules/message-queue/message-queue.constants';
@@ -26,6 +27,7 @@ export class LogicFunctionTriggerJob {
 
   constructor(
     private readonly logicFunctionExecutorService: LogicFunctionExecutorService,
+    private readonly recordAccessAuthorizationService: InconnectRecordAccessAuthorizationService,
   ) {}
 
   @Process(LogicFunctionTriggerJob.name)
@@ -37,6 +39,28 @@ export class LogicFunctionTriggerJob {
 
     for (const logicFunctionPayload of logicFunctionPayloads) {
       try {
+        const payload = logicFunctionPayload.payload;
+
+        if (payload && 'objectMetadata' in payload && 'properties' in payload) {
+          const objectMetadata = payload.objectMetadata as {
+            id?: string;
+            workspaceId?: string;
+          } | null;
+
+          if (
+            !objectMetadata?.id ||
+            objectMetadata.workspaceId !== logicFunctionPayload.workspaceId ||
+            !(await this.recordAccessAuthorizationService.isGenericRecordEventPublicationAllowed(
+              {
+                workspaceId: logicFunctionPayload.workspaceId,
+                objectMetadataId: objectMetadata.id,
+                eventProperties: [payload.properties],
+              },
+            ))
+          )
+            continue;
+        }
+
         await this.logicFunctionExecutorService.execute({
           logicFunctionId: logicFunctionPayload.logicFunctionId,
           workspaceId: logicFunctionPayload.workspaceId,

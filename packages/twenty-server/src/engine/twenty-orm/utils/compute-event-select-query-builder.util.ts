@@ -23,6 +23,7 @@ type EventSelectQueryBuilderFactoryArgs<T extends ObjectLiteral> = {
   featureFlagMap: FeatureFlagMap;
   expressionMap: QueryExpressionMap;
   objectRecordsPermissions: ObjectsPermissions;
+  selectAllColumns?: boolean;
 };
 
 export const computeEventSelectQueryBuilder = <T extends ObjectLiteral>({
@@ -32,6 +33,7 @@ export const computeEventSelectQueryBuilder = <T extends ObjectLiteral>({
   internalContext,
   expressionMap,
   objectRecordsPermissions,
+  selectAllColumns = false,
 }: EventSelectQueryBuilderFactoryArgs<T>): WorkspaceSelectQueryBuilder<T> => {
   const eventSelectQueryBuilder = new WorkspaceSelectQueryBuilder(
     queryBuilder as unknown as WorkspaceSelectQueryBuilder<T>,
@@ -45,6 +47,16 @@ export const computeEventSelectQueryBuilder = <T extends ObjectLiteral>({
   eventSelectQueryBuilder.expressionMap.wheres = expressionMap.wheres;
   eventSelectQueryBuilder.expressionMap.aliases = expressionMap.aliases;
   eventSelectQueryBuilder.setParameters(expressionMap.parameters);
+
+  if (selectAllColumns && expressionMap.mainAlias) {
+    // Complete private snapshots must not inherit the caller's partial SELECT.
+    // Explicit columns also include select:false columns, as the same UPDATE does.
+    eventSelectQueryBuilder.select(
+      expressionMap.mainAlias.metadata.columns.map(
+        (column) => `${expressionMap.mainAlias!.name}.${column.propertyPath}`,
+      ),
+    );
+  }
 
   if (
     eventSelectQueryBuilder.expressionMap.selects.length === 0 &&
