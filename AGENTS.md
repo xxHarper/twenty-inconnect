@@ -1667,6 +1667,26 @@ For separately authorized destructive or disposable database validation, explici
 
 This note is historical and does not describe current environment-precedence behavior. Before the hardening, the then-active `override: true` policy caused a Fase 12A run intended for a disposable database to use the local `default` database. The mismatch was detected and stopped; it was local development only and never production. Read-only forensic review found no evidence of application-data DML, the Messaging tables were empty, and the Messaging upgrade chain registered at that time remained applied and marked complete locally. The local `default` database was intentionally left at the valid Messaging schema state of that incident; no rollback is implied. This historical observation is not current command tracking and makes no execution claim for the later F13C commands 5698 or 5700.
 
+## Product Backlog
+
+### REQ-TEL-001 — INCONNECT Telephony / Softphone
+
+**USER-CONFIRMED REQUIREMENT. NOT IMPLEMENTED. DESIGN AND DEVELOPMENT RESERVED FOR A SEPARATE CONVERSATION/TASK.**
+
+- Twilio voice telephony with a browser-based softphone embedded in Twenty; inbound and outbound calls; click-to-call directly from a CRM Lead.
+- Transfer active calls between executives and coordinators; record calls where configured and permitted.
+- Associate call activity with the matching Lead and show call count, duration, and available recordings in the corresponding CRM record.
+
+Confirmed inbound routing:
+
+- **A — Known caller with a matching Lead:** route to the Lead owner.
+- **B — Known caller whose Lead owner is busy:** Round Robin among available executives in the owner's Commercial Team.
+- **C — Unknown caller without a matching Lead:** Round Robin among available executives in the general eligible pool.
+
+Ambiguous phone matches, no available agents, failed transfers, offline owners, and disconnected calls require design before implementation; no fallback behavior is specified.
+
+Authorization, recording consent, retention, and Twilio Voice integration must each be evaluated separately. WhatsApp Messaging is implemented in development; telephony is not, and the existing Twilio WhatsApp adapter does not implement voice. Reuse existing INCONNECT concepts where appropriate, without assuming WhatsApp permission flags, Conversations, or provider transport apply to voice.
+
 ## Local F13 Checkpoint (2026-09-29)
 
 This is local/demo state only. On 2026-09-29, the approved F13B.1 Fast Instance Command was applied to local PostgreSQL `default` through the inspected supported command path. Apple retained Lead as its Messaging anchor and was configured through supported management logic with exactly `Celular -> PRIMARY` and no `MATCH_ONLY` Fields. The subsequent F13B.3 inbound auto-link smoke passed as described in the validation checkpoint above. Workspace, metadata, Lead, fixture, and phone IDs from that activation must never become product constants.
@@ -1701,6 +1721,17 @@ Expected smoke behavior:
 - Jane: all managed records subject to standard permissions; same Lead Supervisor default; Folio without owner defaults to self; transfer only when standard permissions allow.
 
 Production is a separate environment. Never imply that local configuration, migrations, data, or smoke tests changed production.
+
+## Local Git Checkpoint — 2026-10-15
+
+Completed local commits on `feature/inconnect-messaging`, in order:
+
+- `736d2b5b7399cd6d2dfc0b836d9b238f97297f93` — `docs: reconcile INCONNECT lifecycle checkpoint`; only `AGENTS.md`.
+- `3ae60901996ffde9a986d59ea9cb622bb7d2843b` — `test: add inert INCONNECT lifecycle probe tooling`; exactly **11 lifecycle source/test files** under `packages/twenty-server/src/database/scripts/inconnect-exact-upgrade/physical-harness/lifecycle-probe/`.
+
+F13C.3B1 source-only development is complete and **COMMITTED** as inert development preparation. The final reported worktree was clean. Documentation-refresh preflight on 2026-10-16 independently confirmed the same branch, HEAD `3ae60901996ffde9a986d59ea9cb622bb7d2843b`, and a clean worktree before editing. The earlier preflight at `bd4b762e35b22c21cf5c57353eb5907d16df7c79` in the 2026-10-14 operational checkpoint remains historical evidence; its then-untracked lifecycle files are now committed.
+
+The prior checkpoint's **4 focused Jest suites / 256 tests PASS** remains reported source-validation evidence, not rerun by this refresh. No live lifecycle adapter or physical lifecycle acceptance exists. **PG0/PG1 physical execution, Stage C5, and operational exact-upgrade remain BLOCKED**; Fast Commands 5698 and 5700 remain unauthorized, and no production rollout is established. These commits update source status only and do not change the 2026-10-14 operational gates.
 
 ## Repository Snapshot
 
