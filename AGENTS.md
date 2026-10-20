@@ -4,6 +4,8 @@
 
 For normal source-only tasks, prefer focused Jest tests, TypeScript, lint, and formatting without starting services or databases. Keep normal PostgreSQL `default` separate from any intended disposable test target; a changed port or database name alone does not establish physical isolation.
 
+**Git is read-only for Codex.** The user personally performs every Git write: add, commit, push, switch/checkout, branch creation/deletion, merge, rebase, reset, cherry-pick, and operations that modify tags, stash, index, references, or other Git state (including fetch/pull). Codex may inspect status, log, diff, show, and other read-only information. Authorization to edit source files never authorizes Git writes. Git command examples below describe user-operated procedures, not permission for Codex to execute them.
+
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -18,10 +20,121 @@ Twenty is an open-source CRM built with modern technologies in a monorepo struct
 - The syncable-entity skills apply only when actually creating or modifying syncable metadata entities.
 - Record-level authorization work must not be treated as creation of a syncable entity unless explicitly justified.
 
+## Current INCONNECT Lead Management and WhatsApp Attention Checkpoint — 2026-10-19
+
+This is the latest checkpoint for Lead Management and shared WhatsApp attention.
+It extends, without invalidating, the historical F13 product/runtime evidence and
+the 2026-10-14/15 operational checkpoints below. Existing licensing, authorization,
+Record Access, transaction, and physical-execution restrictions remain in force.
+This update documents source and accepted contracts; it activates no runtime.
+
+Read-only preflight: branch `feature/inconnect-lead-management`, HEAD
+`81d5fe6b68a4cb80a2fb50604ff5f11789f04702`, clean worktree and no staged changes
+before this AGENTS.md edit. These are dated observations, not future guarantees.
+
+### Phase status and implementation boundary
+
+| Phase | Evidence / contract | Accepted scope and remaining boundary |
+| --- | --- | --- |
+| **1B-1A — distribution engine: IMPLEMENTED, ACCEPTED SOURCE-ONLY** | [Phase contract](packages/twenty-server/docs/INCONNECT_LEAD_MANAGEMENT_PHASE_1B_1A.md); `packages/twenty-server/src/modules/inconnect-lead-management/distribution/` | Pure `buildLeadDistributionPlan`, deterministic assignments, quota validation, partitions and counts; independent review accepted. No operational distribution executor, owner transfers, Nest registration, or activation. |
+| **1B-1B-A — attention state machine: IMPLEMENTED, ACCEPTED SOURCE-ONLY** | `packages/twenty-server/src/modules/inconnect-messaging/attention-domain/` | Pure immutable reducer, exact decimal-string revisions and BigInt arithmetic, deduplication, provenance, frozen response coverage and old-callback protection; independent review accepted. No connection to production Messaging services. |
+| **1B-1B-C1 — logical adapter: IMPLEMENTED, ACCEPTED SOURCE-ONLY** | [Adapter contract](packages/twenty-server/src/modules/inconnect-messaging/attention-adapter/README.md); `packages/twenty-server/src/modules/inconnect-messaging/attention-adapter/` | Bounded logical-ledger projection, effects, receipts, aliases, intents and separate original-result recovery. Original tests and independent review accepted; completeness and authority of future storage reads remain mandatory preconditions. |
+| **1B-1B-C2 — persistence design: ACCEPTED DESIGN SOURCE-ONLY** | [Contractual C2 design](packages/twenty-server/docs/INCONNECT_ATTENTION_ADAPTER_C2_DESIGN.md) | Independent review accepted the design. Five normalized tables are proposed: AttentionEpoch, AttentionEffect, AttentionReceipt, AttentionResponseIntent and AttentionTransitionAudit. No new attention tables, columns, migrations, guards or physical PostgreSQL guarantees are implemented or validated by this acceptance. |
+
+C2 specifies current attention status/revision on Conversation, backend-owned
+tracking epochs and an immutable Message-to-origin-epoch link; an authoritative
+transactional reader; READ COMMITTED with a common Conversation lock and fresh
+post-lock reads; scoped uniqueness/FKs, deferred guards and atomic PostgreSQL
+state/ledger/audit/Outbox persistence. It also specifies historical Pending
+bootstrap and protection against legacy writers. Consult C2 for the detailed
+schema, lock order, error handling, rollout, retention and physical-test gates;
+do not treat those obligations as existing database enforcement.
+
+**Next phase: C2-I-A — NOT STARTED.** Its planned scope is physical-row TypeScript
+contracts, strict decoders and pure mappers. It is the next limited slice of the
+broader C2-I plan, not authorization to implement entities, SQL, migrations,
+readers/writers, runtime integration or activation. This documentation task does
+not start C2-I-A or any subsequent phase; await a separate instruction.
+
+Reported source validation and independent acceptance are historical evidence,
+not rerun by this update. C1's independent review reported 100,000 transitions
+without divergence under complete authoritative facts; that is not a test of
+PostgreSQL locks, query completeness, schema installation or production behavior.
+
+Status reconciliation: `attention-domain/README.md` still calls DELIVERED/READ a
+proposal awaiting approval, and the C2 document header still says pending review.
+Those are historical delivery labels superseded by the accepted business rule
+and independent C2 verdict recorded here. Earlier next-phase recommendations in
+the domain/C1 documents and C2's unsplit C2-I plan do not supersede C2-I-A above.
+`approvedAttentionSuccessPolicy()` already maps the approved rule to the unchanged
+domain literal `PROPOSED_DELIVERED_OR_READ`; that API name does not reopen the
+decision or authorize an UNDECIDED runtime policy. Specialized files are unchanged.
+
+### Lead Management functional contract and pending authority
+
+Lead Management is an administration and distribution module being developed on
+Twenty OSS. The pure engine implements SINGLE (one recipient), EVEN (balanced
+TOTAL or independent CATEGORY quotas), and MANUAL_QUOTAS (explicit per-recipient
+category quotas, including partial distribution). Assignment is deterministic,
+preserves feasible existing owners to minimize transfers, and keeps changed,
+unchanged and remaining partitions consistent. It does not balance historical
+portfolios or certify authorization, existence or freshness of its input.
+
+The operational contract requires a selected origin, authorized recipients,
+current Roles/permissions, an authorized preview and fresh revalidation before
+owner changes, plus idempotency, audit and durable progress. These operational
+capabilities are pending; a pure plan is neither a write capability nor a completed
+distribution. Distribution must not modify Folio ISO or WhatsApp Conversations
+as a side effect, and distribution permission never grants private Messaging
+content access or bypasses standard permissions, Record Access or Owner Integrity.
+
+The categories are exactly NORMAL and MESSAGE_PENDING. Future MESSAGE_PENDING
+classification depends on shared attention of Conversations linked by the exact
+CRM identity `(workspaceId, objectMetadataId, recordId)`, never personal Unread,
+customer phone matching or an artificial aggregate boolean on Lead. A separate
+authority to query aggregate attention categories without Messaging content
+access is **not approved** and requires separate approval. Aggregation across
+multiple Conversations and unknown/unlinked cases must be explicitly resolved;
+unknown or incomplete tracking must not silently become NORMAL. No classifier
+or operational distribution is implemented or enabled by this checkpoint.
+
+### Approved WhatsApp attention business and domain contract
+
+- A new unique inbound opens or renews shared PENDING and increments its revision.
+- Reading affects only personal Unread/read state; it never confirms shared attention.
+- Only valid, authenticated, correlated DELIVERED or READ evidence for a HUMAN response may automatically close its still-current covered revision.
+- QUEUED, SENDING, ACCEPTED, SENT, FAILED and UNKNOWN never justify automatic closure.
+- A template manually sent by an authenticated executive can be HUMAN. TEMPLATE is format, never provenance; AUTOMATION and LEGACY_UNKNOWN never automatically close attention.
+- Response provenance and coverage are frozen at intention acceptance. An old confirmation cannot close a revision opened later; retries never broaden coverage.
+- A human can explicitly mark Pending or Attended using an idempotent intention and observed revision. Manual Pending may renew from an older view; manual Attended requires the current revision. Deduplication preserves the earlier intention rather than creating another renewal.
+- Callbacks must be authenticated, exactly correlated and deduplicated. Current human authorization remains mandatory wherever the operation requires it; historical attribution grants no current access.
+
+These rules are approved at the functional/domain level. **The existing product
+code still implements shared manual Pending only.** Inbound, Send, Dispatch and
+callbacks are not connected to the new attention reducer or logical adapter.
+The current `setPending` boolean API remains a same-value no-op and does not
+implement the new intention/revision contract. Favorite and personal Unread stay
+independent. No production deployment, attention activation or Lead category
+authority is asserted.
+
+### Operational boundary retained
+
+Git remains exclusively read-only for Codex; the user performs all Git writes.
+PG0, PG1, Stage C5 and the operational exact-upgrade executor remain **BLOCKED**.
+Do not connect to or modify PostgreSQL, including session/schema inspection,
+without action-specific authorization and the applicable isolation/gate acceptance.
+Do not execute migrations, resets, setup, generators or Fast Instance Commands,
+or start workers, servers, Redis or other infrastructure without specific
+authorization. Source acceptance never lifts these execution gates. Do not inspect
+or reuse Enterprise RLS, introduce security bypasses, alter Roles, Workspace Members,
+policies or Record Access outside an authorized phase, or disturb pre-existing work.
+Workspace deletion and retention/purge procedures remain separate pending work;
+this checkpoint neither invents nor authorizes one.
+
 ## Current INCONNECT Operational Checkpoint — 2026-10-14
 
 This dated operational snapshot extends the historical 2026-10-12 product/runtime checkpoint below.
-It takes precedence for execution readiness; all existing licensing, security, authorization,
+It governs F13 execution readiness; all existing licensing, security, authorization,
 transaction, Messaging, and Record Access contracts remain in force.
 Git and database state must be rechecked before action under the applicable authorization;
 this documentation update performs no database inspection or physical execution.
@@ -192,7 +305,7 @@ npx nx run twenty-server:database:migrate:generate --name <name> --type <fast|sl
 
 ### Database Inspection (Postgres MCP)
 
-The repository includes a read-only Postgres MCP configuration in `.mcp.json`. When that MCP is available in the current runtime, use it to:
+The repository includes a read-only Postgres MCP configuration in `.mcp.json`. Only when that MCP is available in the current runtime and the specific database inspection is authorized, use it to:
 - Inspect workspace data, metadata, and object definitions while developing
 - Verify migration results (columns, types, constraints) after running migrations
 - Explore the multi-tenant schema structure (core, metadata, workspace-specific schemas)
@@ -338,7 +451,7 @@ This script starts Postgres + Redis (auto-detecting local services versus Docker
 
 # INCONNECT - Stable Project State / Handoff
 
-Historical product/runtime checkpoint: 2026-10-12, extended by the **Current INCONNECT Operational Checkpoint — 2026-10-14** near the beginning of this file. The newer checkpoint governs operational readiness and execution gates.
+Historical product/runtime checkpoint: 2026-10-12, extended by the **Current INCONNECT Operational Checkpoint — 2026-10-14** near the beginning of this file. That checkpoint retains the F13 execution gates; the **2026-10-19 Lead Management and WhatsApp Attention Checkpoint** records the latest source-only phase status and approved attention contract without invalidating this F13 history.
 
 F13A canonical phone identity, F13B existing-record `UNIQUE` linking, F13C.1A/B configuration and eligibility, F13C.1C caller-owned transaction composition, F13C.1D authority/plan, F13C.2A2 technical Automation WorkspaceMember, F13C.2A3 normal-authorized CRM create executor, the internal write receipt, generic same-INSERT `RETURNING *` event snapshots, and F13C.2B inbound transactional `NO_MATCH -> create -> link` orchestration are implemented and physically accepted in development. Current inbound processing conditionally creates only for a fresh exact `NO_MATCH` when `autoCreateEnabled` is true and all current readiness, authority, principal, Owner, and transaction validations pass. `UNIQUE` links the existing record without creating; `AMBIGUOUS`, `INVALID`, `DISABLED`, and not-ready outcomes remain `UNASSIGNED`; an already-linked Conversation is never relinked. `effectiveEnabled` is conditional rather than permanently false. None of this implies that migrations, provisioning, activation, or deployment occurred in production.
 
@@ -1096,7 +1209,7 @@ This Settings capability consumes the existing CRM context management contract. 
 
 `ConversationMemberState` is durable personal state with `id`, `workspaceId`, `conversationId`, `workspaceMemberId`, `favorite`, the tuple `lastReadMessageCreatedAt + lastReadMessageId`, `manualUnread`, `createdAt`, and `updatedAt`. Its logical identity is unique by workspace + Conversation + Workspace Member. Favorite and Unread are personal; they are never global Conversation fields. `Conversation.pendingAt` is shared Conversation state: null means not pending and non-null means pending.
 
-Pending is currently manual. It is not activated automatically by inbound activity, cleared automatically by a reply, or derived from unread, owner, Record Access, or Commercial Teams. `setInconnectMessagingConversationPending(conversationId, pending)` locks and updates the Conversation and, only for a real state transition, persists `CONVERSATION_PENDING_CHANGED` in the durable Outbox in the same transaction. Publication is requested after commit. A same-value mutation is a no-op, and changing Pending does not require `SEND_INCONNECT_MESSAGING`.
+Pending in the current product code is manual. Automatic inbound renewal and revision-covered HUMAN DELIVERED/READ closure are approved in the source-only attention domain, but are not integrated; see the 2026-10-19 checkpoint. Current Pending is not activated automatically by inbound activity, cleared automatically by a reply, or derived from unread, owner, Record Access, or Commercial Teams. `setInconnectMessagingConversationPending(conversationId, pending)` locks and updates the Conversation and, only for a real state transition, persists `CONVERSATION_PENDING_CHANGED` in the durable Outbox in the same transaction. Publication is requested after commit. A same-value mutation is a no-op, and changing Pending does not require `SEND_INCONNECT_MESSAGING`.
 
 `MessagingConfiguration.workStateTrackingBaselineAt` is a PostgreSQL/server-owned rollout timestamp. When a Workspace Member has no personal read cursor, it is the effective read baseline: historical inbound before the baseline is read by default, while inbound persisted after the baseline is unread. There is no Conversation × Workspace Member backfill, and listing Conversations never creates `ConversationMemberState` rows.
 
@@ -1458,7 +1571,7 @@ The inbox exposes visible server-backed `ALL`, `UNREAD`, `FAVORITES`, and `PENDI
 
 Conversation rows use only backend-derived work state. `isUnread` drives non-color-only emphasis and an unread indicator and is never reconstructed from loaded Messages. `isFavorite` is personal and drives the visible favorite/star state. `isPending` is shared and drives the visible Pending badge/state; it is never inferred from unread, message direction, ownership, inbound activity, outbound activity, or replies. Dedicated empty states exist for each work-state view and for search-plus-filter with no matches; loading, error, and empty remain distinct. The accessible tab-like filter can scroll horizontally on narrow layouts rather than breaking the page. Work-state text uses Lingui, action labels reflect their current state, and pending mutations expose disabled/busy behavior.
 
-The selected Conversation header exposes Add/Remove Favorite through `setInconnectMessagingConversationFavorite`, Mark/Clear Pending through `setInconnectMessagingConversationPending`, and manual Mark Read/Mark Unread. Favorite and read mutations never accept a Workspace Member ID. Pending remains shared and manual; no inbound, outbound, read, or reply rule sets or clears it automatically. Manual Mark Read calls `markInconnectMessagingConversationRead(conversationId)` without `throughMessageId`, meaning “mark all currently existing inbound Messages as read” on the server. Manual Mark Unread calls `markInconnectMessagingConversationUnread(conversationId)` without a cursor and relies on the durable backend `manualUnread` semantics. Mutations refetch authorized state rather than making frontend work state authoritative.
+The selected Conversation header exposes Add/Remove Favorite through `setInconnectMessagingConversationFavorite`, Mark/Clear Pending through `setInconnectMessagingConversationPending`, and manual Mark Read/Mark Unread. Favorite and read mutations never accept a Workspace Member ID. Pending remains shared and manual in this implemented UI/runtime; the approved source-only attention rules are not integrated, so no inbound, outbound, read, or reply rule currently sets or clears it automatically. Manual Mark Read calls `markInconnectMessagingConversationRead(conversationId)` without `throughMessageId`, meaning “mark all currently existing inbound Messages as read” on the server. Manual Mark Unread calls `markInconnectMessagingConversationUnread(conversationId)` without a cursor and relies on the durable backend `manualUnread` semantics. Mutations refetch authorized state rather than making frontend work state authoritative.
 
 Automatic read is deliberately narrower than manual Mark Read. When an unread Conversation is selected, the frontend may call Mark Read only with the current server-derived `readThroughMessageId`; it never uses the no-argument mark-all mode, sends a timestamp, constructs an arrival tuple, or round-trips a PostgreSQL cursor through JavaScript. A `MESSAGE_CREATED` `messageId` is only a realtime hint and must never be passed directly as `throughMessageId`. The flow is `MESSAGE_CREATED -> authorized Conversation/Message refetch -> current Messages render -> server-provided readThroughMessageId -> optional automatic read`.
 
@@ -1637,7 +1750,7 @@ Secure Manual CRM Linking **IS IMPLEMENTED END TO END**. The Fase 12A backend pr
 
 Canonical phone identity, metadata-driven PhoneIdentityField configuration, secure human exact-phone resolution, narrow workspace-wide background resolution, inbound automatic linking to an existing exact `UNIQUE` CRM record, and conditional enabled/ready `NO_MATCH` create/link orchestration **ARE IMPLEMENTED**. The F13C path remains exact, metadata-derived, normally authorized, transaction-bound, and narrow; it adds neither fuzzy matching nor broad CRM system authority.
 
-Still **NOT IMPLEMENTED**: unlink or relink; ambiguity ranking or confidence scoring; `additionalPhones` matching; email identity matching; sender-derived manual candidate search; CRM field editing; owner, stage, or phase changes beyond the exact create payload; anchor selection/change; CRM record preview in Settings; related lists or Folio ISO context; `RELATION`/`MORPH_RELATION` linking or context rendering; generic CRM realtime; cross-page context-configuration realtime; open-record navigation; Meta/Web provider wiring; AI/Agents integration; immediate cross-device realtime for personal Favorite/read mutations; automatic Pending business rules; per-filter numeric counts; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates.
+Still **NOT IMPLEMENTED**: unlink or relink; ambiguity ranking or confidence scoring; `additionalPhones` matching; email identity matching; sender-derived manual candidate search; CRM field editing; owner, stage, or phase changes beyond the exact create payload; anchor selection/change; CRM record preview in Settings; related lists or Folio ISO context; `RELATION`/`MORPH_RELATION` linking or context rendering; generic CRM realtime; cross-page context-configuration realtime; open-record navigation; Meta/Web provider wiring; AI/Agents integration; immediate cross-device realtime for personal Favorite/read mutations; runtime integration of the approved automatic Pending rules; per-filter numeric counts; drag/drop; clipboard image paste; microphone/voice recording; outbound `LOCATION`; rich/media templates; multi-attachment composer UX; reactions; historical media backfill; automatic `FileEntity`/FileStorage garbage collection or reconciliation; orphan personal-state GC; a dedicated provider-media TTL; template administration/editor; or creating, editing, or approving Twilio templates inside Twenty. The current picker only consumes supported provider-existing templates.
 
 F13C.2B is complete and is no longer a planned boundary. Future work must not broaden its exact configured PRIMARY, independently resolved Owner, ordinary Automation principal, current readiness, one-way link, or transaction guarantees without a separately designed and validated security change. Deployment-specific migration, provisioning, activation, and operational E2E remain environment work rather than new product behavior.
 
@@ -1775,6 +1888,8 @@ Before selecting an upstream reference, perform an INCONNECT impact analysis cov
 
 Upgrade procedure:
 
+Git writes in this procedure and its examples are performed personally by the user. Codex is restricted to read-only Git inspection; database, infrastructure and deployment actions retain their separate authorization gates.
+
 1. Start from a clean, synchronized `inconnect-main`.
 2. Run `git fetch upstream --tags`.
 3. Inspect upstream commits, release notes, schema changes, and migrations before merging.
@@ -1809,7 +1924,7 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Before security-sensitive migrations, perform a read-only preflight and Entity-to-DDL audit.
 - Never run `database:reset`, setup/reset scripts, migrations, generators, or PostgreSQL writes without explicit authorization for that exact action.
 - Do not modify local Roles, Workspace Members, Leads, Folios, Teams, memberships, or persisted policies without explicit authorization.
-- Do not make commits, push, create/delete branches or tags, change branches, or rewrite history unless the user explicitly asks.
+- Git is exclusively read-only for Codex under the rule at the top of this file; the user personally performs all Git writes. Source-edit authorization does not authorize staging, commits, branch changes or any other Git mutation.
 - Preserve unrelated and pre-existing worktree changes.
 - Prefer focused tests plus relevant INCONNECT regressions over destructive suites.
 - In `twenty-server`, explicit process environment is authoritative over dotenv files; `.env` and `.env.test` are fallback only. Never reintroduce `override: true` or equivalent behavior that silently replaces caller-provided configuration.
@@ -1819,6 +1934,22 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Report tests, typecheck/lint/format, `git status --short`, and `git diff --stat` at the end of implementation tasks.
 - If a requirement would change security architecture, schema, data, permissions, or authorized scope, stop and report the blocker before improvising.
 - Never inspect or use Enterprise RLS as a shortcut.
+
+### Lead Management and Attention Adapter Rules
+
+- Keep pure distribution evaluation separate from transactional execution. A preview/plan grants no owner-transfer authority; revalidate origin, selection, recipients, Roles, permissions, Record Access, Owner Integrity and current state before any authorized execution.
+- Distribution must not change Folio ISO or WhatsApp Conversations as a side effect. Distribution permissions grant no implicit Messaging content access; aggregate attention-category authority requires separate approval.
+- Classify MESSAGE_PENDING only from authoritative shared attention linked by exact workspace/object/record identity. Never use personal Unread, phone matching or a Lead boolean; incomplete tracking must return NOT_READY, never enable classification or silently fall back to NORMAL.
+- Use the accepted C2 design for persistence details. Do not create a parallel Messaging pipeline, delivery service, permission model or ledger authority; preserve the existing outbound state machine as transport authority.
+- Never turn SQL errors, timeouts, incomplete reads, missing required dependents or corruption into authoritative absence/null. A false absence of both Receipt and Effect can turn DUPLICATE into APPLIED; TypeScript brands and C1 local validation cannot prove query completeness.
+- PostgreSQL is the future ledger authority. Redis, caches, realtime hints and BullMQ are never authoritative ledger reads or idempotency guarantees.
+- Serialize every attention-ledger writer on the common Conversation lock, including intent registration, IGNORED effects and aliases that do not increment attentionRevision. Replan and reread after acquiring the lock on the same active caller-owned primary transaction; revision-only CAS is insufficient.
+- Preserve canonical identities, fingerprints and each receipt/alias's own original result. IGNORED stays consumed; CONFLICT reserves no domain keys. Retain keys and referenced originals while replay is admitted; do not invent TTL or purge procedures.
+- Keep response provenance, actor, Message, content, format and covered revision immutable across retries. Never infer HUMAN from historical Messages, SENT, TEMPLATE or callbacks; derive and preserve Message's origin epoch rather than treating an old epoch's fact as new.
+- Reauthorize current human operations and realtime recipients through existing Messaging and Record Access authority. Authenticate, correlate and deduplicate provider evidence; an authorityReference string or historical attribution is not a capability.
+- Once an aggregate is prepared, fence legacy pendingAt writers as required by C2, including before ENABLED; after activation, reject the legacy boolean API even before its same-value no-op. Keep pendingAt/status coherent and preserve historical Pending at bootstrap without replaying legacy Messages.
+- Atomicity claims cover the PostgreSQL transaction only: causal Message changes, attention, intention, ledger, audit and Outbox as applicable. PostgreSQL and Twilio are not atomic together; submit and publish after commit through existing durable mechanisms, preserving UNKNOWN on ambiguous submit.
+- Accepted designs, source tests and local commits never imply executed migrations, physical acceptance, deployment or activation. C2-I-A remains pending until separately instructed; no phase starts automatically.
 
 ### Messaging Rules
 
@@ -1871,7 +2002,7 @@ Do not apply migrations merely because the merge completed. Migration authorizat
 - Same-target retry is idempotent and emits no duplicate transition. A different-target request never overwrites; unlink and relink remain unsupported.
 - Linking updates only the complete Conversation linked tuple plus operational Outbox. It must never modify target CRM owner, stage, phase, another CRM Field, relation, Task, Activity, or Folio.
 - Every real link transition persists exactly one `CONVERSATION_LINKED` Outbox event in its transaction. Publication occurs after commit through current-recipient reauthorization and remains the public `CONVERSATION_UPDATED` hint.
-- Linking must not mutate Favorite, Unread, `manualUnread`, read cursor, Pending, `lastInboundAt`, WhatsApp session, or provider state. There is no automatic Pending rule.
+- Linking must not mutate Favorite, Unread, `manualUnread`, read cursor, Pending, `lastInboundAt`, WhatsApp session, or provider state. Linking never drives attention; current Pending remains manual, while approved automatic attention rules exist only in the separate source-only domain pending integration.
 - Manual linking UI may appear only for an authorized selected `UNASSIGNED` Conversation; the backend remains authorization authority and the frontend must not reconstruct TRIAGE permission.
 - Opening linking mode performs no candidate query. Search requires explicit human form submission and must never derive from sender, phone, email, `waId`, normalized external address, Message content, or CRM heuristics; blank search remains a no-op.
 - Candidate data is authorization-sensitive `network-only` data. Bind results and paging to Conversation plus submitted-search identity, keep draft separate from submitted search, and prevent stale query or `fetchMore` completion from crossing identities.
