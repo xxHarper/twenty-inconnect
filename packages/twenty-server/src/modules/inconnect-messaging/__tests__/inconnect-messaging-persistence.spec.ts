@@ -11,6 +11,12 @@ import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/datab
 import { AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790550000000-add-inconnect-messaging-phone-identity-fields';
 import { AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305698-add-inconnect-messaging-auto-create-configuration';
 import { AddInconnectMessagingAutomationPrincipalFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305700-add-inconnect-messaging-automation-principal';
+import { ATTENTION_LEDGER_UP } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1792540800000-create-inconnect-messaging-attention-ledger';
+import { InconnectMessagingAttentionEpochEntity } from 'src/modules/inconnect-messaging/entities/attention-epoch.entity';
+import { InconnectMessagingAttentionEffectEntity } from 'src/modules/inconnect-messaging/entities/attention-effect.entity';
+import { InconnectMessagingAttentionReceiptEntity } from 'src/modules/inconnect-messaging/entities/attention-receipt.entity';
+import { InconnectMessagingAttentionResponseIntentEntity } from 'src/modules/inconnect-messaging/entities/attention-response-intent.entity';
+import { InconnectMessagingAttentionTransitionAuditEntity } from 'src/modules/inconnect-messaging/entities/attention-transition-audit.entity';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingConversationMemberStateEntity } from 'src/modules/inconnect-messaging/entities/conversation-member-state.entity';
@@ -39,6 +45,11 @@ const MESSAGING_ENTITIES: EntityTarget<object>[] = [
   InconnectMessagingConversationMemberStateEntity,
   InconnectMessagingContextFieldEntity,
   InconnectMessagingPhoneIdentityFieldEntity,
+  InconnectMessagingAttentionEpochEntity,
+  InconnectMessagingAttentionEffectEntity,
+  InconnectMessagingAttentionReceiptEntity,
+  InconnectMessagingAttentionResponseIntentEntity,
+  InconnectMessagingAttentionTransitionAuditEntity,
 ];
 
 const buildMetadataDataSource = async (): Promise<DataSource> => {
@@ -95,7 +106,11 @@ describe('INCONNECT Messaging persistence model', () => {
       query,
     } as never);
 
-    const sql = query.mock.calls.map(([statement]) => statement).join('\n');
+    // Inspect the new command's definitions without invoking up or down.
+    const sql = [
+      ...query.mock.calls.map(([statement]) => statement),
+      ...ATTENTION_LEDGER_UP,
+    ].join('\n');
 
     for (const entity of MESSAGING_ENTITIES) {
       const metadata = dataSource.getMetadata(entity);

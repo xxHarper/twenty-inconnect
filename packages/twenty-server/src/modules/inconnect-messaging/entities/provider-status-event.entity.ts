@@ -10,6 +10,7 @@ import {
   type Relation,
 } from 'typeorm';
 
+import { WasIntroducedInUpgrade } from 'src/engine/core-modules/upgrade/decorators/was-introduced-in-upgrade.decorator';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { InconnectMessagingMessageEntity } from 'src/modules/inconnect-messaging/entities/message.entity';
 import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-messaging/entities/webhook-receipt.entity';
@@ -19,6 +20,11 @@ import {
 } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
 
 @Entity({ name: 'inconnectMessagingProviderStatusEvent', schema: 'core' })
+@Index(
+  'IDX_IM_AT_STATUS_MESSAGE_WORKSPACE',
+  ['id', 'messageId', 'workspaceId'],
+  { unique: true },
+)
 @Check(
   'CHK_INCONNECT_MSG_STATUS_NORMALIZED',
   `"normalizedStatus" IN ('QUEUED', 'SENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED', 'UNKNOWN')`,
@@ -101,4 +107,19 @@ export class InconnectMessagingProviderStatusEventEntity {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
+
+  // PostgreSQL owns this full transaction marker; it is outside the domain row.
+  @WasIntroducedInUpgrade({
+    upgradeCommandName:
+      '2.32.0_CreateInconnectMessagingAttentionLedgerFastInstanceCommand_1792540800000',
+  })
+  @Column({
+    type: 'text',
+    nullable: true,
+    collation: 'C',
+    select: false,
+    insert: false,
+    update: false,
+  })
+  attentionCreatedTransactionId: string | null;
 }

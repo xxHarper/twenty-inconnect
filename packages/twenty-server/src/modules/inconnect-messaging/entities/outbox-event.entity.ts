@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { WasIntroducedInUpgrade } from 'src/engine/core-modules/upgrade/decorators/was-introduced-in-upgrade.decorator';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import {
   type InconnectMessagingJson,
@@ -93,4 +94,19 @@ export class InconnectMessagingOutboxEventEntity {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
+
+  // PostgreSQL owns this full transaction marker; it is outside the domain row.
+  @WasIntroducedInUpgrade({
+    upgradeCommandName:
+      '2.32.0_CreateInconnectMessagingAttentionLedgerFastInstanceCommand_1792540800000',
+  })
+  @Column({
+    type: 'text',
+    nullable: true,
+    collation: 'C',
+    select: false,
+    insert: false,
+    update: false,
+  })
+  attentionCreatedTransactionId: string | null;
 }

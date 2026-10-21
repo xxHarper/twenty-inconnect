@@ -3,6 +3,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  ForeignKey,
   Index,
   JoinColumn,
   ManyToOne,
@@ -13,6 +14,7 @@ import {
 } from 'typeorm';
 
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
+import { WasIntroducedInUpgrade } from 'src/engine/core-modules/upgrade/decorators/was-introduced-in-upgrade.decorator';
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
 import {
@@ -25,6 +27,38 @@ import {
 } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
 
 @Entity({ name: 'inconnectMessagingMessage', schema: 'core' })
+@ForeignKey(
+  'inconnectMessagingAttentionEpoch',
+  [
+    'attentionTrackingEpochId',
+    'workspaceId',
+    'conversationId',
+    'providerConnectionId',
+  ],
+  ['id', 'workspaceId', 'conversationId', 'providerConnectionId'],
+  {
+    name: 'FK_IM_AT_MESSAGE_EPOCH',
+    onDelete: 'NO ACTION',
+    onUpdate: 'NO ACTION',
+  },
+)
+@Index(
+  'IDX_IM_AT_MESSAGE_SCOPE',
+  [
+    'id',
+    'workspaceId',
+    'conversationId',
+    'providerConnectionId',
+    'attentionTrackingEpochId',
+  ],
+  { unique: true },
+)
+@Index('IDX_IM_AT_MESSAGE_EPOCH', [
+  'attentionTrackingEpochId',
+  'workspaceId',
+  'conversationId',
+  'providerConnectionId',
+])
 @Check(
   'CHK_INCONNECT_MSG_MESSAGE_DIRECTION',
   `"direction" IN ('INBOUND', 'OUTBOUND')`,
@@ -110,6 +144,19 @@ export class InconnectMessagingMessageEntity {
 
   @Column({ nullable: false, type: 'uuid' })
   providerConnectionId: string;
+
+  @WasIntroducedInUpgrade({
+    upgradeCommandName:
+      '2.32.0_CreateInconnectMessagingAttentionLedgerFastInstanceCommand_1792540800000',
+  })
+  @Column({
+    type: 'uuid',
+    nullable: true,
+    select: false,
+    insert: false,
+    update: false,
+  })
+  attentionTrackingEpochId: string | null;
 
   @ManyToOne(() => InconnectMessagingConversationEntity, {
     onDelete: 'RESTRICT',
@@ -235,4 +282,34 @@ export class InconnectMessagingMessageEntity {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
+
+  // PostgreSQL owns this full transaction marker; it is outside the domain row.
+  @WasIntroducedInUpgrade({
+    upgradeCommandName:
+      '2.32.0_CreateInconnectMessagingAttentionLedgerFastInstanceCommand_1792540800000',
+  })
+  @Column({
+    type: 'text',
+    nullable: true,
+    collation: 'C',
+    select: false,
+    insert: false,
+    update: false,
+  })
+  attentionCreatedTransactionId: string | null;
+
+  // PostgreSQL owns this full transaction marker; it is outside the domain row.
+  @WasIntroducedInUpgrade({
+    upgradeCommandName:
+      '2.32.0_CreateInconnectMessagingAttentionLedgerFastInstanceCommand_1792540800000',
+  })
+  @Column({
+    type: 'text',
+    nullable: true,
+    collation: 'C',
+    select: false,
+    insert: false,
+    update: false,
+  })
+  attentionUpdatedTransactionId: string | null;
 }

@@ -157,6 +157,7 @@ import { AddInconnectMessagingContextFieldsFastInstanceCommand } from 'src/datab
 import { AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790550000000-add-inconnect-messaging-phone-identity-fields';
 import { AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305698-add-inconnect-messaging-auto-create-configuration';
 import { AddInconnectMessagingAutomationPrincipalFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1790793305700-add-inconnect-messaging-automation-principal';
+import { CreateInconnectMessagingAttentionLedgerFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-fast-1792540800000-create-inconnect-messaging-attention-ledger';
 import { BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand } from 'src/database/commands/upgrade-version-command/2-32/2-32-instance-command-slow-1789040000001-backfill-inconnect-messaging-webhook-projection';
 
 export const INSTANCE_COMMANDS = [
@@ -317,5 +318,6 @@ export const INSTANCE_COMMANDS = [
   AddInconnectMessagingPhoneIdentityFieldsFastInstanceCommand,
   AddInconnectMessagingAutoCreateConfigurationFastInstanceCommand,
   AddInconnectMessagingAutomationPrincipalFastInstanceCommand,
+  CreateInconnectMessagingAttentionLedgerFastInstanceCommand,
   BackfillInconnectMessagingWebhookProjectionSlowInstanceCommand,
 ];
