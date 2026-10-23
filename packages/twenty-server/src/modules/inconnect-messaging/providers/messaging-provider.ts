@@ -20,6 +20,13 @@ export type InconnectMessagingWebhookRequest = {
   parameters: Record<string, string | string[]>;
   serverReceivedAt: Date;
   localMessageIdHint?: string;
+  ingressTransport?: Readonly<{
+    directTls: boolean;
+    hasForwardedHeaders: boolean;
+    validUtf8: boolean;
+    host: string;
+    requestTarget: string;
+  }>;
 };
 
 export type InconnectMessagingNormalizedInbound = {

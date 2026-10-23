@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { WasIntroducedInUpgrade } from 'src/engine/core-modules/upgrade/decorators/was-introduced-in-upgrade.decorator';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnect-messaging/entities/provider-connection.entity';
 import {
@@ -71,6 +72,19 @@ export class InconnectMessagingWebhookReceiptEntity {
     { name: 'workspaceId', referencedColumnName: 'workspaceId' },
   ])
   providerConnection: Relation<InconnectMessagingProviderConnectionEntity>;
+
+  @WasIntroducedInUpgrade({
+    upgradeCommandName:
+      '2.32.0_AddInconnectMessagingIngressContractFastInstanceCommand_1792666800000',
+  })
+  @Column({
+    type: 'integer',
+    nullable: true,
+    select: false,
+    insert: false,
+    update: false,
+  })
+  ingressContractVersion: 1 | null;
 
   @Column({ nullable: false, type: 'varchar' })
   eventKind: string;

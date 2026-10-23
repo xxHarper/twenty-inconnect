@@ -12,6 +12,9 @@ import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-me
 import { InconnectMessagingWebhookException } from 'src/modules/inconnect-messaging/exceptions/inconnect-messaging-webhook.exception';
 import { InconnectMessagingWebhookProcessingJob } from 'src/modules/inconnect-messaging/jobs/inconnect-messaging-webhook-processing.job';
 import { type InconnectMessagingNormalizedWebhook } from 'src/modules/inconnect-messaging/providers/messaging-provider';
+import { type AuthenticatedInboundCapability } from 'src/modules/inconnect-messaging/webhook-ingress/authenticated-inbound';
+import { persistAuthenticatedReceipt } from 'src/modules/inconnect-messaging/webhook-ingress/persist-authenticated-receipt';
+
 import { type InconnectMessagingJson } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
 
 const RECOVERY_BATCH_SIZE = 100;
@@ -102,6 +105,32 @@ export class InconnectMessagingWebhookReceiptService {
     await this.enqueueWithoutAffectingAuthority(receipt);
 
     return receipt;
+  }
+
+  public async persistAuthenticatedInbound(
+    capability: AuthenticatedInboundCapability,
+  ) {
+    const result = await this.dataSource.transaction(
+      'READ COMMITTED',
+      (manager) => persistAuthenticatedReceipt(manager, capability),
+    );
+    if (result.preDdlSnapshot !== undefined) {
+      const snapshot = result.preDdlSnapshot;
+      // Physical absence alone selects compatibility. SQL/configuration errors
+      // never fall back, and the legacy INSERT never names the dormant column.
+      const receipt = await this.persistAndRequestProcessing({
+        workspaceId: snapshot.workspaceId,
+        providerConnectionId: snapshot.providerConnectionId,
+        normalizedWebhook: JSON.parse(
+          snapshot.normalizedJson,
+        ) as InconnectMessagingNormalizedWebhook,
+        rawBody: snapshot.rawBody,
+        firstReceivedAt: new Date(snapshot.firstReceivedAt),
+      });
+      return { receipt, admission: 'PRE_DDL' as const };
+    }
+    await this.enqueueWithoutAffectingAuthority(result.receipt);
+    return result;
   }
 
   public async recoverPendingReceipts(now = new Date()): Promise<number> {

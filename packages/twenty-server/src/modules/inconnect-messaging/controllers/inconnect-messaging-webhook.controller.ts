@@ -9,6 +9,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
+import { isUtf8 } from 'node:buffer';
+
 import { type Request } from 'express';
 import { ApiPath } from 'twenty-shared/types';
 
@@ -101,6 +103,21 @@ export class InconnectMessagingWebhookController {
     try {
       await this.webhookIngressService.acceptTwilioWhatsappWebhook({
         kind,
+        ingressTransport: {
+          directTls:
+            'encrypted' in request.socket && request.socket.encrypted === true,
+          hasForwardedHeaders:
+            Object.keys(request.headers).some(
+              (name) => name === 'forwarded' || name.startsWith('x-forwarded-'),
+            ) ||
+            request.rawHeaders.filter(
+              (value, index) =>
+                index % 2 === 0 && value.toLowerCase() === 'host',
+            ).length !== 1,
+          validUtf8: isUtf8(request.rawBody),
+          host: request.get('host') ?? '',
+          requestTarget: request.originalUrl,
+        },
         routingKey: request.params.routingKey,
         effectiveUrl: `${request.protocol}://${request.host}${request.originalUrl}`,
         signature: request.get('x-twilio-signature') ?? '',

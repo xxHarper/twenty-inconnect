@@ -1,9 +1,13 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { InconnectMessagingWebhookException } from 'src/modules/inconnect-messaging/exceptions/inconnect-messaging-webhook.exception';
 import { InconnectMessagingProviderRegistry } from 'src/modules/inconnect-messaging/providers/messaging-provider-registry';
 import { type InconnectMessagingWebhookRequest } from 'src/modules/inconnect-messaging/providers/messaging-provider';
-import { TWILIO_WHATSAPP_PROVIDER_KEY } from 'src/modules/inconnect-messaging/providers/twilio/twilio-whatsapp-messaging-provider';
+import { verifyTwilioWebhook } from 'src/modules/inconnect-messaging/webhook-ingress/authenticated-inbound';
+import {
+  INBOUND_INGRESS_POLICY,
+  type InboundIngressPolicy,
+} from 'src/modules/inconnect-messaging/webhook-ingress/ingress-contract';
 import { InconnectMessagingProviderConnectionRoutingService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-provider-connection-routing.service';
 import { InconnectMessagingWebhookReceiptService } from 'src/modules/inconnect-messaging/services/inconnect-messaging-webhook-receipt.service';
 
@@ -17,45 +21,40 @@ export class InconnectMessagingWebhookIngressService {
     private readonly providerRegistry: InconnectMessagingProviderRegistry,
     private readonly providerConnectionRoutingService: InconnectMessagingProviderConnectionRoutingService,
     private readonly webhookReceiptService: InconnectMessagingWebhookReceiptService,
+    @Optional()
+    @Inject(INBOUND_INGRESS_POLICY)
+    private readonly ingressPolicy?: InboundIngressPolicy,
   ) {}
 
   public async acceptTwilioWhatsappWebhook(
     request: InconnectMessagingWebhookRequest,
   ): Promise<void> {
-    const provider = this.providerRegistry.resolve(
-      TWILIO_WHATSAPP_PROVIDER_KEY,
-    );
-    const routingHints = provider.getWebhookRoutingHints(request);
-    const { connection, credentials } =
-      await this.providerConnectionRoutingService.resolveEnabledConnection({
-        providerKey: provider.key,
-        routingHints,
-      });
-
-    if (!provider.validateWebhookSignature({ credentials, request })) {
-      throw new ForbiddenException('Invalid Twilio webhook signature');
-    }
-
-    const payloadHash = this.webhookReceiptService.computePayloadHash(
-      request.rawBody,
-    );
-    const normalizedWebhook = provider.normalizeWebhook({
+    const verified = await verifyTwilioWebhook(
       request,
-      payloadHash,
-    });
+      this.providerRegistry,
+      this.providerConnectionRoutingService,
+      this.ingressPolicy,
+    );
+    const { connection, normalizedWebhook, capability } = verified;
     const receipt =
-      await this.webhookReceiptService.persistAndRequestProcessing({
-        workspaceId: connection.workspaceId,
-        providerConnectionId: connection.id,
-        normalizedWebhook,
-        rawBody: request.rawBody,
-        firstReceivedAt: request.serverReceivedAt,
-      });
+      capability === null
+        ? await this.webhookReceiptService.persistAndRequestProcessing({
+            workspaceId: connection.workspaceId,
+            providerConnectionId: connection.id,
+            normalizedWebhook,
+            rawBody: verified.request.rawBody,
+            firstReceivedAt: verified.request.serverReceivedAt,
+          })
+        : (
+            await this.webhookReceiptService.persistAuthenticatedInbound(
+              capability,
+            )
+          ).receipt;
 
     this.logger.log(
       JSON.stringify({
         receiptId: receipt.id,
-        provider: provider.key.provider,
+        provider: 'TWILIO',
         connectionId: connection.id,
         workspaceId: connection.workspaceId,
         eventKind: normalizedWebhook.kind,
