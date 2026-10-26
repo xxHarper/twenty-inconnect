@@ -715,12 +715,28 @@ describe('InconnectMessagingWebhookProcessingService', () => {
           .mockImplementationOnce(
             async (callback: (manager: EntityManager) => Promise<unknown>) =>
               callback({
+                query: jest.fn().mockResolvedValue([
+                  {
+                    columns: 3,
+                    mode: 'DISABLED',
+                    protocolVersion: null,
+                    gateUpdatedAt: null,
+                  },
+                ]),
                 getRepository: () => claimRepository,
               } as unknown as EntityManager),
           )
           .mockImplementationOnce(
             async (callback: (manager: EntityManager) => Promise<unknown>) =>
               callback({
+                query: jest.fn().mockResolvedValue([
+                  {
+                    columns: 3,
+                    mode: 'DISABLED',
+                    protocolVersion: null,
+                    gateUpdatedAt: null,
+                  },
+                ]),
                 getRepository: (entity: unknown) => {
                   if (entity === InconnectMessagingWebhookReceiptEntity) {
                     return processingReceiptRepository;
@@ -792,12 +808,28 @@ describe('InconnectMessagingWebhookProcessingService', () => {
           .mockImplementationOnce(
             async (callback: (manager: EntityManager) => Promise<unknown>) =>
               callback({
+                query: jest.fn().mockResolvedValue([
+                  {
+                    columns: 3,
+                    mode: 'DISABLED',
+                    protocolVersion: null,
+                    gateUpdatedAt: null,
+                  },
+                ]),
                 getRepository: () => claimRepository,
               } as unknown as EntityManager),
           )
           .mockImplementationOnce(
             async (callback: (manager: EntityManager) => Promise<unknown>) =>
               callback({
+                query: jest.fn().mockResolvedValue([
+                  {
+                    columns: 3,
+                    mode: 'DISABLED',
+                    protocolVersion: null,
+                    gateUpdatedAt: null,
+                  },
+                ]),
                 getRepository: (entity: unknown) => {
                   if (entity === InconnectMessagingWebhookReceiptEntity) {
                     return processingReceiptRepository;

@@ -98,13 +98,20 @@ export class InconnectMessagingOutboxService {
       let recipientCount = 0;
 
       for (const authContext of candidateAuthContexts) {
+        if (authContext.workspace.id !== claim.event.workspaceId) {
+          continue;
+        }
         const conversation =
           await this.authorizationService.findAuthorizedConversation({
             authContext,
             conversationId: hint.conversationId,
           });
 
-        if (conversation === null) {
+        if (
+          conversation === null ||
+          (claim.event.eventType === 'CONVERSATION_ATTENTION_CHANGED' &&
+            conversation.id !== hint.conversationId)
+        ) {
           continue;
         }
 
@@ -211,6 +218,18 @@ export class InconnectMessagingOutboxService {
       realtimeEventType === 'CONVERSATION_UPDATED' &&
       event.aggregateType === 'CONVERSATION'
     ) {
+      if (event.eventType === 'CONVERSATION_ATTENTION_CHANGED') {
+        const payload = event.immutablePayload;
+        if (
+          payload === null ||
+          typeof payload !== 'object' ||
+          Array.isArray(payload) ||
+          Object.keys(payload).length !== 1 ||
+          payload.conversationId !== event.aggregateId
+        ) {
+          return null;
+        }
+      }
       const conversation = await this.dataSource
         .getRepository(InconnectMessagingConversationEntity)
         .findOne({
@@ -279,7 +298,8 @@ export class InconnectMessagingOutboxService {
 
     if (
       event.eventType === 'CONVERSATION_PENDING_CHANGED' ||
-      event.eventType === 'CONVERSATION_LINKED'
+      event.eventType === 'CONVERSATION_LINKED' ||
+      event.eventType === 'CONVERSATION_ATTENTION_CHANGED'
     ) {
       return 'CONVERSATION_UPDATED';
     }

@@ -130,12 +130,45 @@ export const decodeDurableInboundFact = (
 ) => {
   const parsed = backendFact.safeParse(value);
   if (!parsed.success) return null;
-  const fact = parsed.data;
+  if (parsed.data.leaseToken !== expected.leaseToken) return null;
+  return correlateDurableInbound(parsed.data, expected);
+};
+
+// Reconciliation is a different lifecycle: it cannot claim or renew a receipt.
+// Share the exact v1 content checks, without pretending PROCESSED is PROCESSING.
+const committedFact = backendFact
+  .omit({
+    processingState: true,
+    leaseToken: true,
+    leaseValid: true,
+    processedAt: true,
+  })
+  .extend({
+    processingState: z.literal('PROCESSED'),
+    leaseToken: z.null(),
+    leaseValid: z.null(),
+    processedAt: z.string(),
+  });
+export const decodeCommittedDurableInboundFact = (
+  value: unknown,
+  expected: Omit<DurableInboundAttentionInput, 'queryRunner' | 'leaseToken'>,
+) => {
+  const parsed = committedFact.safeParse(value);
+  if (!parsed.success) return null;
+  rowTimestamp(parsed.data.processedAt, '$.inbound.processedAt');
+  return correlateDurableInbound(parsed.data, expected);
+};
+
+const correlateDurableInbound = <
+  TFact extends z.infer<typeof backendFact> | z.infer<typeof committedFact>,
+>(
+  fact: TFact,
+  expected: Omit<DurableInboundAttentionInput, 'queryRunner' | 'leaseToken'>,
+): TFact | null => {
   const normalized = fact.normalizedMetadata;
   const { scope } = expected;
   if (
     fact.receiptId !== expected.receiptId ||
-    fact.leaseToken !== expected.leaseToken ||
     fact.workspaceId !== scope.workspaceId ||
     fact.providerConnectionId !== scope.providerConnectionId ||
     fact.connectionId !== scope.providerConnectionId ||

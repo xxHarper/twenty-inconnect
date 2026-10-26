@@ -55,6 +55,8 @@ export const legacyInboundFixture = ({
     leaseToken: null,
     leaseExpiresAt: null,
     attemptCount: 0,
+    error: null,
+    updatedAt: new Date(0),
   });
   let messageId = '';
   let conversationId = existingConversation ? scope.conversationId : '';
@@ -95,10 +97,19 @@ export const legacyInboundFixture = ({
     });
     return builder;
   };
-  const receiptUpdate = jest.fn(async () => {
-    order.push('receipt-finalize');
-    return { affected: 1 };
-  });
+  const receiptUpdate = jest.fn(
+    async (_criteria: unknown, changes: Record<string, unknown>) => {
+      if (
+        (changes.error as { category?: string } | undefined)?.category ===
+        'INBOUND_ROUTE_PAUSED'
+      ) {
+        Object.assign(receipt, changes, { updatedAt: new Date() });
+        return { affected: 1 };
+      }
+      order.push('receipt-finalize');
+      return { affected: 1 };
+    },
+  );
   const releaseUpdate = jest.fn().mockResolvedValue({ affected: 1 });
   const receiptRepository = {
     findOne: jest.fn(async () => receipt),
@@ -152,6 +163,14 @@ export const legacyInboundFixture = ({
       try {
         const result = await callback({
           getRepository: repository,
+          query: jest.fn().mockResolvedValue([
+            {
+              columns: 3,
+              mode: 'DISABLED',
+              protocolVersion: null,
+              gateUpdatedAt: null,
+            },
+          ]),
         } as unknown as EntityManager);
         if (number === 2 && fault === 'commit')
           throw new Error('ambiguous commit');

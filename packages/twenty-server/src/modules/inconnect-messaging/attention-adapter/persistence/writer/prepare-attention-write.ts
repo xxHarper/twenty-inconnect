@@ -38,6 +38,8 @@ import {
   type AttentionWriterResult,
 } from 'src/modules/inconnect-messaging/attention-adapter/persistence/writer/attention-writer.types';
 
+import { admissionFailure } from './attention-admission-diagnostic';
+
 // Inert internal component. The caller exclusively owns transaction lifecycle,
 // causal DML and eventual publication. Every failure requires caller rollback.
 export const prepareAttentionWrite = async ({
@@ -87,8 +89,12 @@ export const prepareAttentionWrite = async ({
               ? 'NEW'
               : 'CONSUMED',
       });
-    } catch {
-      return failAttentionWrite('ADMISSION_FAILED', '$.admission');
+    } catch (error) {
+      return {
+        ok: false,
+        callerMustRollback: true,
+        error: admissionFailure(error),
+      };
     }
     await session.verify();
     const admission = validateAttentionAdmission(

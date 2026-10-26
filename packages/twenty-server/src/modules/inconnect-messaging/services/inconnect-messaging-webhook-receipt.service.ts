@@ -17,6 +17,8 @@ import { persistAuthenticatedReceipt } from 'src/modules/inconnect-messaging/web
 
 import { type InconnectMessagingJson } from 'src/modules/inconnect-messaging/types/inconnect-messaging-domain.type';
 
+import { inboundRoutePauseFilter } from 'src/modules/inconnect-messaging/attention-adapter/inbound/transactional/inbound-route-boundary';
+
 const RECOVERY_BATCH_SIZE = 100;
 
 export type PersistInconnectMessagingWebhookReceiptInput = {
@@ -137,7 +139,10 @@ export class InconnectMessagingWebhookReceiptService {
     const receipts = await this.webhookReceiptRepository.find({
       select: ['id', 'workspaceId', 'providerConnectionId', 'eventKind'],
       where: [
-        { processingState: 'RECEIVED' },
+        {
+          processingState: 'RECEIVED',
+          error: inboundRoutePauseFilter(),
+        },
         {
           processingState: 'PROCESSING',
           leaseExpiresAt: LessThanOrEqual(now),

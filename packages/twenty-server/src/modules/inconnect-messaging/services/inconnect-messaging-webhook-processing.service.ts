@@ -3,7 +3,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
 import { z } from 'zod';
-import { DataSource, type EntityManager } from 'typeorm';
+import { DataSource, IsNull, Raw, type EntityManager } from 'typeorm';
 
 import { InconnectMessagingConversationEntity } from 'src/modules/inconnect-messaging/entities/conversation.entity';
 import { InconnectMessagingAttachmentEntity } from 'src/modules/inconnect-messaging/entities/attachment.entity';
@@ -13,6 +13,13 @@ import { InconnectMessagingProviderConnectionEntity } from 'src/modules/inconnec
 import { InconnectMessagingProviderStatusEventEntity } from 'src/modules/inconnect-messaging/entities/provider-status-event.entity';
 import { InconnectMessagingWebhookReceiptEntity } from 'src/modules/inconnect-messaging/entities/webhook-receipt.entity';
 import { InconnectMessagingWebhookException } from 'src/modules/inconnect-messaging/exceptions/inconnect-messaging-webhook.exception';
+import {
+  requireLegacyInboundRoute,
+  InboundRoutePaused,
+  inboundRoutePauseFilter,
+  INBOUND_ROUTE_PAUSE_CATEGORY,
+  INBOUND_ROUTE_PAUSE_MILLISECONDS,
+} from 'src/modules/inconnect-messaging/attention-adapter/inbound/transactional/inbound-route-boundary';
 import {
   type InconnectMessagingOutboxPublicationRequest,
   InconnectMessagingOutboxService,
@@ -112,6 +119,9 @@ export class InconnectMessagingWebhookProcessingService {
 
     try {
       processingResult = await this.dataSource.transaction(async (manager) => {
+        if (claim.receipt.eventKind === 'INBOUND_MESSAGE') {
+          await requireLegacyInboundRoute(manager, claim.receipt.workspaceId);
+        }
         const receipt = await manager
           .getRepository(InconnectMessagingWebhookReceiptEntity)
           .findOne({
@@ -203,6 +213,48 @@ export class InconnectMessagingWebhookProcessingService {
         };
       });
     } catch (error) {
+      if (error instanceof InboundRoutePaused) {
+        // The gate was allowed at claim time and changed before the causal unit.
+        // Refund only this exact claim, after the transaction has rolled back.
+        // Expiration permits takeover; it does not revoke an unchanged token.
+        // A late refund is safe only while this state/token/count still match.
+        if (
+          !Number.isSafeInteger(claim.receipt.attemptCount) ||
+          claim.receipt.attemptCount < 1
+        )
+          throw new Error('Invalid paused claim count');
+        const paused = await this.dataSource
+          .getRepository(InconnectMessagingWebhookReceiptEntity)
+          .update(
+            {
+              id: claim.receipt.id,
+              workspaceId: claim.receipt.workspaceId,
+              providerConnectionId: claim.receipt.providerConnectionId,
+              eventKind: 'INBOUND_MESSAGE',
+              processingState: 'PROCESSING',
+              leaseToken: claim.leaseToken,
+              attemptCount: claim.receipt.attemptCount,
+            },
+            {
+              processingState: 'RECEIVED',
+              leaseToken: null,
+              leaseExpiresAt: null,
+              attemptCount: () => '"attemptCount" - 1',
+              updatedAt: () => 'clock_timestamp()',
+              error: {
+                category: INBOUND_ROUTE_PAUSE_CATEGORY,
+                refundedAttemptCount: claim.receipt.attemptCount,
+              },
+            },
+          );
+        if (paused.affected !== 0 && paused.affected !== 1)
+          throw new Error('Incomplete paused claim disposition');
+        this.logResult(
+          claim.receipt,
+          paused.affected === 1 ? INBOUND_ROUTE_PAUSE_CATEGORY : 'LEASE_LOST',
+        );
+        return;
+      }
       const processingError =
         error instanceof InconnectMessagingWebhookException
           ? error
@@ -257,8 +309,29 @@ export class InconnectMessagingWebhookProcessingService {
       const repository = manager.getRepository(
         InconnectMessagingWebhookReceiptEntity,
       );
+      // Unlocked locator only; decisions use a fresh scoped Receipt under lock.
+      // Configuration must precede Receipt so the processing lock order is kept.
+      const locator = await repository.findOne({
+        where: { id: receiptId, error: inboundRoutePauseFilter() },
+      });
+      if (locator === null) return null;
+      let paused = false;
+      if (locator.eventKind === 'INBOUND_MESSAGE') {
+        try {
+          await requireLegacyInboundRoute(manager, locator.workspaceId);
+        } catch (error) {
+          if (!(error instanceof InboundRoutePaused)) throw error;
+          paused = true;
+        }
+      }
       const receipt = await repository.findOne({
-        where: { id: receiptId },
+        where: {
+          id: receiptId,
+          workspaceId: locator.workspaceId,
+          providerConnectionId: locator.providerConnectionId,
+          eventKind: locator.eventKind,
+          error: inboundRoutePauseFilter(),
+        },
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -273,6 +346,73 @@ export class InconnectMessagingWebhookProcessingService {
         return null;
       }
 
+      if (receipt.eventKind === 'INBOUND_MESSAGE') {
+        if (paused) {
+          // Missing hydration is not evidence of a nullable column's value.
+          if (receipt.error === undefined) return null;
+          if (
+            receipt.processingState === 'RECEIVED' &&
+            (receipt.leaseToken !== null || receipt.leaseExpiresAt !== null)
+          )
+            return null;
+          // The scoped row is locked. Explicit UPDATE renews even an identical
+          // pause; save() skips it. The window is rechecked using the DB clock.
+          const result = await repository.update(
+            {
+              id: receipt.id,
+              workspaceId: receipt.workspaceId,
+              providerConnectionId: receipt.providerConnectionId,
+              eventKind: 'INBOUND_MESSAGE',
+              processingState: receipt.processingState,
+              leaseToken: receipt.leaseToken ?? IsNull(),
+              leaseExpiresAt:
+                receipt.processingState === 'PROCESSING'
+                  ? Raw(() => '"leaseExpiresAt" <= clock_timestamp()')
+                  : IsNull(),
+              attemptCount: receipt.attemptCount,
+              error: Raw(
+                () =>
+                  '"error" IS NOT DISTINCT FROM CAST(:previousPauseError AS jsonb)',
+                {
+                  // Keep SQL NULL as a null binding, not the JSON text "null".
+                  previousPauseError:
+                    receipt.error === null
+                      ? null
+                      : JSON.stringify(receipt.error),
+                },
+              ),
+              updatedAt: Raw(
+                () =>
+                  `("processingState" <> 'RECEIVED' OR "error"->>'category' IS DISTINCT FROM :pauseCategory OR "updatedAt" <= clock_timestamp() - (:pauseMilliseconds * INTERVAL '1 millisecond'))`,
+                {
+                  pauseCategory: INBOUND_ROUTE_PAUSE_CATEGORY,
+                  pauseMilliseconds: INBOUND_ROUTE_PAUSE_MILLISECONDS,
+                },
+              ),
+            },
+            {
+              processingState: 'RECEIVED',
+              leaseToken: null,
+              leaseExpiresAt: null,
+              error: { category: INBOUND_ROUTE_PAUSE_CATEGORY },
+              updatedAt: () => 'clock_timestamp()',
+            },
+          );
+          if (result.affected !== 0 && result.affected !== 1)
+            throw new Error('Incomplete inbound pause disposition');
+          if (result.affected === 1)
+            this.logResult(receipt, INBOUND_ROUTE_PAUSE_CATEGORY);
+          return null;
+        }
+        if (receipt.attemptCount >= MAX_PROCESSING_ATTEMPTS) {
+          receipt.processingState = 'FAILED';
+          receipt.leaseToken = null;
+          receipt.leaseExpiresAt = null;
+          receipt.error = { category: 'CAUSAL_RETRY_EXHAUSTED' };
+          await repository.save(receipt);
+          return null;
+        }
+      }
       const leaseToken = randomUUID();
 
       receipt.processingState = 'PROCESSING';

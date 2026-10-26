@@ -168,7 +168,7 @@ describe('InconnectMessagingWebhookReceiptService', () => {
     expect(find).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.arrayContaining([
-          { processingState: 'RECEIVED' },
+          expect.objectContaining({ processingState: 'RECEIVED' }),
           expect.objectContaining({ processingState: 'PROCESSING' }),
         ]),
         take: 100,
