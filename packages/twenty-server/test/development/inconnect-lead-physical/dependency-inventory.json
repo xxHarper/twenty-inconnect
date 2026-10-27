@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 1,
+  "phase": "PHYS-P1",
+  "reviewedCommit": "c67d3bd4ddb6d8c417b97ec57bc06cd3df619d54",
+  "fixtureStatus": "BLOCKED",
+  "completeEntityClosure": false,
+  "executableInstallation": false,
+  "sources": [
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/core-modules/workspace/workspace.entity.ts",
+      "sha256": "4ee4746cd5fda8a37d36f09bab7047da0378d445330ed7392210c2317e24b112"
+    },
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/core-modules/user/user.entity.ts",
+      "sha256": "a504bf73de3c034cf8555bda7b4f5df80bc2ee7272db05fd6183ec3c6164ce2b"
+    },
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/core-modules/user-workspace/user-workspace.entity.ts",
+      "sha256": "f6b16f70fc50aced2075c81193094ccef49b49174ebf9b54fffd89aef2eb019b"
+    },
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/core-modules/user-session/user-session.entity.ts",
+      "sha256": "7f94095df5fdc3911906df78f46f4d5cc219b0efb36e4ddac355cef488ce7558"
+    },
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/core-modules/application/application.entity.ts",
+      "sha256": "07e01e029783d908e901246e826c4bab7f1f68e0c2dc3e6b20249f3ba6a8122a"
+    },
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/workspace-manager/types/workspace-related-entity.ts",
+      "sha256": "c02cb88354f9df391273e31e29d29591d8ce31e62b5f777484d18343a66321ff"
+    },
+    {
+      "group": "core-identity",
+      "path": "packages/twenty-server/src/engine/workspace-manager/types/syncable-entity.interface.ts",
+      "sha256": "c60b9e35ee73ba76ba80cce5e2da5ced967aede87df914dc7cf4735826427bab"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/object-metadata/object-metadata.entity.ts",
+      "sha256": "90a996d350b885dad168681bbf19de22e53aabc21b6d7ed25072e818557ff163"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/field-metadata/field-metadata.entity.ts",
+      "sha256": "d0a1b84ee5a3289c855010452c62b7767b9ea96097c5c822089cd8f080b4cfe6"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/index-metadata/index-metadata.entity.ts",
+      "sha256": "c238e46e2f849a89f694c3f469635c7cc7c1405e07b56dfdd3b849d6dbc285b4"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/index-metadata/index-field-metadata.entity.ts",
+      "sha256": "5778e676189a0f658dd612153f4feefa96f1b0a0a65ac85bd22743d383b62e3c"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/role/role.entity.ts",
+      "sha256": "a862d0c93c5844a325b15d1ef18b5b029881884c43022dfc673b8936fd2a7f40"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/role-target/role-target.entity.ts",
+      "sha256": "410d90c76787013bb11957b5d06d5dace713c0abeed9ffdfa7b5bbc39408dfd3"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/object-permission/object-permission.entity.ts",
+      "sha256": "e7aad14e0a1c2a057ceb50b91d2264c9e615908bea2b0cbe3062a0e20ffe1f2d"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/object-permission/field-permission/field-permission.entity.ts",
+      "sha256": "f312d4e6fcd409206f088e257ad72980babbfec3954d8bf04cb96fd987d11c39"
+    },
+    {
+      "group": "metadata-permissions",
+      "path": "packages/twenty-server/src/engine/metadata-modules/role-permission-flag/role-permission-flag.entity.ts",
+      "sha256": "9fab9982eaa9b21b4143bf06ccdee85bb9a10205c4511e50bc5e04cb7ea63ca4"
+    },
+    {
+      "group": "workspace-schema",
+      "path": "packages/twenty-server/src/modules/workspace-member/standard-objects/workspace-member.workspace-entity.ts",
+      "sha256": "e5148982b82926551c1729d772e7b534b68d42bf1a45b1c108096b85e98cfb00"
+    },
+    {
+      "group": "workspace-schema",
+      "path": "packages/twenty-server/src/engine/twenty-orm/base.workspace-entity.ts",
+      "sha256": "d9e335a38d2e9a2d90313bcb4ce8a8dacd44773b8e8fc740172c7ea11ac5386b"
+    },
+    {
+      "group": "workspace-schema",
+      "path": "packages/twenty-server/src/engine/twenty-orm/factories/entity-schema.factory.ts",
+      "sha256": "b567313b4e77a7ec99ab23d97d9ab39e4b7d0e0871350e988106df94bb389bdd"
+    },
+    {
+      "group": "workspace-schema",
+      "path": "packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/services/twenty-standard-application.service.ts",
+      "sha256": "c2b921fcf64321779c7fee70e667e3ab3cb881f5cb849121c932199f2baade26"
+    },
+    {
+      "group": "workspace-schema",
+      "path": "packages/twenty-server/src/engine/workspace-manager/workspace-migration/workspace-migration-runner/services/workspace-migration-runner.service.ts",
+      "sha256": "87a7ab7fdcfb19c1b6ba3f08942f445fa330bd9b6a0d9161ca6a59b8cf389a25"
+    },
+    {
+      "group": "inconnect-authority",
+      "path": "packages/twenty-server/src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-configuration.entity.ts",
+      "sha256": "db92a2c5c6b83d97de65ca1d35bb8f8208b270ad1093c109852c1311f60e903e"
+    },
+    {
+      "group": "inconnect-authority",
+      "path": "packages/twenty-server/src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-managed-object.entity.ts",
+      "sha256": "5261c112fbe10ea6aec98a7c5b71324cdd8739796573f24dc1c4b3e6029624fb"
+    },
+    {
+      "group": "inconnect-authority",
+      "path": "packages/twenty-server/src/engine/core-modules/inconnect-record-access/entities/inconnect-record-access-policy.entity.ts",
+      "sha256": "67a1316299695b405e23eceea874d52768c4ad3d5eaac878ce18dd7d6f8d51cb"
+    },
+    {
+      "group": "inconnect-authority",
+      "path": "packages/twenty-server/src/engine/core-modules/inconnect-record-access/entities/inconnect-commercial-team.entity.ts",
+      "sha256": "98439f0a67c7e3b5191e25944c013c7f4d4337e098a54f9478b88261546920b1"
+    },
+    {
+      "group": "inconnect-authority",
+      "path": "packages/twenty-server/src/engine/core-modules/inconnect-record-access/entities/inconnect-commercial-team-membership.entity.ts",
+      "sha256": "b3c937b0fd5aa4af50691dfd8532ac982ee77fd850e4afcb01c0752d820803ca"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/manual-pool/lead-pool-authority.service.ts",
+      "sha256": "7de52dbdff698375ddd00f2785e8670e79d124a234e392516cf0241b6f340db7"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/manual-pool/lead-pool-query.service.ts",
+      "sha256": "4c10cd8f74d368c51fb51d8ed153796d72b472b67aa3c4961bd5e8d99bbebc40"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/manual-pool/lead-pool-store.service.ts",
+      "sha256": "4c369817d4394e503a9503a4ab71da32585ebaf3e1f1e399725ec390332f630b"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/manual-pool/lead-pool-storage-layout.ts",
+      "sha256": "591bb90398c4aa433d3bc01923c8e8ea249eb3b62d2407521cd5cfac7de35d6c"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/manual-pool/lead-pool.service.ts",
+      "sha256": "a984287cd5dfc2e491c2785a737df4785da79de2a04c3eee455c083d25d784fb"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/manual-pool/discard-lead-pool-connection.ts",
+      "sha256": "282a7d691b7b1641b73a95e43a14b0de30e2000ce85317fe036b7c446a692d9c"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/sql/lead-pool-operation.proposed.sql",
+      "sha256": "edde499579e67fe254dac7e00973d400a780fb712a0295bf19bb3b272f4b99b9"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/modules/inconnect-lead-management/lead-management.module.ts",
+      "sha256": "3d8b1179213bc4ee5b6e68dd0c09597bded09b4159871d5b0693175edbb3c484"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/engine/api/common/core-common-api.module.ts",
+      "sha256": "f9e1767b172300bdb5ef2b535a974b2161a622ac6ea01f1727b040777715c2d8"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/engine/api/common/common-query-runners/common-update-many-query-runner.service.ts",
+      "sha256": "50562a5b50a1e6a1dda30fd6d490d3d3859dbbaa17a26a761eed5add137edfe3"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource.module.ts",
+      "sha256": "68c9b879282c6efe7c1836bf8ec3fd7564f8d1d5f10d77e685145764090be04a"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource.service.ts",
+      "sha256": "707b2082eae1b49968d9a69c7866fc2be7e770d8bc70b40fe5f446ef4b5b2a4a"
+    },
+    {
+      "group": "runtime",
+      "path": "packages/twenty-server/src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource.ts",
+      "sha256": "2db64471cab02f2416d91541c5a3facfe400c8f8e63776fe6d639cdb707b488e"
+    },
+    {
+      "group": "connection-boundaries",
+      "path": "packages/twenty-server/src/database/typeorm/core/core.datasource.ts",
+      "sha256": "e6347011671b000a4df6a6827842bd99d07060ddfe561cd0f375c85f2f8e45ea"
+    },
+    {
+      "group": "connection-boundaries",
+      "path": "packages/twenty-server/src/database/typeorm/raw/raw.datasource.ts",
+      "sha256": "bc4bb27372bc0a1e9f424f7c70c38c8aa05305011f6e5933dab5c89ec9205031"
+    },
+    {
+      "group": "connection-boundaries",
+      "path": "packages/twenty-server/src/engine/core-modules/environment/environment.module.ts",
+      "sha256": "d67371a0b510d9cf9bbb74117d5ee4a6bc1abeaba0bcad20edd5b36df189c4ac"
+    },
+    {
+      "group": "connection-boundaries",
+      "path": "packages/twenty-server/src/engine/core-modules/twenty-config/twenty-config.service.ts",
+      "sha256": "1aecf02ac6db8369e534848b1e63ceedebc43a6c9c516e006cd8842f8777011a"
+    },
+    {
+      "group": "connection-boundaries",
+      "path": "packages/twenty-server/src/engine/core-modules/cache-storage/cache-storage.module-factory.ts",
+      "sha256": "428c6c2a50c61e8ce1e1f4b32ad7a56576cd1c825a246948bbb0733ac3142f4d"
+    }
+  ],
+  "installationOrder": [
+    {
+      "id": "A0",
+      "purpose": "Independent isolation/lifecycle, then empty cluster identity",
+      "dependsOn": [],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A1-core",
+      "purpose": "Reviewed current Core schema: entity/FK/default/enum closure, extensions and no fabricated tracking",
+      "dependsOn": ["A0"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A1-identity",
+      "purpose": "Two synthetic workspaces, applications, roles, users and UserWorkspace in valid lifecycle order",
+      "dependsOn": ["A1-core"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A1-metadata",
+      "purpose": "Real object/field/index metadata and WorkspaceMember/Lead physical schemas derived from metadata",
+      "dependsOn": ["A1-identity"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A1-permissions",
+      "purpose": "RoleTarget, object/field/settings permissions, human session prerequisites",
+      "dependsOn": ["A1-metadata"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A1-authority",
+      "purpose": "Record Access configuration/managed object/policies, composite references; Teams only for team scope",
+      "dependsOn": ["A1-permissions"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A1-store",
+      "purpose": "Reviewed existing proposed LeadPool operation DDL and physical readiness",
+      "dependsOn": ["A1-authority"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "B",
+      "purpose": "Real Common Update transactions, driver/pool, events, failure reconciliation",
+      "dependsOn": ["A1-store"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "C",
+      "purpose": "Reviewed Nest provider closure and metadata HTTP with isolated Redis, no unrelated workers",
+      "dependsOn": ["B"],
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "D",
+      "purpose": "Browser and eventual explicit 50 Lead EVEN test",
+      "dependsOn": ["C"],
+      "status": "NOT_EXECUTED"
+    }
+  ],
+  "blockers": [
+    "CORE_CLOSURE_NOT_REVIEWED",
+    "CURRENT_SCHEMA_BASELINE_NOT_PACKAGED",
+    "WORKSPACE_LIFECYCLE_AND_METADATA_NOT_PACKAGED",
+    "NEST_PROVIDER_CLOSURE_NOT_ISOLATED",
+    "LIVE_SUPERVISOR_AND_KERNEL_EVIDENCE_ABSENT"
+  ],
+  "forbiddenRoutes": [
+    "database:init",
+    "database:reset",
+    "setup-dev-env.sh",
+    "PG0/PG1 execution",
+    "Stage C5",
+    "operational exact-upgrade",
+    "F13 provisioning",
+    "Attention activation"
+  ]
+}
