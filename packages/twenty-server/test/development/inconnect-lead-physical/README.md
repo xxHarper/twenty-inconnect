@@ -1,4 +1,19 @@
-# Lead Management PHYS-P1 — preparación SOURCE-ONLY
+# Lead Management — arnés físico en preparación SOURCE-ONLY
+
+## Actualización PHYS-P2 — 2026-10-27
+
+Checkpoint P1 actual: `0fc4a3114dde9f1b6c57c76948b562de0dfe3ada`.
+Se añade un adaptador nativo PROBE_ONLY con entradas bloqueadas, máquina de
+estados, protocolo acotado, pidfd y pruebas con filesystem/spawn/señales simulados.
+Ver [PHYS-P2.md](./PHYS-P2.md) y el [plan A0 actualizado](./PHYS-A0.md).
+La primera autorización física excluye PostgreSQL e initdb. No hay promoción
+entre capacidades. El inventario Core/Workspace permanece intacto y bloqueado.
+
+Las secciones siguientes conservan la preparación P1 como historial. Sus
+limitaciones sobre ausencia de implementación nativa describen P1; P2 añade
+código nativo sin ejecutarlo ni acreditar aislamiento/lifecycle físicamente.
+
+## Preparación PHYS-P1 conservada
 
 Fecha: 2026-10-27, America/Mexico_City. Base revisada:
 `c67d3bd4ddb6d8c417b97ec57bc06cd3df619d54`, rama

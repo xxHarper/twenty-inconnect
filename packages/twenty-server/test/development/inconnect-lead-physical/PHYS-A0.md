@@ -1,141 +1,124 @@
-# PHYS-A0 — plan mínimo pendiente de autorización y ejecución
+# PHYS-A0 — primera autorización física: PROBE_ONLY, sin PostgreSQL
 
-Fecha: 2026-10-27. Objetivo exclusivo: acreditar perímetro, lifecycle y un cluster
-vacío desechable. **No ejecutar con el código PHYS-P1 actual:** faltan adaptadores
-live y observadores confiables. Los comparadores puros no son un supervisor.
-No hay flag para saltar esta limitación; una implementación posterior revisada
-y autorización humana específica son necesarias. PG0/PG1/C5/exact-upgrade siguen
-BLOCKED; no se autoriza ni necesita su ejecución para revisar este plan.
+Actualización PHYS-P2, 2026-10-27. Base de preparación: checkpoint P1
+`0fc4a3114dde9f1b6c57c76948b562de0dfe3ada`. Este plan sustituye la secuencia
+anterior que incluía cluster vacío dentro de A0. **La primera autorización no
+incluye initdb, PostgreSQL, Redis, SQL, fixture ni servidores.**
 
-## 0. Revisión previa y autorización de preparación live
+El adaptador de [PHYS-P2](./PHYS-P2.md) está implementado para revisión SOURCE-ONLY;
+ambas entradas nativas siguen BLOCKED. No ejecutarlo ni cambiar guardas sólo
+porque los tests pasen. PG0/PG1/C5/exact-upgrade permanecen intactos y bloqueados.
 
-Fijar commit/hash del arnés revisado, run UUID, boot ID actual, presupuesto de
-memoria/procesos/tiempo, raíz exclusiva, herramientas y versiones Linux. Inventario
-de fuentes y worktree por Git READ-ONLY. No instalar dependencias ni alterar
-configuración global, montajes WSL, servicios habituales o secretos.
+## 1. Autorización humana y revisión previas
 
-Antes de cargas reales se necesita implementar/revisar el adaptador live:
-adquisición exclusiva de recursos, observación kernel completa y fresca, registros
-por operación, identidad de proceso y contención de todos sus descendientes.
-El artefacto independiente nace del supervisor, no de inputs de la aplicación.
-No representar la aprobación humana con un boolean en JSON o variable FORCE.
+Una autorización futura debe nombrar PROBE_ONLY, commit y hashes revisados,
+UUID/boot ID, raíz privada exclusiva, directorio de evidencia en .cache,
+probes exactos, límites, cancelación/señales permitidas y retención de recursos.
+No basta un manifiesto, variable, flag FORCE ni éxito de un probe anterior.
+Revisar y vincular expresamente la entrada física; P2 no entrega una CLI activada.
 
-Autorización requerida: **preparar/revisar adaptador live para A0**, todavía sin
-namespaces ni PostgreSQL. No es implícita en la aprobación SOURCE-ONLY de P1.
+El catálogo admite BOUNDARY y LIFECYCLE_WAIT. Cada caso declara terminación
+esperada: normal, timeout, cancelación o interrupción. No se acepta un comando
+arbitrario ni un binario elegido por manifiesto. La prueba de muerte abrupta
+requiere autorización adicional específica; no está habilitada automáticamente.
 
-## 1. Cargas inocuas: perímetro, sin bases ni servicios
+## 2. Preflight, sin conexiones al host
 
-Tras autorización específica de probes, verificar namespaces privados user/net/
-mount/PID, UID mapping, procfs, runtime mounts y sus identidades frente al host.
-Crear sólo recursos de prueba bajo la raíz exclusiva registrada. Acreditar:
+Git READ-ONLY: rama/HEAD/worktree, hashes de fuentes y script revisado; boot ID
+y recursos actuales. No tocar cambios ajenos ni reutilizar una raíz previa.
+Validar runtime Linux, propietarios, permisos, ausencia de symlinks y estabilidad
+de los descriptores. Node fija el programa por hash y descriptor heredado; no lo
+obtiene de una ruta del manifiesto. El protocolo y salida están acotados.
 
-- Loopback privado, sin NIC/ruta externa IPv4/IPv6, host/Windows, forwarding,
-  veth ni proxy; sockets abstractos y pathname del host inalcanzables.
-- HOME, dotenv, pgpass/service files, secretos, sockets y datos PostgreSQL del
-  host ocultos; ningún montaje del repositorio que exponga dotenv. Probar con
-  canarios inocuos controlados y tablas kernel, sin conexión ni paquetes a default.
-- Entorno real de cada hijo exactamente permitido; sin PG*, Redis*, loaders,
-  credenciales o rutas heredadas del shell. No imprimir valores sensibles.
-- Sin cambios en montajes/red del padre; no confundir exit 0 de true con prueba
-  del perímetro ni la existencia de bwrap/unshare con capacidad disponible.
+Comprobar las capacidades requeridas antes del lanzamiento: pidfd, límites,
+namespaces user/net/mount/PID y visibilidad de procesos. Los probes sólo podrán
+acreditar esas capacidades físicamente bajo esta autorización futura. Si faltan,
+UNVERIFIED/BLOCKED, sin fallback a host networking, kill numérico o permisos root.
+Presencia de bwrap/unshare o probes históricos no prueba aislamiento actual.
 
-Artefactos: namespace IDs, proceso/PID/start ticks/ejecutable, mapas de montajes,
-interfaces/rutas/listeners, pruebas positivas/negativas y estado del padre.
-Fallar si falta autoridad kernel, completitud o alguna barrera indispensable.
+## 3. BOUNDARY: carga inocua predefinida
 
-Autorización requerida: **crear namespaces y ejecutar únicamente probes inocuos**,
-con recursos y límites enumerados; sin initdb, PostgreSQL, Redis ni SQL.
+Crear únicamente la raíz registrada y evidencia privada. Preparar canary y
+script propio, con archivos exclusivos/no-follow y permisos privados. El montaje
+/lm es de lectura; HOME vacío, /tmp y /run privados, procfs privado. Runtime
+explícito /usr,/lib,/lib64 sujeto a revisión; sin montaje de /, /home, /etc,
+repositorio, dotenv, sockets o datos PostgreSQL habituales.
 
-## 2. Lifecycle y limpieza con recursos inocuos
+Verificar namespaces distintos del controlador; interfaces sólo lo, sin rutas
+externas IPv4/IPv6 ni sockets Unix importados. No contactar default ni Internet:
+la denegación se prueba con estado kernel, mounts/FDs y canarios controlados,
+sin enviar paquetes a destinos reales. No concluir que un puerto distinto basta.
+Verificar canary positivo y ausencia de rutas de host/credenciales habituales.
 
-Ejecutar por separado salida normal, timeout y SIGTERM del supervisor; después,
-con nueva autorización de fallo controlado, muerte abrupta de procesos propios
-y recuperación del guardian. Acreditar propagación, ausencia de huérfanos y
-recuperación de ownership sin PID reuse. No matar procesos ajenos. Ninguna prueba
-debe provocar un reinicio WSL ni usar cargas OOM para medir límites.
+Registrar observaciones antes/después del controlador y del payload, correlación
+de proceso y namespaces, estado y exit. No imprimir secretos ni volcar entornos
+heredados. El supervisor resume mountinfo con hash y sockets con conteo para
+no publicar rutas ajenas. Conservar observaciones estructuradas en evidencia
+.cache, además de los archivos propios de la raíz /tmp.
 
-Registrar creación de cada recurso y ejecutable: run/boot, PID/start ticks,
-device/inode/mount, padre y fase. Ante muerte parcial, incertidumbre o inventario
-incompleto, preservar recursos y detener; no cleanup por suposición.
+Una comparación igual no demuestra que el collector sea confiable. Revisar
+fuentes, namespace/montaje/UID real y completitud del observador con evidencia
+independiente; no usar booleans JSON como aceptación del perímetro.
 
-La eliminación futura exige handles seguros/no-follow, árbol completo propio,
-ausencia de montajes ajenos, cierre de conexiones/procesos y evidencia estable.
-No `pkill`, señales por nombre, glob, flush Redis compartido ni rm -rf por path.
-No remover la evidencia con los recursos. Verificar ausencia de recursos propios
-restantes y estado del padre después de cleanup. Un MATCH puro no la autoriza.
+## 4. Lifecycle sin PostgreSQL
 
-Autorización requerida: **pruebas lifecycle y limpieza exclusivamente de recursos
-inocuos identificados**; distinguir la autorización de fallos abruptos.
+Después del caso normal, ejecutar únicamente los casos nombrados en la
+aprobación: LIFECYCLE_WAIT, deadline, cancelación por pipe e interrupción propia.
+Node no señaliza PIDs; el controlador fija pidfd de su hijo Popen no recolectado,
+comprueba identidad y envía TERM, luego KILL sólo al mismo descriptor si hace falta.
+Sin pidfd o ante identidad perdida, preservar y detener; nunca kill por PID/nombre.
 
-## 3. Condiciones para permitir initdb
+No confundir exit de bwrap con desaparición de todos los hijos. Exigir inspección
+completa del namespace y ausencia de supervivientes. Una lectura denegada de
+/proc, proceso no observado o inventario incompleto da UNVERIFIED. No excluir
+procesos por UID para fabricar una prueba de ausencia.
 
-Sólo tras aceptación física explícita de 1–2: raíz nueva exclusiva sin symlinks,
-ownership/modes privados, hashes de binarios y runtime acreditados, entorno
-vacío permitido, contención y límites efectivos. Sin procesos/recursos sobrantes
-de otra ejecución. Identidad conocida del cluster excluido desde evidencia offline
-confiable; no consultar default ni acceder a sus archivos sin autorización propia.
+La muerte del padre Node cierra su pipe; la interrupción del controlador solicita
+terminación. --die-with-parent y la muerte del init del namespace son mecanismos
+candidatos, no garantías WSL aceptadas. Muerte abrupta del controlador puede
+impedir evidencia terminal: UNVERIFIED y recursos preservados. Recuperación
+independiente/guardian no se declara operativa; no relanzar ni reconstruir una
+señal a partir de un PID almacenado. Acreditar esa ruta por separado antes de
+aceptar protección ante muerte abrupta.
 
-Generar credencial nueva privada; nunca credenciales administrativas habituales.
-initdb inicializa únicamente `/lm/data`, cuyo montaje enlaza la raíz registrada.
-Obtener y fijar system identifier y control-data hash mediante pg_controldata
-offline **antes** del primer SQL. Debe diferir del cluster excluido. Si falta
-evidencia independiente, detener; no copiar el identificador desde la sesión SQL.
+Los límites RLIMIT del controlador/hijos no equivalen a un presupuesto agregado
+cgroup aceptado. Acreditar su efecto real, conteo de descendientes y tiempo;
+si el presupuesto exigido no puede garantizarse, detener el caso. No probar con
+OOM ni provocar reinicio WSL.
 
-Autorización requerida: **ejecutar initdb y pg_controldata exclusivamente sobre
-la raíz nueva del ensayo**, crear sólo ese cluster y sus secretos. Sin schema
-Twenty, DDL del distribuidor, roles adicionales ni datos CRM.
+## 5. PASS, FAIL, UNVERIFIED y conservación
 
-## 4. Cluster vacío e identidad SQL
+- PASS: caso autorizado y esperado, identidad/boot/orden de evidencia coherentes,
+  barreras acreditadas, salida/terminación esperada, árbol realmente vacío,
+  host sin cambios atribuibles y evidencia durable completa antes/después.
+- FAIL: evidencia completa acredita una desviación, por ejemplo acceso visible
+  al host o terminación diferente a la esperada. No continuar con otro caso.
+- UNVERIFIED: evidencia perdida/incompleta/no confiable, reinicio, fallo de
+  adquisición, capacidades/visibilidad insuficientes, cierre no acreditado o
+  autoridad perdida. Ausencia de error no sustituye PASS.
 
-Autorizar separadamente postmaster en primer plano supervisado, loopback/puerto
-privados y socket `/lm/socket`. Acreditar PID/start ticks/ejecutable, namespaces y
-data directory por OS; completar el manifiesto desde esas observaciones.
+Los tests de P2 simulan estos resultados; no son PASS físicos de A0. No hay
+limpieza automática en P2: root y evidencia se preservan incluso tras PASS.
+La eliminación futura requiere autorización propia, inventario y handles
+no-follow actuales, quiescencia y propietario acreditados. No rm recursivo,
+pkill/killall, flush compartido o mount/unmount global. Si no se acredita,
+no borrar. Cerrar sólo descriptores propios no es limpieza física del árbol.
 
-Conectar únicamente al cluster nuevo, base inicial postgres y rol exclusivo.
-Antes de cualquier futura escritura verificar current_database, current_user,
-session_user, inet_server_addr/port, data_directory, server_version_num,
-pg_postmaster_start_time, pg_control_system system_identifier, backend PID/start.
-El usuario de A0 no es una credencial de aplicación ni se reutiliza en B–D sin
-revisar privilegios. Comparar con el manifiesto offline y correlación kernel,
-preservando system identifier como string y precisión de timestamps.
+Ante reboot detener toda reanudación automática; comparar boot ID y evidencia
+antes de cualquier decisión humana posterior. No reutilizar PID/inode antiguos.
+Si WSL limita aislamiento/pidfd/visibilidad, recomendar únicamente corregir la
+capacidad concreta mediante una ruta revisada aparte, sin tocar el bind mount
+WSL ni default, sin elevar privilegios o instalar componentes automáticamente.
 
-Fijar cada conexión real, no sólo una conexión de inspección. Cualquier reemplazo
-del cliente/runner, cambio de PID/start, boot, manifest o perímetro detiene el caso.
-No ejecutar SQL ante identidad UNKNOWN. La conexión de observación requiere su
-propia autorización read-only sobre el cluster desechable.
+## 6. Capacidades posteriores, sin promoción automática
 
-Artefactos: inventario sólo de postgres/template0/template1, sesión correlacionada,
-catálogos vacíos de aplicación, listeners exactos y ausencia de acceso al host.
-No crear todavía una base de aplicación ni Roles, workspace, Leads o Store.
-La comparación application se ensayará físicamente en A1 tras autorización nueva.
+| Capacidad         | Alcance futuro                         | Autorización actual                 |
+| ----------------- | -------------------------------------- | ----------------------------------- |
+| PROBE_ONLY        | Probes inocuos y lifecycle nombrados   | SOURCE-ONLY; ejecución pendiente    |
+| POSTGRES_INIT     | initdb y control-data de cluster nuevo | No implementada ni autorizada en P2 |
+| POSTGRES_CONNECT  | Postmaster e identidad SQL del cluster | No implementada ni autorizada en P2 |
+| FIXTURE_AND_TESTS | Schema/fixture/transacciones           | No implementada ni autorizada en P2 |
 
-Autorización requerida: **arrancar/parar sólo este PostgreSQL y consultar su
-identidad read-only**. No Redis, Nest, frontend, workers, extensiones ni migraciones.
-
-## 5. Comprobación de configuración y cierre A0
-
-Comprobar como datos la configuración futura Core/Raw/Workspace/réplica y ambas
-URLs Redis, con dotenv inaccesible y sin defaults de pg. PG_DATABASE_URL y
-PG_DATABASE_REPLICA_URL deben ser explícitas; mismo destino aislado. Redis tendrá
-su instancia exclusiva en una fase posterior. No arrancarlo para completar A0.
-
-No importar el bootstrap de Twenty para inspeccionar opciones: puede abrir pools
-e instalar extensiones antes del primer SQL del harness. El adaptador futuro debe
-capturar opciones y verificar permisos/barrier antes de initialize. La configuración
-de prueba prohíbe synchronize, migrationsRun, dropSchema e installExtensions.
-El esquema de efectivo de P1 no es evidencia de que el producto ya lo cumple.
-
-Cerrar conexiones, detener postmaster y acreditar quiescencia del árbol. Limpiar
-sólo recursos inventariados bajo autorización de cleanup; conservar evidencia en
-`.cache/lead-physical-<run-id>/` ignorado. Si hubo respuesta incierta, preservar.
-
-Paradas obligatorias: reboot, evidencia incompleta/no confiable, UID/ns/proceso/
-cluster/connection distintos, symlink/mount inesperado, límite no efectivo,
-presión de recursos, timeout, secretos en logs, proceso huérfano, necesidad de
-default/Internet o de un gate bloqueado. No elevar límites, fallback, reparación,
-reintento, relanzamiento o limpieza automáticos.
-
-Aceptar A0 sólo con evidencia de kernel/lifecycle/cluster y revisión humana,
-sin afirmar aceptación del fixture ni del MVP. Después se podrá **preparar A1**:
-resolver los bloqueos del inventario, revisar schema/fixture e instalación del
-Store. A0 no autoriza A1 ni el reparto final de 50 ficticios EVEN 25/25.
+Aceptar PROBE_ONLY no habilita ninguna fila siguiente. El inventario de fixture
+P1 permanece histórico/intacto; P2 no amplía ni instala Core/Workspace. Los 50
+Leads ficticios EVEN 25/25 continúan como meta posterior, sin autorización nueva.
