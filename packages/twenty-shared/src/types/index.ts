@@ -322,3 +322,4 @@ export { ViewType } from './ViewType';
 export { ViewVisibility } from './ViewVisibility';
 export { WebhookSubscriptionChannelType } from './WebhookSubscriptionChannelType';
 export { WebhookSubscriptionStatus } from './WebhookSubscriptionStatus';
+export type * from './InconnectLeadManagement';

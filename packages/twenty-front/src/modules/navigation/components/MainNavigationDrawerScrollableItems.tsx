@@ -1,3 +1,4 @@
+import { LeadManagementNavigationItem } from '@/inconnect-lead-management/components/LeadManagementNavigationItem';
 import { NavigationDrawerOpenedSection } from '@/navigation-menu-item/display/sections/components/NavigationDrawerOpenedSection';
 import { InconnectMessagingNavigationItem } from '@/inconnect-messaging/components/InconnectMessagingNavigationItem';
 import { NavigationDrawerWorkspaceSectionSkeletonLoader } from '@/object-metadata/components/NavigationDrawerWorkspaceSectionSkeletonLoader';
@@ -34,6 +35,7 @@ export const MainNavigationDrawerScrollableItems = () => {
     <StyledScrollableItemsContainer>
       <NavigationDrawerOpenedSection />
       <InconnectMessagingNavigationItem />
+      <LeadManagementNavigationItem />
       <Suspense fallback={<NavigationDrawerWorkspaceSectionSkeletonLoader />}>
         <FavoritesSectionDispatcher />
         <WorkspaceSectionDispatcher />

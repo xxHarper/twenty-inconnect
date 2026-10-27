@@ -56,6 +56,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     InconnectCommercialTeamSettingsResolver,
   ],
   exports: [
+    InconnectWorkspaceMemberService,
     InconnectRecordAccessAuthorizationService,
     InconnectRecordAccessService,
     InconnectCommercialTeamService,

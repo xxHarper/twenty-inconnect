@@ -118,6 +118,12 @@ const AiChatPage = lazy(() =>
   })),
 );
 
+const InconnectLeadManagementPage = lazy(() =>
+  import('~/pages/inconnect-lead-management/InconnectLeadManagementPage').then(
+    (module) => ({ default: module.InconnectLeadManagementPage }),
+  ),
+);
+
 const InconnectMessagingPage = lazy(() =>
   import('~/pages/inconnect-messaging/InconnectMessagingPage').then(
     (module) => ({
@@ -198,6 +204,14 @@ const createWorkspaceAppRouter = (
                 element={
                   <LazyRoute>
                     <InconnectMessagingPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="/inconnect-lead-management"
+                element={
+                  <LazyRoute>
+                    <InconnectLeadManagementPage />
                   </LazyRoute>
                 }
               />
