@@ -1,5 +1,12 @@
 # INCONNECT — Fase 1B-1B-C2: persistencia transaccional del ledger de atención
 
+> Lectura vigente, 2026-10-27: este documento conserva la entrega de su fase.
+> Las etiquetas de revisión pendiente y recomendaciones de siguiente fase son
+> históricas; consultar [estado canónico](INCONNECT_PROJECT_STATUS.md) para los
+> checkpoints posteriores hasta R4 y [guardrails](INCONNECT_ATTENTION_GUARDRAILS.md).
+> Sus contratos técnicos y gates físicos permanecen; ninguna fase ni instalación
+> se autoriza por esta reconciliación documental.
+
 Fecha: 2026-10-19. Estado: **DISEÑO SOURCE-ONLY; pendiente de revisión**.
 
 Repositorio inspeccionado: `/home/alberto/projects/twenty-inconnect`, rama

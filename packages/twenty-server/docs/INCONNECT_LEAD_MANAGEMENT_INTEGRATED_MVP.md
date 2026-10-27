@@ -1,5 +1,13 @@
 # INCONNECT Lead Management — MVP integrado de selección explícita
 
+> Estado reconciliado 2026-10-27: **ACCEPTED SOURCE-ONLY — INCONNECT LEAD MANAGEMENT
+> INTEGRATED MVP**, aceptación independiente del 27 de octubre y checkpoint
+> `f164bf937a5260983778dbca8a3a8e833b2e1bde`. F1–F5 y N1/N2 cerrados SOURCE-ONLY.
+> Las etiquetas de auditoría pendiente y los inventarios de worktree siguientes
+> son evidencia de entregas anteriores al cierre. PostgreSQL físico, instalación
+> DDL, DI/HTTP/E2E siguen pendientes; no activado/desplegado. NORMAL/MESSAGE_PENDING
+> NOT_READY y TODOS deshabilitado. Ver [estado canónico](INCONNECT_PROJECT_STATUS.md).
+
 Fecha de entrega inicial: 2026-10-26. Actualización de remediación: 2026-10-27.
 Entrega **SOURCE-ONLY**, sin despliegue ni activación.
 

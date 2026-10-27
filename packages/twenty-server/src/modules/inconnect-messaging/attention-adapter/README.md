@@ -1,5 +1,13 @@
 # Fase 1B-1B-C1 — Contratos y proyección (SOURCE-ONLY)
 
+> Reconciliación documental 2026-10-27: los rótulos de propuesta/revisión y
+> siguiente fase de esta entrega son históricos. DELIVERED/READ para respuesta
+> HUMAN con cobertura vigente ya está aprobado; el literal
+> PROPOSED_DELIVERED_OR_READ se conserva por compatibilidad. C2 y sus capas hasta
+> R4 existen SOURCE-ONLY; no hay autorización de activación ni clasificador Lead.
+> Consultar [estado canónico](../../../../docs/INCONNECT_PROJECT_STATUS.md) y
+> [guardrails](../../../../docs/INCONNECT_ATTENTION_GUARDRAILS.md) antes de modificar.
+
 Fecha: 2026-10-19. No hay adaptador conectado, entidad, tabla, migración,
 servicio, registro NestJS, endpoint, conexión ni consumidor. El directorio
 `attention-domain/` aceptado permanece intacto. No se inicia la siguiente fase.

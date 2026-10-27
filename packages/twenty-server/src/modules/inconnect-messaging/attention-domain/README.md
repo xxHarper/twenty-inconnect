@@ -1,5 +1,13 @@
 # Fase 1B-1B-A — Atención de conversaciones (SOURCE-ONLY)
 
+> Reconciliación documental 2026-10-27: los rótulos de propuesta/revisión y
+> siguiente fase de esta entrega son históricos. DELIVERED/READ para respuesta
+> HUMAN con cobertura vigente ya está aprobado; el literal
+> PROPOSED_DELIVERED_OR_READ se conserva por compatibilidad. C2 y sus capas hasta
+> R4 existen SOURCE-ONLY; no hay autorización de activación ni clasificador Lead.
+> Consultar [estado canónico](../../../../docs/INCONNECT_PROJECT_STATUS.md) y
+> [guardrails](../../../../docs/INCONNECT_ATTENTION_GUARDRAILS.md) antes de modificar.
+
 Dominio puro y provider-neutral. No está registrado en `InconnectMessagingModule`
 ni importado por código productivo. No cambia el Pending actual ni activa reglas
 automáticas. No implementa clasificación NORMAL/MESSAGE_PENDING.

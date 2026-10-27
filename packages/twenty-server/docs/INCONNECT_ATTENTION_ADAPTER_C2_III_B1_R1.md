@@ -1,5 +1,12 @@
 # INCONNECT — C2-III-B1-R1: procedencia durable inbound y URL/proxy
 
+> Lectura vigente, 2026-10-27: este documento conserva la entrega de su fase.
+> Las etiquetas de revisión pendiente y recomendaciones de siguiente fase son
+> históricas; consultar [estado canónico](INCONNECT_PROJECT_STATUS.md) para los
+> checkpoints posteriores hasta R4 y [guardrails](INCONNECT_ATTENTION_GUARDRAILS.md).
+> Sus contratos técnicos y gates físicos permanecen; ninguna fase ni instalación
+> se autoriza por esta reconciliación documental.
+
 Fecha: 2026-10-22. **SOURCE-ONLY — preflight y decisión de diseño; admisión
 recuperable BLOQUEADA por falta de procedencia acreditable.** No se declara
 C2-III-B1 completada. La propuesta de almacenamiento/ingreso de este documento

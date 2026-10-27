@@ -1,5 +1,14 @@
 # INCONNECT — C2-III-B1-R4: unidad causal inbound transaccional
 
+> Estado reconciliado 2026-10-27: **ACCEPTED SOURCE-ONLY** según el checkpoint
+> `0c5936907b61ff1989ffac566e9fb6e036bb6d26` (2026-10-26). Las etiquetas
+> REQUIRES REMEDIATION/pendiente del informe siguiente son históricas anteriores
+> a ese checkpoint. No declara B1 completada, DDL instalado, aceptación física
+> ni worker tracked liberado/activado. Bloqueos operativos de §§17/19.4 siguen
+> vigentes salvo la revisión de fuente ya registrada. Ver
+> [estado canónico](INCONNECT_PROJECT_STATUS.md) y
+> [guardrails aprobados](INCONNECT_ATTENTION_GUARDRAILS.md).
+
 Fecha: 2026-10-23. **Entrega integrada SOURCE-ONLY para auditoría independiente.
 No habilita tracking, no declara B1 completada y no acredita PostgreSQL físico.**
 
