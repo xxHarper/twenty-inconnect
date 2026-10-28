@@ -36,6 +36,7 @@ class ProbeSupervisorSourceTests(unittest.TestCase):
             '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64',
             '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
             '--dir', '/var', '--dir', '/var/run', '--ro-bind', '/proc/self/fd/9', '/lm',
+            '--ro-bind-data', '3', '/lm/probe.py',
             '--setenv', 'LANG', 'C', '--setenv', 'LC_ALL', 'C', '--setenv', 'HOME', '/lm/home',
             '--setenv', 'LM_PROBE_RUN_ID', RUN_ID,
             '--', '/usr/bin/python3', '-I', '-S', '/lm/probe.py', '--payload', 'BOUNDARY', RUN_ID])

@@ -1,6 +1,6 @@
 # PHYS-A0 — primera autorización física: PROBE_ONLY, sin PostgreSQL
 
-Actualización PHYS-P2, 2026-10-27. Base de preparación: checkpoint P1
+Actualización PHYS-P2 B1–B3, 2026-10-28. Base de preparación: checkpoint P1
 `0fc4a3114dde9f1b6c57c76948b562de0dfe3ada`. Este plan sustituye la secuencia
 anterior que incluía cluster vacío dentro de A0. **La primera autorización no
 incluye initdb, PostgreSQL, Redis, SQL, fixture ni servidores.**
@@ -27,8 +27,13 @@ requiere autorización adicional específica; no está habilitada automáticamen
 Git READ-ONLY: rama/HEAD/worktree, hashes de fuentes y script revisado; boot ID
 y recursos actuales. No tocar cambios ajenos ni reutilizar una raíz previa.
 Validar runtime Linux, propietarios, permisos, ausencia de symlinks y estabilidad
-de los descriptores. Node fija el programa por hash y descriptor heredado; no lo
-obtiene de una ruta del manifiesto. El protocolo y salida están acotados.
+de los descriptores. Node conserva el descriptor exclusivo del snapshot y verifica sus bytes e
+identidad sin reabrir por pathname. El bootstrap fijo dentro del mismo proceso
+Python debe volver a hashear, crear y verificar un memfd sellado WRITE/GROW/
+SHRINK/SEAL y ejecutar sólo ese objeto por FD 3. Incluir el bootstrap, supervisor
+y runtime en los hashes revisados. No se admite fallback si faltan sellos o
+identidad. Los mocks sólo acreditan orden y rechazo SOURCE-ONLY; el mecanismo
+real no se ha ejecutado. El protocolo y salida están acotados.
 
 Comprobar las capacidades requeridas antes del lanzamiento: pidfd, límites,
 namespaces user/net/mount/PID y visibilidad de procesos. Los probes sólo podrán
@@ -39,7 +44,13 @@ Presencia de bwrap/unshare o probes históricos no prueba aislamiento actual.
 ## 3. BOUNDARY: carga inocua predefinida
 
 Crear únicamente la raíz registrada y evidencia privada. Preparar canary y
-script propio, con archivos exclusivos/no-follow y permisos privados. El montaje
+copia documental del script con archivos exclusivos/no-follow y permisos privados.
+Persistir log/snapshot y sincronizar directorio y padre mediante handles seguros
+antes de ACK/continuación; cualquier error detiene la sesión. La durabilidad del
+filesystem real requiere evidencia física posterior. El script ejecutado en
+`/lm/probe.py` debe provenir del FD sellado mediante `--ro-bind-data 3`, con
+su offset en cero y montaje de lectura privado, nunca de la copia mutable.
+Acreditar soporte/semántica del bwrap revisado; sin fallback si no lo admite. El montaje
 /lm es de lectura; HOME vacío, /tmp y /run privados, procfs privado. Runtime
 explícito /usr,/lib,/lib64 sujeto a revisión; sin montaje de /, /home, /etc,
 repositorio, dotenv, sockets o datos PostgreSQL habituales.
@@ -64,9 +75,15 @@ independiente; no usar booleans JSON como aceptación del perímetro.
 
 Después del caso normal, ejecutar únicamente los casos nombrados en la
 aprobación: LIFECYCLE_WAIT, deadline, cancelación por pipe e interrupción propia.
-Node no señaliza PIDs; el controlador fija pidfd de su hijo Popen no recolectado,
-comprueba identidad y envía TERM, luego KILL sólo al mismo descriptor si hace falta.
-Sin pidfd o ante identidad perdida, preservar y detener; nunca kill por PID/nombre.
+Node no señaliza PIDs. El hijo Popen comienza en prelaunch inocuo, sin bwrap ni
+payload; una barrera cuyo writer no se hereda lo mantiene bloqueado. Sólo después
+de pidfd, identidad y evidencia durable se permite GO. EOF/error/deadline abortan
+sin carga; validar físicamente esa semántica y el orden de cierre cuando se autorice.
+Ante error ordinario se cierra la barrera y se intenta wait/reap acotado. Con
+pidfd/identidad vigentes TERM y luego KILL usan sólo el mismo descriptor; Python
+→ bwrap es la única transición autorizada. Sin autoridad, preservar y declarar
+UNVERIFIED si no se acredita reap; nunca kill por PID/nombre. La finalización
+precede al intento de persistir el fallo terminal, que tampoco debe crear PASS.
 
 No confundir exit de bwrap con desaparición de todos los hijos. Exigir inspección
 completa del namespace y ausencia de supervivientes. Una lectura denegada de
@@ -122,3 +139,25 @@ WSL ni default, sin elevar privilegios o instalar componentes automáticamente.
 Aceptar PROBE_ONLY no habilita ninguna fila siguiente. El inventario de fixture
 P1 permanece histórico/intacto; P2 no amplía ni instala Core/Workspace. Los 50
 Leads ficticios EVEN 25/25 continúan como meta posterior, sin autorización nueva.
+
+## Condición adicional B2-R1 para PHYS-A0.0 — 2026-10-28
+
+El checkpoint SOURCE-ONLY revalida después del último fsync el ancla independiente
+del repositorio, el padre nombrado .cache, la raíz y el log contra sus FDs,
+incluidos tipos, owner/permisos y device/inode. La sustitución tardía de padre
+o log reproducida por el auditor impide ACK y continuación. Los checks no hacen
+inmutable el namespace ni son atómicos frente a todos sus escritores.
+
+Antes de autorizar físicamente se debe acreditar la identidad/jerarquía del ancla
+y el control exclusivo de entradas, contenidos y ancestros relevantes durante
+adquisición, fsync, revalidación, ACK y conservación/localización de la evidencia,
+o una barrera efectiva que impida modificarlos a otros actores. Debe cubrir
+procesos del mismo UID y privilegios equivalentes: 0700/0600 por sí solos no los
+excluyen. No hay exclusión demostrada mediante los mocks ni por un manifiesto.
+
+Persiste una carrera si otro actor puede modificar esas entradas entre checks
+o después del último check antes de ACK. Los FDs protegen los objetos retenidos,
+no sus nombres frente a ese actor. Si no se puede satisfacer la precondición de
+control del filesystem, detener en UNVERIFIED/BLOCKED; no fabricar una garantía,
+reintentar o añadir permisos globales. B1/B3 permanecen cerrados SOURCE-ONLY;
+PHYS-A0.0 sigue prohibido sin revisión y autorización posteriores.

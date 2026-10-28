@@ -6,6 +6,7 @@ import {
   requireLeadPhysical,
   uuid,
 } from 'test/development/inconnect-lead-physical/contracts';
+import { probeBootstrap } from 'test/development/inconnect-lead-physical/probe-only/probe-bootstrap';
 import { rejectInheritedEnvironment } from 'test/development/inconnect-lead-physical/environment';
 
 const requestSchema = z.strictObject({
@@ -44,7 +45,7 @@ export const planProbeOnly = (
   return {
     request,
     executable: '/usr/bin/python3',
-    arguments: ['-I', '-S', '/proc/self/fd/3', '--supervise'],
+    arguments: ['-I', '-S', '-c', probeBootstrap],
     shell: false,
     environment: { LANG: 'C', LC_ALL: 'C' },
     protocolLimitBytes: 65536,

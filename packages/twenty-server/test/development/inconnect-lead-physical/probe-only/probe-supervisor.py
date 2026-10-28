@@ -1,3 +1,4 @@
+import fcntl
 import hashlib
 import json
 import os
@@ -100,10 +101,11 @@ def empty_namespace(namespace):
     return True
 
 
-def terminate_owned_child(child, pidfd, pinned):
+def terminate_owned_child(child, pidfd, pinned, allowed_executables=()):
     if child.poll() is not None:
         return
-    if process_identity(child.pid) != pinned:
+    actual = process_identity(child.pid)
+    if actual[:2] != pinned[:2] or actual[2] not in (pinned[2], *allowed_executables):
         raise RuntimeError('Process identity lost')
     signal.pidfd_send_signal(pidfd, signal.SIGTERM)
     try:
@@ -114,7 +116,7 @@ def terminate_owned_child(child, pidfd, pinned):
 
 
 def build_bwrap_arguments(directory, request):
-    if type(directory) is not int or directory < 3 or request['probe'] not in ('BOUNDARY', 'LIFECYCLE_WAIT'):
+    if type(directory) is not int or directory <= 3 or request['probe'] not in ('BOUNDARY', 'LIFECYCLE_WAIT'):
         raise RuntimeError('Invalid probe descriptor or command')
     run_id = request['runId']
     if not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', run_id):
@@ -124,9 +126,66 @@ def build_bwrap_arguments(directory, request):
             '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64',
             '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run',
             '--dir', '/var', '--dir', '/var/run', '--ro-bind', '/proc/self/fd/' + str(directory), '/lm',
+            '--ro-bind-data', '3', '/lm/probe.py',
             '--setenv', 'LANG', 'C', '--setenv', 'LC_ALL', 'C', '--setenv', 'HOME', '/lm/home',
             '--setenv', 'LM_PROBE_RUN_ID', run_id,
             '--', '/usr/bin/python3', '-I', '-S', '/lm/probe.py', '--payload', request['probe'], run_id]
+
+
+def read_sealed_program(expected_hash):
+    seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
+    identity = os.fstat(3)
+    if not stat.S_ISREG(identity.st_mode) or not 0 < identity.st_size <= 131072 or fcntl.fcntl(3, fcntl.F_GET_SEALS) & seals != seals:
+        raise RuntimeError('Executable snapshot is not sealed')
+    program = os.pread(3, identity.st_size + 1, 0)
+    if len(program) != identity.st_size or hashlib.sha256(program).hexdigest() != expected_hash:
+        raise RuntimeError('Executable snapshot hash differs')
+    return program
+
+
+def await_prelaunch(descriptor, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError('Prelaunch deadline exceeded')
+    ready, _, _ = select.select([descriptor], [], [], remaining)
+    if not ready or os.read(descriptor, 4) != b'GO\n' or time.monotonic() >= deadline:
+        raise RuntimeError('Prelaunch barrier closed')
+
+
+def prelaunch(descriptor, directory, request, deadline):
+    if type(descriptor) is not int or type(directory) is not int or descriptor <= 3 or directory <= 3 or descriptor == directory:
+        raise RuntimeError('Invalid prelaunch descriptors')
+    try:
+        arguments = build_bwrap_arguments(directory, request)
+        read_sealed_program(request['supervisorSha256'])
+        await_prelaunch(descriptor, deadline)
+    finally:
+        os.close(descriptor)
+    # No Popen/fork: the owned, pinned child transitions to the fixed bwrap image.
+    os.lseek(3, 0, os.SEEK_SET)
+    os.set_inheritable(3, True)
+    os.set_inheritable(directory, True)
+    os.execve(arguments[0], arguments, {'LANG': 'C', 'LC_ALL': 'C'})
+
+
+def finish_child(child, pidfd, pinned, released):
+    if child is None:
+        return False
+    try:
+        if not released:
+            # Parent has closed its sole writer. EOF aborts the inert prelaunch.
+            try:
+                child.wait(timeout=2)
+                return True
+            except subprocess.TimeoutExpired:
+                pass
+        if pidfd is None or pinned is None:
+            return False
+        terminate_owned_child(child, pidfd, pinned, ('/usr/bin/bwrap',) if released else ())
+        child.wait(timeout=2)
+        return True
+    except Exception:
+        return False
 
 
 def await_durable_acquisition(deadline):
@@ -170,6 +229,10 @@ def supervise(request):
     directory = None
     child = None
     child_pidfd = None
+    pinned = None
+    barrier_read = None
+    barrier_write = None
+    released = False
     audit = None
     pending_events = []
     interrupted = [False]
@@ -213,10 +276,7 @@ def supervise(request):
         write_owned(directory, 'ownership.json', json.dumps({'runId': run_id, 'bootId': request['bootId'], 'device': identity.st_dev, 'inode': identity.st_ino}).encode())
         write_owned(directory, 'canary', run_id.encode('ascii'))
         os.mkdir('home', mode=0o700, dir_fd=directory)
-        with open('/proc/self/fd/3', 'rb') as source:
-            program = source.read(131072)
-        if hashlib.sha256(program).hexdigest() != request['supervisorSha256']:
-            raise RuntimeError('Reviewed program hash differs')
+        program = read_sealed_program(request['supervisorSha256'])
         write_owned(directory, 'probe.py', program)
         emit('ACQUIRED', before=before)
         await_durable_acquisition(session_deadline)
@@ -224,14 +284,28 @@ def supervise(request):
             raise RuntimeError('Acquisition interrupted or expired')
         arguments = build_bwrap_arguments(directory, request)
         emit('LAUNCHING')
-        child = subprocess.Popen(arguments, shell=False, env={'LANG': 'C', 'LC_ALL': 'C'},
+        barrier_read, barrier_write = os.pipe2(os.O_CLOEXEC)
+        child = subprocess.Popen(['/usr/bin/python3', '-I', '-S', '/proc/self/fd/3', '--prelaunch',
+                                  str(barrier_read), str(directory), json.dumps(request), str(session_deadline)],
+                                 shell=False, env={'LANG': 'C', 'LC_ALL': 'C'},
                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 close_fds=True, pass_fds=(directory,))
+                                 close_fds=True, pass_fds=(3, directory, barrier_read))
+        owned_read, barrier_read = barrier_read, None
+        os.close(owned_read)
         # Popen owns the unreaped child: PID cannot be reused before pidfd_open.
         child_pidfd = os.pidfd_open(child.pid)
         pinned = process_identity(child.pid)
         write_owned(directory, 'process.json', json.dumps(pinned).encode())
         emit('RUNNING')
+        if interrupted[0] or time.monotonic() >= session_deadline or child.poll() is not None:
+            raise RuntimeError('Prelaunch interrupted, expired or exited')
+        if process_identity(child.pid) != pinned:
+            raise RuntimeError('Prelaunch identity lost')
+        if os.write(barrier_write, b'GO\n') != 3:
+            raise RuntimeError('Prelaunch release incomplete')
+        released = True
+        owned_write, barrier_write = barrier_write, None
+        os.close(owned_write)
         deadline = session_deadline
         cause = 'NORMAL_EXIT'
         while True:
@@ -252,7 +326,7 @@ def supervise(request):
                 raise RuntimeError('Unexpected control input')
             if interrupted[0] or cancel or time.monotonic() >= deadline:
                 cause = 'INTERRUPTED' if interrupted[0] else 'CANCELLED' if cancel else 'TIMEOUT'
-                terminate_owned_child(child, child_pidfd, pinned)
+                terminate_owned_child(child, child_pidfd, pinned, (arguments[0],))
                 stdout, stderr = child.communicate(timeout=2)
                 break
         if len(stdout) + len(stderr) > 65536:
@@ -269,17 +343,52 @@ def supervise(request):
              observations={'before': before, 'after': after, 'probe': observed},
              boundaryPassed=independent and (child.returncode == 0 if cause == 'NORMAL_EXIT' else child.returncode in (-signal.SIGTERM, -signal.SIGKILL)))
     except Exception:
-        # Never fall back to numeric kill or recursive cleanup on missing authority.
-        emit('PARTIAL_FAILURE')
-        emit('CLOSED', treeEmpty=False, hostUnchanged=False, evidenceComplete=False, boundaryPassed=False)
-    finally:
-        if child_pidfd is not None:
-            os.close(child_pidfd)
-        if audit is not None:
-            audit.close()
+        # Abort the inert stage even without a pidfd; never release after failure.
+        if barrier_write is not None:
+            owned_write, barrier_write = barrier_write, None
+            try:
+                os.close(owned_write)
+            except OSError:
+                pass
+        reaped = finish_child(child, child_pidfd, pinned, released)
         if directory is not None:
-            os.close(directory)
-        # All resources are retained; independent recovery is required on loss.
+            try:
+                write_owned(directory, 'termination.json', json.dumps({'childReaped': reaped, 'workloadReleased': released}).encode())
+            except Exception:
+                pass
+        # Evidence failure must never skip containment/wait or become a PASS.
+        try:
+            emit('PARTIAL_FAILURE')
+            emit('CLOSED', treeEmpty=False, hostUnchanged=False, evidenceComplete=False, boundaryPassed=False)
+        except Exception:
+            raise RuntimeError('Terminal evidence unavailable') from None
+    finally:
+        close_failed = False
+        for descriptor in (barrier_read, barrier_write, child_pidfd):
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    close_failed = True
+        for stream in (() if child is None else (child.stdout, child.stderr)):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    close_failed = True
+        if audit is not None:
+            try:
+                audit.close()
+            except OSError:
+                close_failed = True
+        if directory is not None:
+            try:
+                os.close(directory)
+            except OSError:
+                close_failed = True
+        if close_failed:
+            raise RuntimeError('Owned handle closure unverified')
+        # Resources are retained; no tree absence or recovery is inferred from reap.
 
 
 def require_native_execution_authorization():
@@ -301,6 +410,9 @@ def read_request():
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--payload'] and len(sys.argv) == 4:
         payload(sys.argv[2], sys.argv[3])
+    elif sys.argv[1:2] == ['--prelaunch'] and len(sys.argv) == 6:
+        require_native_execution_authorization()
+        prelaunch(int(sys.argv[2]), int(sys.argv[3]), json.loads(sys.argv[4]), float(sys.argv[5]))
     elif sys.argv[1:] == ['--supervise']:
         # A second gate prevents direct --supervise use during SOURCE-ONLY P2.
         require_native_execution_authorization()

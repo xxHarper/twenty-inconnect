@@ -1,3 +1,4 @@
+import { probeBootstrap } from 'test/development/inconnect-lead-physical/probe-only/probe-bootstrap';
 import {
   initialProbeState,
   planProbeCleanup,
@@ -74,12 +75,7 @@ describe('PHYS-P2 PROBE_ONLY protocol with simulated IO', () => {
   it('builds only fixed isolated Python controller arguments and no next-phase grant', () => {
     const plan = planProbeOnly(probeRequest(), {});
     expect(plan.executable).toBe('/usr/bin/python3');
-    expect(plan.arguments).toEqual([
-      '-I',
-      '-S',
-      '/proc/self/fd/3',
-      '--supervise',
-    ]);
+    expect(plan.arguments).toEqual(['-I', '-S', '-c', probeBootstrap]);
     expect(plan.shell).toBe(false);
     expect(plan.environment).toEqual({ LANG: 'C', LC_ALL: 'C' });
     expect(plan.nextCapabilities).toEqual([]);
