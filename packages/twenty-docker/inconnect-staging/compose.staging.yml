@@ -1,0 +1,72 @@
+# STAGING-S0. Propuesta independiente. Requiere revisión y autorización física.
+name: twenty-inconnect-staging
+
+services:
+  pg-staging:
+    profiles: [staging-data]
+    image: ${STAGING_POSTGRES_IMAGE:?Falta la referencia aprobada de PostgreSQL 16 por digest}
+    pull_policy: never
+    restart: 'no'
+    environment:
+      POSTGRES_DB: inconnect_staging
+      POSTGRES_USER: inconnect_staging_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/staging_pg_bootstrap_password
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    secrets: [staging_pg_bootstrap_password]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks: [staging-net]
+
+  redis-staging:
+    profiles: [staging-data]
+    image: ${STAGING_REDIS_IMAGE:?Falta la referencia aprobada de Redis 7 por digest}
+    pull_policy: never
+    restart: 'no'
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory-policy
+      - noeviction
+      - --aclfile
+      - /run/secrets/staging_redis_acl
+    secrets: [staging_redis_acl]
+    volumes:
+      - redis-data:/data
+    networks: [staging-net]
+
+  twenty-staging:
+    profiles: [staging-app-blocked]
+    image: ${STAGING_INCONNECT_IMAGE:?Falta la imagen revisada del fork INCONNECT por digest}
+    pull_policy: never
+    restart: 'no'
+    # Sustituye el entrypoint de la imagen y descarta su CMD. La salida es intencional.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'echo "STAGING-S0 BLOCKED: el arranque de Twenty INCONNECT requiere una fase posterior" >&2; exit 1'
+    command: []
+    environment:
+      DISABLE_DB_MIGRATIONS: 'true'
+      DISABLE_CRON_JOBS_REGISTRATION: 'true'
+    ports:
+      - '127.0.0.1:3000:3000'
+    volumes:
+      - app-data:/app/packages/twenty-server/.local-storage
+    networks: [staging-net]
+
+secrets:
+  staging_pg_bootstrap_password:
+    environment: STAGING_PG_BOOTSTRAP_PASSWORD
+  staging_redis_acl:
+    environment: STAGING_REDIS_ACL
+
+volumes:
+  pg-data:
+  redis-data:
+  app-data:
+
+networks:
+  staging-net:
+    driver: bridge
+    internal: true
