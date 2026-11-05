@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { Command, CommandRunner, Option } from 'nest-commander';
 import { DataSource } from 'typeorm';
 
+import { runLegacyCoreMigrations } from 'src/database/typeorm/core/run-legacy-core-migrations';
 import { TWENTY_PREVIOUS_VERSIONS } from 'src/engine/core-modules/upgrade/constants/twenty-previous-versions.constant';
 import { InstanceCommandRunnerService } from 'src/engine/core-modules/upgrade/services/instance-command-runner.service';
 import { UpgradeCommandRegistryService } from 'src/engine/core-modules/upgrade/services/upgrade-command-registry.service';
@@ -170,9 +171,7 @@ export class RunInstanceCommandsCommand extends CommandRunner {
   private async runLegacyPendingTypeOrmMigrations(): Promise<void> {
     this.logger.log('Running legacy TypeORM migrations...');
 
-    const migrations = await this.dataSource.runMigrations({
-      transaction: 'each',
-    });
+    const migrations = await runLegacyCoreMigrations(this.dataSource.options);
 
     if (migrations.length === 0) {
       this.logger.log('No pending legacy migrations');
