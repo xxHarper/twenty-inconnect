@@ -138,16 +138,13 @@ def staging_recipe(upstream):
     )
     replace_once(
         'RUN apk add --no-cache \\',
-        (
-            'ARG STAGING_APK_SHA256\n'
-            'RUN --network=none --mount=type=bind,from=staging-apk,target=/staging-apk '
-            'set -eu; export LC_ALL=C; cd /staging-apk; \\n'
-            '''    printf '%s  SHA256SUMS\\n' "$STAGING_APK_SHA256" | sha256sum -c -; \\n'''
-            '    sha256sum -- *.apk > /tmp/staging-apk.sha256; \\n'
-            '    cmp /tmp/staging-apk.sha256 SHA256SUMS; rm /tmp/staging-apk.sha256; cd /; \\n'
-            '    apk add --no-network --no-cache --repositories-file /dev/null /staging-apk/*.apk; \\n'
-            '    apk add --simulate --no-network --no-cache --repositories-file /dev/null \\'
-        ),
+        '''ARG STAGING_APK_SHA256
+RUN --network=none --mount=type=bind,from=staging-apk,target=/staging-apk set -eu; export LC_ALL=C; cd /staging-apk; \\
+    printf '%s  SHA256SUMS\\n' "$STAGING_APK_SHA256" | sha256sum -c -; \\
+    sha256sum -- *.apk > /tmp/staging-apk.sha256; \\
+    cmp /tmp/staging-apk.sha256 SHA256SUMS; rm /tmp/staging-apk.sha256; cd /; \\
+    apk add --no-network --no-cache --repositories-file /dev/null /staging-apk/*.apk; \\
+    apk add --simulate --no-network --no-cache --repositories-file /dev/null \\''',
     )
     replace_once('    jq\n', '    jq && apk list --installed | sort\n')
 
