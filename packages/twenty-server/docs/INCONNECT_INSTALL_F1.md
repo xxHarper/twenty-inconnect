@@ -88,3 +88,23 @@ Revisar explícitamente el inventario de comandos autorizados y los criterios de
 prueba que el bootstrap haya terminado. PG0/PG1, C5 y exact-upgrade operativo
 siguen bloqueados. La revisión y cualquier prueba física requieren una fase y
 autorización separadas.
+
+## Seguimiento al 10 de noviembre de 2026
+
+- **STAGING-S0** materializó en fuente la propuesta de Compose. El perfil
+  `staging-app-blocked` conserva la barrera de arranque de Twenty.
+  [Diseño S0](../../twenty-docker/inconnect-staging/README.md)
+- **STAGING-S1** reportó la instalación, el arranque y la verificación física
+  de PostgreSQL y Redis dedicados en la VM de staging. Es evidencia histórica
+  reportada. El estado actual de los servicios queda sin verificar.
+- **STAGING-S2** preparó el contexto del fork y las dependencias de build.
+  **STAGING-S2-R1** corrigió el Dockerfile generado y añadió una prueba de
+  regresión. La entrega reportó la validación estática de la corrección. El
+  primer build de la imagen de Twenty sigue pendiente.
+  [Procedimiento S2](../../twenty-docker/inconnect-staging/STAGING-S2.md)
+
+INSTALL-F1 conserva el alcance **SOURCE-ONLY**. El bootstrap real de Twenty en
+staging sigue sin ejecutarse según el checkpoint. La comprobación física del
+SQLSTATE 42P07 y de la cadena completa sigue pendiente. El Store del
+distribuidor sigue como propuesta inerte y carece de una vía de instalación
+autorizada bajo los gates vigentes. [Estado canónico](INCONNECT_PROJECT_STATUS.md)

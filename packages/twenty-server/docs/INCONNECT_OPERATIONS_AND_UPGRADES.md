@@ -40,8 +40,39 @@ Registrar nuevos comandos en descubrimiento normal; no editar up/down ya
 committed. Revisar código, locks, efectos y rollback, backups y restauración
 por entorno antes de ejecutar. La aceptación source-only no sustituye esos gates.
 
-## Referencias históricas y procedimientos vigentes
+## Estado operativo al 10 de noviembre de 2026
 
+La vía autorizada para preparar la presentación es la colección estática de
+Storybook DEMO-A5. Evitar `yarn start` para ese fin. El script raíz inicia
+frontend y backend. También inicia el worker cuando puede conectarse al
+puerto TCP 3000.
+El arranque puede abrir conexiones a PostgreSQL y Redis y producir efectos
+operativos, incluido procesamiento de colas por el worker. Los flags
+`DISABLE_DB_MIGRATIONS` y `DISABLE_CRON_JOBS_REGISTRATION` omiten los pasos
+correspondientes del entrypoint de la imagen. Nest conserva la inicialización
+de módulos, datasources y sesiones. Vite aislado puede renderizar el frontend,
+pero la navegación normal de las pantallas internas requiere backend, sesión
+y metadata. Storybook usa datos ficticios y resuelve las interacciones con
+Apollo/MSW en memoria. [Guía DEMO-A5](../../twenty-front/.storybook-demo-a5/README.md) ·
+[Guion ejecutivo](../../twenty-front/.storybook-demo-a5/GUION.md)
+
+Para servir un build existente desde la raíz del repositorio, el operador usa
+`bash packages/twenty-front/.storybook-demo-a5/serve.sh`. El script sirve
+únicamente en `127.0.0.1:6006` y se detiene con `Ctrl+C` en la terminal que
+lo inició. El build local bajo `.cache` está fuera del inventario versionado.
+Un clon nuevo requiere reconstruir la colección según la guía antes de
+servirla.
+
+En staging, S1 reportó la comprobación física de PostgreSQL y Redis en Proxmox
+en su checkpoint. El estado actual de esos servicios queda sin verificar.
+S2 y S2-R1 prepararon el contexto y las entradas de build. Quedan pendientes
+la verificación de la aprobación del snapshot APK, el cierre de manifiestos,
+la comprobación del builder y el primer build de Twenty. Se conserva la
+barrera `staging-app-blocked`. El bootstrap, el arranque de Nest y del worker,
+las migraciones, F13, Attention y la instalación del Store requieren sus
+propias autorizaciones y gates. PG0/PG1, Stage C5 y exact-upgrade operativo
+siguen **BLOCKED**. [Estado canónico](INCONNECT_PROJECT_STATUS.md) ·
+[Procedimiento y restricciones de STAGING-S2](../../twenty-docker/inconnect-staging/STAGING-S2.md)
 
 ## Evidencia histórica 2026-10-14 — gates retenidos
 

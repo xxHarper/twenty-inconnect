@@ -1,17 +1,111 @@
 # Twenty INCONNECT — estado canónico del proyecto
 
-Fecha: **2026-10-27**, America/Mexico_City. Reconciliación documental, sin ejecución
-ni auditoría nueva de producto. Verificación Git read-only: rama
+Checkpoint documental **2026-11-10**, America/Mexico_City. Checkout inicial en
 `feature/inconnect-lead-management`, HEAD
-`f164bf937a5260983778dbca8a3a8e833b2e1bde`; worktree limpio y staging vacío
-antes de esta modernización. No se inspeccionó PostgreSQL ni otro entorno.
+`6b30325a2e3c06be23c2c6740cf397f694efdd8a`, índice vacío y sin cambios en
+archivos versionados. El único archivo sin seguimiento era
+`packages/twenty-docker/inconnect-staging/__pycache__/test_prepare_staging_build.cpython-314.pyc`.
+Se revisaron fuentes, commits y registros existentes en modo lectura, sin
+repetir pruebas ni inspeccionar servicios o infraestructura.
 
 Este documento reemplaza las etiquetas de estado anteriores cuando existe
 la evidencia aquí identificada. Los contratos técnicos permanecen obligatorios;
 una aceptación nunca levanta gates de ejecución. «Fuente implementada»,
-«ACCEPTED SOURCE-ONLY», «validación física de desarrollo», «instalado en un
-entorno», «activado» y «desplegado» son afirmaciones distintas. Ausencia de
-inspección actual no prueba ni instalación ni ausencia física.
+«ACCEPTED SOURCE-ONLY», «demostración visual», «validación física de desarrollo»,
+«instalado en un entorno», «activado» y «desplegado» son afirmaciones distintas.
+La evidencia física describe el entorno y el momento de su comprobación.
+
+## Checkpoint del 10 de noviembre de 2026
+
+### INSTALL-F1 · corrección SOURCE-ONLY
+
+El commit `24deec2f970d1d0369beb4c331b8e185c67cccd9` corrige en fuente la
+colisión entre la creación de la tabla de metadata por TypeORM y la migración
+Core histórica que crea esa misma tabla. El tramo histórico usa un DataSource
+temporal sin entidades y conserva una transacción por migración. Fast/Slow
+conserva su runner. Los registros locales en `.cache/install-f1-20261105/`
+acreditan cinco suites focales y 46 pruebas aprobadas con transporte de
+PostgreSQL simulado, incluido el caso de regresión con el ejecutor real de
+TypeORM. También registran lint focal y de diff, typecheck, formato y whitespace.
+Quedan pendientes la comprobación física del SQLSTATE 42P07 y la validación del
+bootstrap completo. El Store del distribuidor sigue como propuesta SQL inerte
+sin vía de instalación autorizada bajo los gates vigentes. [INSTALL-F1](INCONNECT_INSTALL_F1.md)
+
+### STAGING-S0 · Compose preparado en fuente
+
+El commit `51ead3881fa18ccc0feb1d0afe8e1dd46483c27a` añade el Compose de
+staging. Con entradas válidas y sin perfiles seleccionados, el arranque
+predeterminado selecciona cero servicios. Si se selecciona la aplicación, su
+perfil `staging-app-blocked` sustituye el entrypoint por una salida con error
+y vacía el comando. Esta barrera es explícita e independiente de los flags de
+migración y cron. S0 acredita configuración en fuente. [Diseño S0](../../twenty-docker/inconnect-staging/README.md)
+
+### STAGING-S1 · servicios de datos en Proxmox
+
+Según el reporte del checkpoint S1, en la VM Proxmox existente se iniciaron y
+comprobaron físicamente PostgreSQL y Redis de staging. El reporte describe una
+red Docker interna, sin puertos publicados para los almacenes, y configuración
+dedicada y aislada de los servicios productivos. El Compose respalda ese
+diseño. La evidencia operativa se atribuye al reporte histórico facilitado para
+esta sincronización. El estado actual de los contenedores y el perímetro
+efectivo de la VM quedan sin comprobación en esta revisión.
+
+### STAGING-S2 y STAGING-S2-R1 · entradas del build
+
+- **S2.** El commit `e499bb29c08a363745ef9a8dc2d675834ca62df5` prepara
+  el contexto del fork fijado a `51ead3881fa18ccc0feb1d0afe8e1dd46483c27a`
+  y la receta de build. El registro local
+  `.cache/inconnect-staging-s2-20261105.4sBFm3/final-static.log` corresponde
+  a S2 inicial y documenta la revisión estática de la receta y del contexto.
+- **S2-R1.** El commit `8c5fc5bacdaba2699d48c606b1ea251d68d641e1` corrige
+  las continuaciones del bloque APK en el Dockerfile generado e incluye una
+  [prueba de regresión](../../twenty-docker/inconnect-staging/test_prepare_staging_build.py).
+  La corrección y la prueba constan en fuente. La validación estática de R1
+  fue reportada en la entrega. El registro local identificado para S2
+  precede a esa corrección.
+- **Preparación reportada en Proxmox.** Se transfirió el contexto corregido
+  y se verificó su SHA-256. Se descargaron las imágenes Node y BuildKit fijadas
+  por digest y un conjunto de 26 paquetes APK. Se reportaron verificación de
+  integridad y firmas de los paquetes y una simulación offline de instalación
+  satisfactoria. Estos resultados proceden del reporte facilitado para esta
+  sincronización. Los manifiestos y registros de Proxmox correspondientes
+  quedan sin cotejo local.
+- **Pendiente.** El build de la imagen de Twenty sigue sin ejecutarse según
+  el checkpoint. Queda por verificar la aprobación del snapshot APK, cerrar
+  los manifiestos definitivos y confirmar la preparación completa del builder.
+  La descarga y la verificación reportadas acreditan sólo la preparación
+  descrita. La aprobación del snapshot y la reproducibilidad del build
+  requieren evidencia propia. El checkpoint de staging registra que Nest y
+  el worker siguen sin arrancar y que el bootstrap, las migraciones y la
+  instalación del Store siguen sin ejecutarse. [Procedimiento S2](../../twenty-docker/inconnect-staging/STAGING-S2.md)
+
+### DEMO-A1–A5 · demostración visual con Storybook
+
+El commit `6b30325a2e3c06be23c2c6740cf397f694efdd8a` contiene las 26 rutas del
+[inventario de la demo](../../twenty-front/.storybook-demo-a5/GIT.md). Incluye
+las configuraciones y las historias nuevas. El editor estándar de Roles ya
+estaba versionado. Los registros preexistentes `.cache/demo-*/browser*.log`
+documentan la compilación estática probada en Chrome de Windows y el recorrido
+de los componentes reales con datos ficticios y operaciones simuladas con
+Apollo/MSW. Los builds estáticos y los registros son artefactos locales.
+
+| Etapa | Interfaz o recorrido validado en Chrome |
+| --- | --- |
+| DEMO-A1 | Commercial Teams. Editor, coordinación y membresías de ejemplo. |
+| DEMO-A2 | Record Access y editor estándar de Roles de Twenty. |
+| DEMO-A3 | INCONNECT Messaging. Bandeja, historial, estados y contexto CRM. |
+| DEMO-A4 | INCONNECT Lead Management. Selección, vista previa y estado de almacenamiento no disponible. |
+| DEMO-A5 | Portada ejecutiva navegable con las cinco interfaces anteriores. |
+
+En A4 y A5, la vista previa EVEN de 50 Leads ficticios mostró un reparto
+**25/25**, **40 propietarios conservados**, **10 cambios propuestos** y
+**0 registros procesados**. La confirmación estuvo deshabilitada. Lead Management
+sigue **ACCEPTED SOURCE-ONLY**. Las pruebas de Storybook acreditan el recorrido
+visual y las interacciones simuladas. Quedan fuera de su alcance la persistencia
+en PostgreSQL, el enforcement de Record Access en el backend, los envíos por
+Twilio, las transferencias reales de propietarios, la instalación de F13 y
+del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.storybook-demo-a5/README.md) ·
+[Guion ejecutivo](../../twenty-front/.storybook-demo-a5/GUION.md)
 
 ## Resumen por módulo
 
@@ -143,15 +237,19 @@ SIGKILL Stage D y guardian recovery; los probes históricos de namespaces y
 cleanup no prueban aislamiento de un workload PostgreSQL. No modificar el
 bind mount de reparación WSL ni normal `default`.
 
-Persisten como follow-up separado el legacy setup SQLSTATE 42P07 y la duda
-FilesFieldSync sobre transaction binding. No se corrigen ni se ejecuta setup para
-investigarlos. Retención/purga/borrado de workspace no tienen autorización nueva.
+INSTALL-F1 corrigió en fuente la causa localizada del SQLSTATE 42P07 del setup
+legacy. Su comprobación física sigue pendiente. La duda FilesFieldSync sobre
+transaction binding sigue como seguimiento separado. Retención, purga y borrado
+de workspace siguen sujetos a autorización separada.
 
 ## Uso y mantenimiento
 
 Actualizar este estado con fecha, commit/documento y límites al aceptar una fase.
 Mantener contratos separados del historial; las validaciones antiguas son evidencia
-reportada, no reruns ni permiso de ejecución. La referencia histórica completa es
+reportada, no reruns ni permiso de ejecución. La reconciliación del 2026-10-27
+se basó en la rama `feature/inconnect-lead-management`, HEAD
+`f164bf937a5260983778dbca8a3a8e833b2e1bde`, worktree limpio e índice vacío
+antes de esa modernización. La referencia histórica completa es
 `git show f164bf937a5260983778dbca8a3a8e833b2e1bde:AGENTS.md`.
 El mapa de contratos empieza en [AGENTS.md](../../../AGENTS.md); el inventario y
 la [matriz de preservación](INCONNECT_DOCUMENTATION_PRESERVATION.md) explican la
