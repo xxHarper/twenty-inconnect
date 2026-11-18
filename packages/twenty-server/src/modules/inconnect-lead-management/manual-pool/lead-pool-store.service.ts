@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 
-import { DataSource } from 'typeorm';
+import { DataSource, type QueryResult } from 'typeorm';
 
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
@@ -216,7 +216,8 @@ export class LeadPoolStoreService {
     row: LeadPoolStoredRow,
   ): Promise<void> {
     if (auth.type !== 'user') throw new Error('Human required');
-    const rows: { id: string }[] = await runner.query(
+    // The PostgreSQL runner's raw UPDATE result is [rows, rowCount].
+    const result: QueryResult<{ id: string }> = await runner.query(
       `UPDATE ${TABLE} SET "state" = $1::jsonb, "updatedAt" = now() WHERE "id" = $2 AND "workspaceId" = $3 AND "actorUserId" = $4 AND "actorWorkspaceMemberId" = $5 RETURNING "id"`,
       [
         JSON.stringify(row.state),
@@ -225,7 +226,14 @@ export class LeadPoolStoreService {
         auth.user.id,
         auth.workspaceMemberId,
       ],
+      true,
     );
-    if (rows.length !== 1) throw new Error('Operation persistence failed');
+    if (
+      result.affected !== 1 ||
+      !Array.isArray(result.records) ||
+      result.records.length !== 1 ||
+      result.records[0]?.id !== row.id
+    )
+      throw new Error('Operation persistence failed');
   }
 }

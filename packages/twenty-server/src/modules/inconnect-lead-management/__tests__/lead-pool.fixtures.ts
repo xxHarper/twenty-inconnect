@@ -265,7 +265,12 @@ export const makePoolHarness = (count = 50) => {
           rows.clear();
           for (const [id, row] of oldRows) rows.set(id, row);
         }
-        return { rows: await query(statement, parameters), rowCount: 0 };
+        const result = await query(statement, parameters);
+        return {
+          rows: result,
+          rowCount: result.length,
+          command: statement.split(' ')[0],
+        };
       },
     });
     Object.assign(source.driver, {

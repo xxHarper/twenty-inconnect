@@ -2,16 +2,19 @@ import { DataSource } from 'typeorm';
 
 import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { LeadPoolQueryService } from 'src/modules/inconnect-lead-management/manual-pool/lead-pool-query.service';
+import { LeadPoolService } from 'src/modules/inconnect-lead-management/manual-pool/lead-pool.service';
 import { makeAuthorityHarness } from './lead-pool-authority.fixtures';
 import { actor, originId, poolId } from './lead-pool.fixtures';
 
-const queryHarness = async () => {
+const queryHarness = async (
+  recordEffect: 'allRecords' | 'ownRecords' = 'ownRecords',
+) => {
   const authorityHarness = makeAuthorityHarness();
   const authority = await authorityHarness.service.resolve(actor, originId);
   if (authorityHarness.policy.status === 'configured')
     authorityHarness.policy.rules[0] = {
       ...authorityHarness.policy.rules[0],
-      recordEffect: 'ownRecords',
+      recordEffect,
     };
   // Real TypeORM SQL builders and real public Record Access facade; no connection initialization.
   const source = new DataSource({ type: 'postgres' });
@@ -22,10 +25,81 @@ const queryHarness = async () => {
     { assertActiveWorkspaceMember: async () => undefined } as never,
   );
   const queries = new LeadPoolQueryService(source, facade);
-  return { ...authorityHarness, authority, queries };
+  return { ...authorityHarness, authority, queries, source, facade };
 };
 
 describe('Lead pool SQL authorization and metadata filters', () => {
+  it('rejects listing and exact selection before executing SQL when the origin becomes unmanaged', async () => {
+    const harness = await queryHarness();
+    const resolveAuthority = harness.service.resolve.bind(harness.service);
+
+    jest
+      .spyOn(harness.service, 'resolve')
+      .mockImplementationOnce(async (...args) => {
+        const authority = await resolveAuthority(...args);
+
+        Object.assign(harness.policy, { status: 'unmanaged' });
+
+        return authority;
+      });
+
+    const executeSql = jest.fn(async (sql: string) => {
+      throw new Error(`Unexpected SQL execution: ${sql}`);
+    });
+
+    jest.spyOn(harness.source, 'createQueryRunner').mockReturnValue({
+      query: executeSql,
+      release: jest.fn(),
+    } as never);
+
+    const pool = new LeadPoolService(
+      harness.service,
+      harness.queries,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      pool.list(actor, { objectId: originId, filter: {} }),
+    ).rejects.toThrow('Lead selection unavailable');
+    await expect(
+      harness.queries.selected(actor, harness.authority, {}, [poolId(100)]),
+    ).rejects.toThrow('Lead selection unavailable');
+    expect(executeSql).not.toHaveBeenCalled();
+  });
+
+  it('allows an all-records scope without adding an Owner predicate', async () => {
+    const harness = await queryHarness('allRecords');
+    const query = await harness.queries.build(actor, harness.authority, {});
+
+    expect(query.getSql()).toContain('"deletedAt" IS NULL');
+    expect(query.getSql()).not.toContain('"commercialOwnerId" IN');
+  });
+
+  it('rejects a system bypass for the current read scope', async () => {
+    const harness = await queryHarness();
+
+    await expect(
+      harness.queries.build(
+        { type: 'system', workspace: actor.workspace },
+        harness.authority,
+        {},
+      ),
+    ).rejects.toThrow('Lead selection unavailable');
+  });
+
+  it('rejects an unexpected current read scope', async () => {
+    const harness = await queryHarness();
+
+    jest
+      .spyOn(harness.facade, 'applyReadScopeToQueryBuilder')
+      .mockResolvedValue({ kind: 'unexpected' } as never);
+
+    await expect(
+      harness.queries.build(actor, harness.authority, {}),
+    ).rejects.toThrow('Lead selection unavailable');
+  });
+
   it('keeps authorization in the SQL before ordering and paging and parameterizes user values', async () => {
     const harness = await queryHarness();
     const query = await harness.queries.build(actor, harness.authority, {

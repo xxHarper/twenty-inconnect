@@ -7,7 +7,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
-import { GraphQLError } from 'graphql';
 import { randomUUID } from 'crypto';
 import {
   type LeadPoolCatalog,
@@ -18,6 +17,10 @@ import {
 
 import { CommonUpdateManyQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-update-many-query-runner.service';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import {
+  BaseGraphQLError,
+  ErrorCode,
+} from 'src/engine/core-modules/graphql/utils/graphql-errors.util';
 import { type WorkspaceQueryRunner } from 'src/engine/twenty-orm/query-runner/workspace-query-runner';
 import { escapeIdentifier } from 'src/engine/workspace-manager/workspace-migration/utils/remove-sql-injection.util';
 import {
@@ -200,13 +203,14 @@ export class LeadPoolService {
         rolledBack &&
         (error instanceof BadRequestException ||
           error instanceof ForbiddenException)
-      )
-        throw new GraphQLError(error.message, {
-          extensions: {
-            code:
-              error instanceof ForbiddenException
-                ? 'FORBIDDEN'
-                : 'BAD_USER_INPUT',
+      ) {
+        // The metadata error hook preserves explicit codes on BaseGraphQLError.
+        throw new BaseGraphQLError(
+          error.message,
+          error instanceof ForbiddenException
+            ? ErrorCode.FORBIDDEN
+            : ErrorCode.BAD_USER_INPUT,
+          {
             leadPoolPreview: {
               outcome: 'REJECTED',
               intentionId: identity.intentionId,
@@ -216,7 +220,8 @@ export class LeadPoolService {
                   : 'VALIDATION',
             },
           },
-        });
+        );
+      }
       throw error;
     }
     return this.view(auth, row);

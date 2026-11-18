@@ -52,7 +52,9 @@ export class LeadPoolQueryService {
       queryBuilder: query,
       tableAlias: 'pool',
     });
-    if (scope.kind === 'denied' || scope.kind === 'system-bypass')
+    // The origin must still be managed when the facade resolves its read scope.
+    const scopeKind = scope?.kind;
+    if (scopeKind !== 'all-records' && scopeKind !== 'owner-scoped')
       throw new BadRequestException('Lead selection unavailable');
     if (filter.ownerId)
       query.andWhere(`${column(authority.ownerColumn)} = :poolOwner`, {

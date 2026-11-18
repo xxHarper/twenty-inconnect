@@ -4,8 +4,11 @@ import { type PostgresDriver } from 'typeorm/driver/postgres/PostgresDriver';
 
 import { GlobalWorkspaceDataSource } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-datasource';
 import { WorkspaceEventEmitter } from 'src/engine/workspace-event-emitter/workspace-event-emitter';
-import { LeadPoolStoreService } from 'src/modules/inconnect-lead-management/manual-pool/lead-pool-store.service';
-import { actor } from './lead-pool.fixtures';
+import {
+  LeadPoolStoreService,
+  type LeadPoolStoredRow,
+} from 'src/modules/inconnect-lead-management/manual-pool/lead-pool-store.service';
+import { actor, poolId, poolInput } from './lead-pool.fixtures';
 
 // Actual pg-pool acquisition/release/removal, actual TypeORM runner, actual
 // Workspace lifecycle. Only the pg wire client is replaced. No sockets open.
@@ -16,15 +19,23 @@ class WireClient extends EventEmitter {
   ended = false;
   fault: 'none' | 'rollback' | 'commit-before' | 'commit-after' = 'none';
   statements: string[] = [];
+  update = (statement: string, _parameters: unknown[]): unknown => {
+    throw new Error(`Unexpected update: ${statement}`);
+  };
   staged = 0;
   persisted = 0;
   connect(callback: (error?: Error) => void) {
     callback();
   }
-  async query(statement: string) {
+  async query(statement: string, parameters: unknown[] = []) {
     if (this.ended) throw new Error('Ended client reused');
     this.statements.push(statement);
     if (statement === 'START TRANSACTION') this.active = true;
+    if (statement.startsWith('UPDATE ')) {
+      if (!this.active) throw new Error('Expected an active transaction');
+      this.staged++;
+      return this.update(statement, parameters);
+    }
     if (statement === 'ROLLBACK') {
       if (this.fault === 'rollback') throw new Error('Rollback response lost');
       this.active = false;
@@ -138,6 +149,125 @@ it.each(['before-rollback', 'during-rollback'] as const)(
 );
 const sourceDriver = (source: GlobalWorkspaceDataSource) =>
   source.driver as PostgresDriver;
+
+const operation: LeadPoolStoredRow = {
+  id: poolId(31),
+  requestHash: 'a'.repeat(64),
+  state: {
+    input: poolInput(0),
+    authorityHash: 'b'.repeat(64),
+    status: 'PREVIEW',
+    version: 0,
+    found: 0,
+    items: [],
+    expiresAt: '2026-11-14T00:00:00.000Z',
+    lastBatchError: null,
+    consecutiveFailures: 0,
+    batches: [],
+  },
+};
+
+const runSave = (
+  harness: ReturnType<typeof makeTransport>,
+  update: WireClient['update'],
+) =>
+  harness.store.transaction(actor, async (runner) => {
+    const client: WireClient = await runner.connect();
+    client.update = update;
+    await harness.store.save(runner, actor, operation);
+  });
+
+it('confirms exactly one affected row and the expected returning ID through the PostgreSQL QueryRunner', async () => {
+  const harness = makeTransport();
+  const update = jest.fn().mockReturnValue({
+    command: 'UPDATE',
+    rows: [{ id: operation.id }],
+    rowCount: 1,
+  });
+
+  try {
+    await expect(runSave(harness, update)).resolves.toBeUndefined();
+    expect(update).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /"workspaceId" = \$3 .*"actorWorkspaceMemberId" = \$5 RETURNING "id"$/,
+      ),
+      [
+        JSON.stringify(operation.state),
+        operation.id,
+        actor.workspace.id,
+        actor.user.id,
+        actor.workspaceMemberId,
+      ],
+    );
+    expect(harness.released[0].client.statements).toContain('COMMIT');
+    expect(harness.released[0].client.persisted).toBe(1);
+  } finally {
+    await harness.pool.end();
+  }
+});
+
+it.each([
+  {
+    fault: 'zero affected despite matching RETURNING',
+    rowCount: 0,
+    rows: [{ id: operation.id }],
+  },
+  {
+    fault: 'multiple affected despite matching RETURNING',
+    rowCount: 2,
+    rows: [{ id: operation.id }],
+  },
+  { fault: 'empty RETURNING despite one affected', rowCount: 1, rows: [] },
+  {
+    fault: 'multiple returned rows despite one affected',
+    rowCount: 1,
+    rows: [{ id: operation.id }, { id: poolId(32) }],
+  },
+  { fault: 'different returned ID', rowCount: 1, rows: [{ id: poolId(32) }] },
+  {
+    fault: 'malformed array-like RETURNING',
+    rowCount: 1,
+    rows: { 0: { id: operation.id }, length: 1 },
+  },
+  {
+    fault: 'missing row count',
+    rowCount: undefined,
+    rows: [{ id: operation.id }],
+  },
+])('rolls back on $fault', async ({ rows, rowCount }) => {
+  const harness = makeTransport();
+
+  try {
+    await expect(
+      runSave(harness, () => ({ command: 'UPDATE', rows, rowCount })),
+    ).rejects.toThrow('Operation persistence failed');
+    const [{ client }] = harness.released;
+    expect(client.statements).toContain('ROLLBACK');
+    expect(client.statements).not.toContain('COMMIT');
+    expect(client.persisted).toBe(0);
+  } finally {
+    await harness.pool.end();
+  }
+});
+
+it('propagates a failed SQL update and rolls back before returning the connection', async () => {
+  const harness = makeTransport();
+
+  try {
+    await expect(
+      runSave(harness, () => {
+        throw new Error('Simulated UPDATE failure');
+      }),
+    ).rejects.toThrow('Simulated UPDATE failure');
+    const [{ client, error }] = harness.released;
+    expect(client.statements).toContain('ROLLBACK');
+    expect(client.statements).not.toContain('COMMIT');
+    expect(client.persisted).toBe(0);
+    expect(error).toBeUndefined();
+  } finally {
+    await harness.pool.end();
+  }
+});
 
 it.each(['none', 'commit-before', 'commit-after'] as const)(
   'keeps event and persisted-write outcomes separate for %s',
