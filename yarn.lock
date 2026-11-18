@@ -19825,6 +19825,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@twilio/voice-errors@npm:1.7.0":
+  version: 1.7.0
+  resolution: "@twilio/voice-errors@npm:1.7.0"
+  checksum: 10c0/124fa6fa3b98ec95c18989d2091384245dbc0fb94899ac9bd2b738430c5af1645c566c71b436801722b2e2e4e021f3a54eb1a69eb47dd36cf0ff16baedd903f1
+  languageName: node
+  linkType: hard
+
+"@twilio/voice-sdk@npm:2.19.0":
+  version: 2.19.0
+  resolution: "@twilio/voice-sdk@npm:2.19.0"
+  dependencies:
+    "@twilio/voice-errors": "npm:1.7.0"
+    "@types/events": "npm:3.0.3"
+    events: "npm:3.3.0"
+    loglevel: "npm:1.9.2"
+    tslib: "npm:2.8.1"
+  checksum: 10c0/5ddaca266ea27ef7c32fb2fcf2fea04acfd100807bb3b29dbcf9567128f2a2e83fefe4bca9e431dd7287935ad632c09a43199412605c0a029e42512a38392cd9
+  languageName: node
+  linkType: hard
+
 "@tybys/wasm-util@npm:0.9.0, @tybys/wasm-util@npm:^0.9.0":
   version: 0.9.0
   resolution: "@tybys/wasm-util@npm:0.9.0"
@@ -20323,6 +20343,13 @@ __metadata:
   version: 1.0.8
   resolution: "@types/estree@npm:1.0.8"
   checksum: 10c0/39d34d1afaa338ab9763f37ad6066e3f349444f9052b9676a7cc0252ef9485a41c6d81c9c4e0d26e9077993354edf25efc853f3224dd4b447175ef62bdcc86a5
+  languageName: node
+  linkType: hard
+
+"@types/events@npm:3.0.3":
+  version: 3.0.3
+  resolution: "@types/events@npm:3.0.3"
+  checksum: 10c0/3a56f8c51eb4ebc0d05dcadca0c6636c816acc10216ce36c976fad11e54a01f4bb979a07211355686015884753b37f17d74bfdc7aaf4ebb027c1e8a501c7b21d
   languageName: node
   linkType: hard
 
@@ -37516,6 +37543,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"loglevel@npm:1.9.2":
+  version: 1.9.2
+  resolution: "loglevel@npm:1.9.2"
+  checksum: 10c0/1e317fa4648fe0b4a4cffef6de037340592cee8547b07d4ce97a487abe9153e704b98451100c799b032c72bb89c9366d71c9fb8192ada8703269263ae77acdc7
+  languageName: node
+  linkType: hard
+
 "long-timeout@npm:0.1.1":
   version: 0.1.1
   resolution: "long-timeout@npm:0.1.1"
@@ -49535,6 +49569,7 @@ __metadata:
     "@tiptap/extensions": "npm:3.4.2"
     "@tiptap/react": "npm:3.4.2"
     "@tiptap/suggestion": "npm:3.4.2"
+    "@twilio/voice-sdk": "npm:2.19.0"
     "@types/deep-equal": "npm:^1.0.1"
     "@types/file-saver": "npm:^2.0.7"
     "@types/jest": "npm:^30.0.0"

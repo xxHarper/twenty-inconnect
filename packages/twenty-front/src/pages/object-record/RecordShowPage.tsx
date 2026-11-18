@@ -6,6 +6,7 @@ import { CommandMenuComponentInstanceContext } from '@/command-menu/states/conte
 import { TimelineActivityContext } from '@/activities/timeline-activities/contexts/TimelineActivityContext';
 import { MAIN_CONTEXT_STORE_INSTANCE_ID } from '@/context-store/constants/MainContextStoreInstanceId';
 import { ContextStoreComponentInstanceContext } from '@/context-store/states/contexts/ContextStoreComponentInstanceContext';
+import { LeadVoiceAction } from '@/inconnect-voice/components/LeadVoiceAction';
 import { isLayoutCustomizationModeEnabledState } from '@/layout-customization/states/isLayoutCustomizationModeEnabledState';
 import { RecordComponentInstanceContextsWrapper } from '@/object-record/components/RecordComponentInstanceContextsWrapper';
 import { PageLayoutRecordPageRenderer } from '@/object-record/record-show/components/PageLayoutRecordPageRenderer';
@@ -27,10 +28,11 @@ export const RecordShowPage = () => {
     objectRecordId: string;
   }>();
 
-  const { objectNameSingular, objectRecordId } = useRecordShowPage(
-    parameters.objectNameSingular ?? '',
-    parameters.objectRecordId ?? '',
-  );
+  const { objectNameSingular, objectRecordId, objectMetadataItem } =
+    useRecordShowPage(
+      parameters.objectNameSingular ?? '',
+      parameters.objectRecordId ?? '',
+    );
 
   const recordShowComponentInstanceId =
     computeRecordShowComponentInstanceId(objectRecordId);
@@ -55,6 +57,15 @@ export const RecordShowPage = () => {
                 objectNameSingular={objectNameSingular}
                 objectRecordId={objectRecordId}
               >
+                {!isLayoutCustomizationModeEnabled &&
+                  objectNameSingular === 'lead' &&
+                  !objectMetadataItem.isSystem && (
+                    <LeadVoiceAction
+                      key={objectRecordId}
+                      objectMetadataItem={objectMetadataItem}
+                      recordId={objectRecordId}
+                    />
+                  )}
                 <RecordShowCommandMenu />
                 {!isLayoutCustomizationModeEnabled && <SidePanelToggleButton />}
               </RecordShowPageHeader>
