@@ -1433,6 +1433,17 @@ export class ConfigVariables {
 
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.SERVER_CONFIG,
+    description: 'Optional host address for the HTTP server to listen on',
+    type: ConfigVariableType.STRING,
+    isEnvOnly: true,
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  NODE_HOST?: string;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.SERVER_CONFIG,
     description:
       'Idle keep-alive timeout (ms) for the HTTP server. Should be higher ' +
       'than the idle timeout of any reverse proxy / load balancer in front ' +

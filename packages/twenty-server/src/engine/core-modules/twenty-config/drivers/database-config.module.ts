@@ -18,7 +18,9 @@ export class DatabaseConfigModule {
       module: DatabaseConfigModule,
       imports: [
         TypeOrmModule.forFeature([KeyValuePairEntity]),
-        ScheduleModule.forRoot(),
+        ScheduleModule.forRoot({
+          cronJobs: process.env.DISABLE_CRON_JOBS_REGISTRATION !== 'true',
+        }),
         SecretEncryptionModule,
       ],
       providers: [
