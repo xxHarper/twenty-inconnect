@@ -2,7 +2,11 @@ import { CombinedGraphQLErrors } from '@apollo/client/errors';
 import { i18n } from '@lingui/core';
 import { I18nProvider } from '@lingui/react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { type LeadPoolOperation, type LeadPoolPage } from 'twenty-shared/types';
+import {
+  type LeadPoolOperation,
+  type LeadPoolPage,
+  type LeadPoolPreviewInput,
+} from 'twenty-shared/types';
 
 import { LeadPoolWorkspace } from '@/inconnect-lead-management/components/LeadPoolWorkspace';
 import {
@@ -11,6 +15,7 @@ import {
   LEAD_POOL_PREVIEW,
   LEAD_POOL_RECORDS,
 } from '@/inconnect-lead-management/graphql/leadPoolOperations';
+import { useLeadPool } from '@/inconnect-lead-management/hooks/useLeadPool';
 
 const mockClient = { query: jest.fn(), mutate: jest.fn() };
 jest.mock('@apollo/client/react', () => ({
@@ -20,9 +25,13 @@ jest.mock('@apollo/client/react', () => ({
 const objectId = '99999999-1111-4111-8111-000000000010';
 const operationId = '99999999-1111-4111-8111-000000000050';
 const recipientId = '99999999-1111-4111-8111-000000000020';
+const otherRecipientId = '99999999-1111-4111-8111-000000000021';
+const getRecordId = (index: number) =>
+  `99999999-1111-4111-8111-${String(index).padStart(12, '0')}`;
+const resultRecordId = getRecordId(0);
 const makePage = (offset = 0): LeadPoolPage => ({
   records: Array.from({ length: 50 }, (_, index) => ({
-    id: `record-${offset + index}`,
+    id: getRecordId(offset + index),
     label: `Lead ${offset + index}`,
     ownerId: null,
   })),
@@ -31,32 +40,34 @@ const makePage = (offset = 0): LeadPoolPage => ({
   fields: [],
   recipients: [{ id: recipientId, label: 'Ejecutivo permitido' }],
 });
-const makeOperation = (
-  change: Partial<LeadPoolOperation> = {},
-): LeadPoolOperation => ({
+const makeOperation = ({
+  status = 'PREVIEW',
+  processed = status === 'COMPLETED' ? 50 : 0,
+  ...change
+}: Partial<LeadPoolOperation> = {}): LeadPoolOperation => ({
   id: operationId,
-  intentionId: 'preview-intention',
+  intentionId: '99999999-1111-4111-8111-000000000090',
   objectId,
   mode: 'SINGLE',
-  status: 'PREVIEW',
-  version: 0,
+  status,
+  version: status === 'PREVIEW' ? 0 : 1,
   found: 1000,
   selected: 50,
   authorized: 50,
   plannedChanges: 50,
   plannedUnchanged: 0,
   plannedRemaining: 0,
-  processed: 0,
+  processed,
   lastBatchError: null,
   batchFailures: 0,
   counts: {
-    CHANGED: 0,
+    CHANGED: processed,
     UNCHANGED: 0,
     CONFLICT: 0,
     REJECTED: 0,
     FAILED: 0,
     REMAINING: 0,
-    PENDING: 50,
+    PENDING: 50 - processed,
   },
   recipients: [
     {
@@ -67,15 +78,72 @@ const makeOperation = (
     },
   ],
   canExecute: true,
-  items: [{ recordId: 'record-0', status: 'PENDING' }],
-  hiddenItems: 0,
+  items: [
+    { recordId: resultRecordId, status: processed > 0 ? 'CHANGED' : 'PENDING' },
+  ],
+  hiddenItems: 49,
   expiresAt: '2026-10-27T00:00:00.000Z',
   ...change,
 });
+const makePreviewOperation = ({
+  intentionId,
+  mode,
+  recordIds,
+  recipientIds,
+  quotas,
+}: LeadPoolPreviewInput) => {
+  const selected = recordIds.length;
+  const recipients = recipientIds.map((id, index) => ({
+    id,
+    label: 'Ejecutivo permitido',
+    assignable: true,
+    quantity:
+      quotas?.find((quota) => quota.recipientId === id)?.quantity ??
+      Math.floor(selected / recipientIds.length) +
+        Number(index < selected % recipientIds.length),
+  }));
+  const plannedChanges = recipients.reduce(
+    (total, { quantity }) => total + quantity,
+    0,
+  );
+  const plannedRemaining = selected - plannedChanges;
+  const operation = makeOperation();
+
+  return {
+    ...operation,
+    intentionId,
+    mode,
+    selected,
+    authorized: selected,
+    plannedChanges,
+    plannedRemaining,
+    recipients,
+    counts: {
+      ...operation.counts,
+      PENDING: plannedChanges,
+      REMAINING: plannedRemaining,
+    },
+    items: recordIds.slice(0, 1).map((recordId) => ({
+      recordId,
+      status: plannedChanges ? 'PENDING' : 'REMAINING',
+    })),
+    hiddenItems: Math.max(0, selected - 1),
+  } satisfies LeadPoolOperation;
+};
+const LeadPoolTestWorkspace = ({
+  objectId,
+  storageReady,
+}: {
+  objectId: string;
+  storageReady: boolean;
+}) => (
+  <LeadPoolWorkspace pool={useLeadPool(objectId)} storageReady={storageReady} />
+);
+
 const renderWorkspace = (storageReady = true) =>
   render(
     <I18nProvider i18n={i18n}>
-      <LeadPoolWorkspace objectId={objectId} storageReady={storageReady} />
+      <LeadPoolTestWorkspace objectId={objectId} storageReady={storageReady} />
     </I18nProvider>,
   );
 const click = async (label: string | RegExp) =>
@@ -103,28 +171,33 @@ beforeEach(() => {
           data: { inconnectLeadPoolRecords: makePage(variables.input.offset) },
         },
   );
-  mockClient.mutate.mockImplementation(async ({ mutation }) =>
-    mutation === LEAD_POOL_PREVIEW
-      ? { data: { previewInconnectLeadPool: makeOperation() } }
-      : {
-          data: {
-            executeInconnectLeadPool: makeOperation({
-              status: 'COMPLETED',
-              version: 1,
-              processed: 50,
-              counts: {
-                CHANGED: 50,
-                UNCHANGED: 0,
-                CONFLICT: 0,
-                REJECTED: 0,
-                FAILED: 0,
-                REMAINING: 0,
-                PENDING: 0,
-              },
-            }),
+  let previewed: LeadPoolOperation | undefined;
+  mockClient.mutate.mockImplementation(async ({ mutation, variables }) => {
+    if (mutation === LEAD_POOL_PREVIEW) {
+      previewed = makePreviewOperation(variables.input);
+      return { data: { previewInconnectLeadPool: previewed } };
+    }
+
+    return {
+      data: {
+        executeInconnectLeadPool: makeOperation({
+          ...(previewed && { intentionId: previewed.intentionId }),
+          status: 'COMPLETED',
+          version: variables.input.expectedVersion + 1,
+          processed: 50,
+          counts: {
+            CHANGED: 50,
+            UNCHANGED: 0,
+            CONFLICT: 0,
+            REJECTED: 0,
+            FAILED: 0,
+            REMAINING: 0,
+            PENDING: 0,
           },
-        },
-  );
+        }),
+      },
+    };
+  });
 });
 
 describe('real Lead selection UI and transport hook', () => {
@@ -146,6 +219,9 @@ describe('real Lead selection UI and transport hook', () => {
     await click('Confirmar y procesar primer lote');
     expect(mockClient.mutate.mock.calls[1][0]).toEqual({
       mutation: LEAD_POOL_EXECUTE,
+      context: { disableAutomaticRetry: true },
+      errorPolicy: 'none',
+      fetchPolicy: 'no-cache',
       variables: { input: { operationId, expectedVersion: 0 } },
     });
     expect(screen.getByRole('progressbar')).toHaveAttribute('value', '50');
@@ -161,7 +237,7 @@ describe('real Lead selection UI and transport hook', () => {
     expect(mockClient.query.mock.calls.at(-1)![0]).toMatchObject({
       query: LEAD_POOL_RECORDS,
       variables: { input: { offset: 50, first: 50 } },
-      fetchPolicy: 'network-only',
+      fetchPolicy: 'no-cache',
     });
     expect(
       screen.getByText('Resultados autorizados: 1000 · Seleccionados: 1'),
@@ -214,7 +290,7 @@ describe('real Lead selection UI and transport hook', () => {
     await selectAndPreview();
     mockClient.mutate.mockRejectedValueOnce(new Error('Permiso revocado'));
     await click('Confirmar y procesar primer lote');
-    expect(screen.queryByText('record-0')).not.toBeInTheDocument();
+    expect(screen.queryByText(resultRecordId)).not.toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Identificador de operación')).toHaveValue(
       operationId,
@@ -230,7 +306,9 @@ describe('real Lead selection UI and transport hook', () => {
     expect(mockClient.query).toHaveBeenCalledWith({
       query: LEAD_POOL_OPERATION,
       variables: { input: { operationId } },
-      fetchPolicy: 'network-only',
+      context: { queryDeduplication: false },
+      fetchPolicy: 'no-cache',
+      errorPolicy: 'none',
     });
     expect(
       screen.getByRole('button', { name: 'Confirmar y procesar primer lote' }),
@@ -297,7 +375,7 @@ describe('real Lead selection UI and transport hook', () => {
     await click('Consultar Leads');
     view.rerender(
       <I18nProvider i18n={i18n}>
-        <LeadPoolWorkspace
+        <LeadPoolTestWorkspace
           key="new-origin"
           objectId="new-origin"
           storageReady
@@ -419,7 +497,7 @@ it.each(['network', 'uncorrelated', 'generic GraphQL'])(
     mockClient.mutate.mockImplementation(async ({ variables }) => {
       const intentionId = variables.input.intentionId;
       if (!intentions.has(intentionId)) {
-        intentions.set(intentionId, makeOperation({ intentionId }));
+        intentions.set(intentionId, makePreviewOperation(variables.input));
         if (failure === 'network') throw new Error('Timeout');
         throw new CombinedGraphQLErrors({
           errors: [
@@ -480,7 +558,13 @@ it('keeps one in-flight intention when preview is clicked twice before the trans
   await click('Recuperar la misma intención de preview');
   expect(mockClient.mutate).toHaveBeenCalledTimes(1);
   await act(async () =>
-    finish({ data: { previewInconnectLeadPool: makeOperation() } }),
+    finish({
+      data: {
+        previewInconnectLeadPool: makePreviewOperation(
+          mockClient.mutate.mock.calls[0][0].variables.input,
+        ),
+      },
+    }),
   );
 });
 
@@ -497,7 +581,7 @@ it('identifies multiple original recipients after reload, independently of the f
             quantity: 25,
           },
           {
-            id: 'other-recipient',
+            id: otherRecipientId,
             label: 'Luis Original',
             assignable: true,
             quantity: 25,
@@ -514,7 +598,7 @@ it('identifies multiple original recipients after reload, independently of the f
   expect(screen.getByText(/Ana Original/)).toBeInTheDocument();
   expect(screen.getByText(/Luis Original/)).toBeInTheDocument();
   expect(screen.getByText(recipientId)).toBeInTheDocument();
-  expect(screen.getByText('other-recipient')).toBeInTheDocument();
+  expect(screen.getByText(otherRecipientId)).toBeInTheDocument();
   expect(
     screen.getByRole('button', { name: 'Confirmar y procesar primer lote' }),
   ).toBeEnabled();
@@ -523,6 +607,7 @@ it('identifies multiple original recipients after reload, independently of the f
 it.each(['PREVIEW', 'RUNNING'] as const)(
   'blocks %s continuation for unavailable destinations while retaining historical progress and cancellation',
   async (status) => {
+    const processed = status === 'RUNNING' ? 10 : 0;
     mockClient.query.mockResolvedValueOnce({
       data: {
         inconnectLeadPoolOperation: makeOperation({
@@ -531,7 +616,7 @@ it.each(['PREVIEW', 'RUNNING'] as const)(
           recipients: [
             { id: recipientId, label: null, assignable: false, quantity: 50 },
           ],
-          processed: 10,
+          processed,
         }),
       },
     });
@@ -541,7 +626,10 @@ it.each(['PREVIEW', 'RUNNING'] as const)(
     });
     await click('Consultar operación');
     expect(screen.getByText(/Destinatario no disponible/)).toBeInTheDocument();
-    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '10');
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'value',
+      String(processed),
+    );
     expect(
       screen.getByRole('button', {
         name:
@@ -698,6 +786,14 @@ it('N1: failed and unrelated reads cannot clear an uncertain preview; matching r
     },
   });
   await click('Consultar operación');
+  mockClient.mutate.mockResolvedValueOnce({
+    data: {
+      executeInconnectLeadPool: makeOperation({
+        intentionId: original.intentionId,
+        status: 'COMPLETED',
+      }),
+    },
+  });
   await click('Confirmar y procesar primer lote');
   expect(mockClient.mutate).toHaveBeenCalledTimes(2);
   expect(mockClient.mutate.mock.calls[1][0].mutation).toBe(LEAD_POOL_EXECUTE);
@@ -712,6 +808,7 @@ it('N1: failed and unrelated reads cannot clear an uncertain preview; matching r
 it('N1: an uncertain execution survives failed and unrelated reads and resumes only the recovered version', async () => {
   renderWorkspace();
   await selectAndPreview();
+  const { intentionId } = mockClient.mutate.mock.calls[0][0].variables.input;
   mockClient.mutate.mockRejectedValueOnce(new Error('Commit response lost'));
   await click('Confirmar y procesar primer lote');
   mockClient.query.mockRejectedValueOnce(new Error('Read timeout'));
@@ -743,6 +840,7 @@ it('N1: an uncertain execution survives failed and unrelated reads and resumes o
   mockClient.query.mockResolvedValueOnce({
     data: {
       inconnectLeadPoolOperation: makeOperation({
+        intentionId,
         status: 'RUNNING',
         version: 1,
         processed: 25,
@@ -761,6 +859,50 @@ it('N1: an uncertain execution survives failed and unrelated reads and resumes o
     operationId,
     expectedVersion: 1,
   });
+});
+
+it('keeps the confirmed recipient visible and disables writes until the same plan is recovered', async () => {
+  renderWorkspace();
+  await selectAndPreview();
+  const confirmed = makePreviewOperation(
+    mockClient.mutate.mock.calls[0][0].variables.input,
+  );
+  const confirmationLabel = 'Confirmar y procesar primer lote';
+
+  mockClient.query.mockResolvedValueOnce({
+    data: {
+      inconnectLeadPoolOperation: {
+        ...confirmed,
+        recipients: [
+          {
+            ...confirmed.recipients[0],
+            id: otherRecipientId,
+            label: 'Destinatario sustituido',
+          },
+        ],
+      },
+    },
+  });
+  await click('Consultar progreso guardado');
+
+  expect(screen.getByText(recipientId)).toBeInTheDocument();
+  expect(screen.queryByText(/Destinatario sustituido/)).not.toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: confirmationLabel }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Cancelar registros pendientes' }),
+  ).toBeDisabled();
+  expect(
+    screen.getByRole('button', { name: 'Consultar progreso guardado' }),
+  ).toBeEnabled();
+  expect(mockClient.mutate).toHaveBeenCalledTimes(1);
+
+  mockClient.query.mockResolvedValueOnce({
+    data: { inconnectLeadPoolOperation: confirmed },
+  });
+  await click('Consultar progreso guardado');
+  expect(screen.getByRole('button', { name: confirmationLabel })).toBeEnabled();
 });
 
 it('N1: correlates an uppercase UUID lookup with the canonical backend identity', async () => {

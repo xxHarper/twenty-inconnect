@@ -26,7 +26,6 @@ type LeadPoolStrategyProps = {
     quotas: LeadPoolPreviewInput['quotas'],
     size: number,
   ) => void;
-  onChange: () => void;
 };
 export const LeadPoolStrategy = ({
   recipients,
@@ -37,17 +36,12 @@ export const LeadPoolStrategy = ({
   storageReady,
   selectedCount,
   onPreview,
-  onChange,
 }: LeadPoolStrategyProps) => {
   const { t } = useLingui();
   const [mode, setMode] = useState<LeadPoolMode>('SINGLE');
   const [recipientIds, setRecipientIds] = useState<string[]>([]);
   const [quotas, setQuotas] = useState<Record<string, number>>({});
   const [batchSize, setBatchSize] = useState(50);
-  const change = (callback: () => void) => {
-    onChange();
-    callback();
-  };
   const previewTitle = hasIntention
     ? t`Recuperar la misma intención de preview`
     : t`Obtener vista previa`;
@@ -80,12 +74,10 @@ export const LeadPoolStrategy = ({
             {t`Estrategia`}
             <select
               value={mode}
-              onChange={(event) =>
-                change(() => {
-                  setMode(event.target.value as LeadPoolMode);
-                  setRecipientIds([]);
-                })
-              }
+              onChange={(event) => {
+                setMode(event.target.value as LeadPoolMode);
+                setRecipientIds([]);
+              }}
             >
               <option value="SINGLE">{t`SINGLE · un destinatario`}</option>
               <option value="EVEN">{t`EVEN · cantidades equilibradas`}</option>
@@ -99,9 +91,7 @@ export const LeadPoolStrategy = ({
               min={1}
               max={100}
               value={batchSize}
-              onChange={(event) =>
-                change(() => setBatchSize(Number(event.target.value)))
-              }
+              onChange={(event) => setBatchSize(Number(event.target.value))}
             />
           </label>
         </StyledPoolControls>
@@ -124,16 +114,14 @@ export const LeadPoolStrategy = ({
                       aria-label={t`Asignar a ${recipient.label}`}
                       checked={recipientIds.includes(recipient.id)}
                       onChange={(event) =>
-                        change(() =>
-                          setRecipientIds(
-                            mode === 'SINGLE'
-                              ? [recipient.id]
-                              : event.target.checked
-                                ? [...recipientIds, recipient.id]
-                                : recipientIds.filter(
-                                    (id) => id !== recipient.id,
-                                  ),
-                          ),
+                        setRecipientIds(
+                          mode === 'SINGLE'
+                            ? [recipient.id]
+                            : event.target.checked
+                              ? [...recipientIds, recipient.id]
+                              : recipientIds.filter(
+                                  (id) => id !== recipient.id,
+                                ),
                         )
                       }
                     />
@@ -148,12 +136,10 @@ export const LeadPoolStrategy = ({
                         max={1000}
                         value={quotas[recipient.id] ?? 0}
                         onChange={(event) =>
-                          change(() =>
-                            setQuotas((current) => ({
-                              ...current,
-                              [recipient.id]: Number(event.target.value),
-                            })),
-                          )
+                          setQuotas((current) => ({
+                            ...current,
+                            [recipient.id]: Number(event.target.value),
+                          }))
                         }
                       />
                     </td>

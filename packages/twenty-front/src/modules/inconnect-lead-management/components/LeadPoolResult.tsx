@@ -12,6 +12,8 @@ import {
 type LeadPoolResultProps = {
   operation: LeadPoolOperation;
   busy: boolean;
+  storageReady: boolean;
+  writesBlocked: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onRecover: () => void;
@@ -20,6 +22,8 @@ type LeadPoolResultProps = {
 export const LeadPoolResult = ({
   operation,
   busy,
+  storageReady,
+  writesBlocked,
   onExecute,
   onCancel,
   onRecover,
@@ -114,6 +118,8 @@ export const LeadPoolResult = ({
           <Button
             disabled={
               busy ||
+              !storageReady ||
+              writesBlocked ||
               !operation.canExecute ||
               !operation.recipients.length ||
               operation.recipients.some(
@@ -129,17 +135,17 @@ export const LeadPoolResult = ({
         )}
         {active && (
           <button
-            disabled={busy}
+            disabled={busy || !storageReady || writesBlocked}
             onClick={onCancel}
           >{t`Cancelar registros pendientes`}</button>
         )}
         <button
-          disabled={busy}
+          disabled={busy || !storageReady}
           onClick={onRecover}
         >{t`Consultar progreso guardado`}</button>
         {!active && (
           <button
-            disabled={busy}
+            disabled={busy || writesBlocked}
             onClick={onReset}
           >{t`Nueva selección`}</button>
         )}

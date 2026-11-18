@@ -1,4 +1,4 @@
-import { gql, InMemoryCache } from '@apollo/client';
+import { type DefaultContext, gql, InMemoryCache } from '@apollo/client';
 import { CombinedGraphQLErrors } from '@apollo/client/errors';
 import fetchMock, { enableFetchMocks } from 'jest-fetch-mock';
 
@@ -123,13 +123,14 @@ const createMockOptions = (): Options => ({
   appVersion: '1.0.0',
 });
 
-const makeRequest = async () => {
+const makeRequest = async (context?: DefaultContext) => {
   const options = createMockOptions();
   const apolloFactory = new ApolloFactory(options);
 
   const client = apolloFactory.getClient();
 
   await client.mutate({
+    context,
     mutation: gql`
       mutation TrackAnalytics(
         $type: AnalyticsType!
@@ -299,6 +300,22 @@ describe('ApolloFactory', () => {
 
     await makeRequest();
 
+    expect(renewToken).toHaveBeenCalledTimes(1);
+    expect(mockOnTokenPairChange).toHaveBeenCalledWith(RENEWED_TOKEN_PAIR);
+    expect(mockOnUnauthenticatedError).not.toHaveBeenCalled();
+  });
+
+  it('renews tokens without replaying an operation that disables automatic retry', async () => {
+    fetchMock.mockResponses(
+      UNAUTHENTICATED_RESPONSE,
+      JSON.stringify({ data: { trackAnalytics: { success: true } } }),
+    );
+
+    await expect(
+      makeRequest({ disableAutomaticRetry: true }),
+    ).rejects.toBeInstanceOf(CombinedGraphQLErrors);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(renewToken).toHaveBeenCalledTimes(1);
     expect(mockOnTokenPairChange).toHaveBeenCalledWith(RENEWED_TOKEN_PAIR);
     expect(mockOnUnauthenticatedError).not.toHaveBeenCalled();

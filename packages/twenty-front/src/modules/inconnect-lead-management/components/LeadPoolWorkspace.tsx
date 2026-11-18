@@ -10,17 +10,23 @@ import {
   StyledPoolSection,
   StyledPoolTableScroll,
 } from '@/inconnect-lead-management/components/LeadPool.styles';
-import { useLeadPool } from '@/inconnect-lead-management/hooks/useLeadPool';
+import { type useLeadPool } from '@/inconnect-lead-management/hooks/useLeadPool';
 
-type LeadPoolWorkspaceProps = { objectId: string; storageReady: boolean };
+type LeadPoolWorkspaceProps = {
+  pool: ReturnType<typeof useLeadPool>;
+  storageReady: boolean;
+};
 export const LeadPoolWorkspace = ({
-  objectId,
+  pool,
   storageReady,
 }: LeadPoolWorkspaceProps) => {
   const { t } = useLingui();
-  const pool = useLeadPool(objectId);
   const [recoverId, setRecoverId] = useState('');
-  const frozen = pool.busy || pool.unresolved || pool.operation !== null;
+  const frozen =
+    pool.busy ||
+    pool.unresolved ||
+    pool.needsProjectionRefresh ||
+    pool.operation !== null;
   return (
     <>
       <StyledPoolSection>
@@ -31,7 +37,7 @@ export const LeadPoolWorkspace = ({
           disabled={frozen}
           onSearch={(filter) => void pool.load(filter)}
         />
-        {!pool.page && !pool.operation && (
+        {!pool.page && !pool.operation && !pool.needsProjectionRefresh && (
           <p>{t`Consulta para cargar los campos y destinatarios permitidos por el backend. Los filtros se habilitan según la metadata vigente.`}</p>
         )}
         {pool.page && (
@@ -150,7 +156,6 @@ export const LeadPoolWorkspace = ({
           hasIntention={pool.hasIntention}
           storageReady={storageReady}
           selectedCount={pool.selection.length}
-          onChange={pool.invalidatePreviewInput}
           onPreview={(mode, ids, quantities, size) => {
             void pool.preview(mode, ids, quantities, size);
           }}
@@ -160,6 +165,8 @@ export const LeadPoolWorkspace = ({
         <LeadPoolResult
           operation={pool.operation}
           busy={pool.busy}
+          storageReady={storageReady}
+          writesBlocked={pool.writesBlocked}
           onExecute={() => void pool.advance()}
           onCancel={() => void pool.cancel()}
           onRecover={() => void pool.recover(pool.operation!.id)}

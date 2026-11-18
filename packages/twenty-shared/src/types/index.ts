@@ -140,6 +140,17 @@ export { FirstDayOfTheWeek } from './FirstDayOfTheWeek';
 export type { FormatRecordSerializedRelationProperties } from './FormatRecordSerializedRelationProperties.type';
 export type { FromTo } from './FromToType';
 export { HTTPMethod } from './HttpMethod';
+export type {
+  LeadPoolMode,
+  LeadPoolFilter,
+  LeadPoolField,
+  LeadPoolCatalog,
+  LeadPoolRecord,
+  LeadPoolPage,
+  LeadPoolPreviewInput,
+  LeadPoolItemStatus,
+  LeadPoolOperation,
+} from './InconnectLeadManagement';
 export type { IndexOf } from './IndexOf.type';
 export type { IsEmptyObject } from './IsEmptyObject.type';
 export type { IsEmptyRecord } from './IsEmptyRecord.type';
@@ -322,4 +333,3 @@ export { ViewType } from './ViewType';
 export { ViewVisibility } from './ViewVisibility';
 export { WebhookSubscriptionChannelType } from './WebhookSubscriptionChannelType';
 export { WebhookSubscriptionStatus } from './WebhookSubscriptionStatus';
-export type * from './InconnectLeadManagement';

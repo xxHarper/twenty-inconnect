@@ -22,6 +22,17 @@ import { REST_API_BASE_URL } from '@/apollo/constant/rest-api-base-url';
 import { type ApolloManager } from '@/apollo/types/apolloManager.interface';
 import { getIsCookieAuthActive } from '@/apollo/utils/getIsCookieAuthActive';
 import { getTokenPair } from '@/apollo/utils/getTokenPair';
+import {
+  classifyLeadPoolOperation,
+  createLeadPoolFetch,
+  getLeadPoolAdmission,
+  isLeadPoolBearerSession,
+  isLeadPoolOperation,
+  LeadPoolDispatchBlockedError,
+  type LeadPoolSession,
+  matchesLeadPoolAccessToken,
+  matchesLeadPoolRefreshToken,
+} from '@/apollo/utils/leadPoolDispatch';
 import { setIsCookieAuthActive } from '@/apollo/utils/setIsCookieAuthActive';
 import { isUnauthenticatedGraphQLError } from '@/apollo/utils/isUnauthenticatedGraphQLError';
 import { loggerLink } from '@/apollo/utils/loggerLink';
@@ -177,9 +188,18 @@ export class ApolloFactory implements ApolloManager {
         },
         attempts: {
           max: 2,
-          retryIf: (error) => {
-            // oxlint-disable-next-line no-console
-            console.log('retryIf error from retryLink', error);
+          retryIf: (error, operation) => {
+            if (
+              error instanceof LeadPoolDispatchBlockedError ||
+              classifyLeadPoolOperation(operation) === 'mutation' ||
+              operation.getContext().disableAutomaticRetry === true
+            ) {
+              return false;
+            }
+            if (!isLeadPoolOperation(operation)) {
+              // oxlint-disable-next-line no-console
+              console.log('retryIf error from retryLink', error);
+            }
             if (this.isAuthenticationError(error)) {
               return false;
             }
@@ -209,11 +229,99 @@ export class ApolloFactory implements ApolloManager {
         }
       };
 
+      const leadPoolRenewals = new WeakMap<LeadPoolSession, Promise<boolean>>();
+      const renewLeadPoolSession = async (session: LeadPoolSession) => {
+        const original = getTokenPair();
+        if (
+          !original ||
+          !isLeadPoolBearerSession(session) ||
+          !matchesLeadPoolAccessToken(original, session) ||
+          !matchesLeadPoolRefreshToken(original, session)
+        )
+          return false;
+
+        const canDispatch = () => {
+          const current = getTokenPair();
+          return (
+            current?.accessOrWorkspaceAgnosticToken.token ===
+              original.accessOrWorkspaceAgnosticToken.token &&
+            current?.refreshToken?.token === original.refreshToken.token &&
+            isLeadPoolBearerSession(session)
+          );
+        };
+        try {
+          const result = await retryWithBackoff(
+            () => {
+              if (!canDispatch())
+                throw new Error('Authentication context changed');
+              return renewToken(
+                `${REACT_APP_SERVER_BASE_URL}/metadata`,
+                original,
+                { canDispatch },
+              );
+            },
+            {
+              maxRetries: TOKEN_RENEWAL_MAX_RETRIES,
+              baseDelayMs: TOKEN_RENEWAL_RETRY_DELAY_MS,
+              shouldRetry: (error) =>
+                !CombinedGraphQLErrors.is(error) && canDispatch(),
+            },
+          );
+          if (
+            isDefined(result) &&
+            canDispatch() &&
+            matchesLeadPoolAccessToken(result, session) &&
+            matchesLeadPoolRefreshToken(result, session)
+          )
+            onTokenPairChange?.(result);
+
+          const current = getTokenPair();
+          return (
+            current?.accessOrWorkspaceAgnosticToken.token !==
+              original.accessOrWorkspaceAgnosticToken.token &&
+            matchesLeadPoolAccessToken(current, session) &&
+            isLeadPoolBearerSession(session)
+          );
+        } catch (error) {
+          if (canDispatch() && isTokenRenewalRejection(error))
+            onUnauthenticatedError?.();
+          return false;
+        }
+      };
+
       const handleTokenRenewal = (
         operation: ApolloLink.Operation,
         forward: ApolloLink.ForwardFunction,
         error: ErrorLike,
       ) => {
+        if (isLeadPoolOperation(operation)) {
+          const admission = getLeadPoolAdmission(operation);
+          if (
+            !admission?.isCurrent() ||
+            !isLeadPoolBearerSession(admission.session)
+          )
+            return throwError(() => error);
+
+          const { session } = admission;
+          let renewal = leadPoolRenewals.get(session);
+          if (!renewal) {
+            renewal = renewLeadPoolSession(session).finally(() =>
+              leadPoolRenewals.delete(session),
+            );
+            leadPoolRenewals.set(session, renewal);
+          }
+          return from(renewal).pipe(
+            switchMap((succeeded) =>
+              succeeded &&
+              admission.isCurrent() &&
+              classifyLeadPoolOperation(operation) === 'query' &&
+              operation.getContext().disableAutomaticRetry !== true
+                ? forward(operation)
+                : throwError(() => error),
+            ),
+          );
+        }
+
         // Renewing and replaying a deliberately headerless operation (the cookie
         // session probe) could loop, so it must fail as-is.
         if (operation.getContext().skipAuthToken === true) {
@@ -277,9 +385,12 @@ export class ApolloFactory implements ApolloManager {
             });
         }
 
+        // Restore the session even when the operation requires explicit recovery.
         return from(renewalPromise).pipe(
           switchMap((succeeded) =>
-            succeeded ? forward(operation) : throwError(() => error),
+            succeeded && operation.getContext().disableAutomaticRetry !== true
+              ? forward(operation)
+              : throwError(() => error),
           ),
         );
       };
@@ -343,6 +454,7 @@ export class ApolloFactory implements ApolloManager {
       };
 
       const errorLink = new ErrorLink(({ error, operation, forward }) => {
+        if (error instanceof LeadPoolDispatchBlockedError) return;
         if (CombinedGraphQLErrors.is(error)) {
           onErrorCb?.(error.errors);
           for (const graphQLError of error.errors) {
@@ -412,18 +524,43 @@ export class ApolloFactory implements ApolloManager {
 
       // Type assertion needed because third-party link packages (apollo-link-rest,
       // apollo-upload-client) reference their own @apollo/client ApolloLink type
-      const links = [
-        errorLink,
-        authLink,
-        ...(extraLinks || []),
-        ...(isDebugMode ? [logger] : []),
-        retryLink,
+      const leadPoolLink = new ApolloLink((operation, forward) => {
+        const classification = classifyLeadPoolOperation(operation);
+        if (classification === 'blocked' || classification === 'ordinary')
+          return throwError(() => new LeadPoolDispatchBlockedError(operation));
+
+        // Dispatch the selected document itself, with the same name used by the AST check.
+        operation.setContext(({ http }) => ({
+          http: { ...http, includeQuery: true, includeExtensions: false },
+        }));
+        return new UploadHttpLink({
+          uri,
+          fetch: createLeadPoolFetch(operation, uri),
+        }).request(operation, forward);
+      });
+
+      const standardTransport = ApolloLink.from([
         streamingRestLink,
         restLink,
         uploadLink,
-      ] as ApolloLink[];
+      ] as ApolloLink[]);
+      const standardLinks = ApolloLink.from([
+        ...(extraLinks || []),
+        ...(isDebugMode ? [logger] : []),
+        retryLink,
+        ApolloLink.split(isLeadPoolOperation, leadPoolLink, standardTransport),
+      ] as ApolloLink[]);
 
-      return ApolloLink.from(links);
+      // Scope Lead Pool before custom links and recheck before standard transport.
+      return ApolloLink.from([
+        errorLink,
+        authLink,
+        ApolloLink.split(
+          isLeadPoolOperation,
+          retryLink.concat(leadPoolLink),
+          standardLinks,
+        ),
+      ]);
     };
 
     this.client = new ApolloClient({
