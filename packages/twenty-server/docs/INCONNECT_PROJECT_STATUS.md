@@ -1,6 +1,6 @@
 # Twenty INCONNECT — estado canónico del proyecto
 
-Checkpoint documental **2026-11-10**, America/Mexico_City. Checkout inicial en
+Checkpoint del **2026-11-10**, America/Mexico_City. Checkout de aquel registro en
 `feature/inconnect-lead-management`, HEAD
 `6b30325a2e3c06be23c2c6740cf397f694efdd8a`, índice vacío y sin cambios en
 archivos versionados. El único archivo sin seguimiento era
@@ -111,14 +111,14 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 
 | Módulo | Fuente / aceptación acreditada | Evidencia física e instalación por entorno | Pendiente / bloqueado |
 | --- | --- | --- | --- |
-| Record Access / Owner Integrity | Implementado: políticas, SQL ORM v1/v2, Owner, persistencia, modos ENV/transition/database, caches y Settings. Hardening de eventos/Owner: `cb7271ca0c` (2026-10-16); fuente presente en HEAD. | AGENTS histórico reporta comando de persistencia ejecutado/auditado en desarrollo y baseline local `database` verificado el 2026-08-24. No se revalidó entorno el 27 de octubre. | Ninguna instalación/activación/despliegue nuevo acreditado. Superficies no soportadas siguen denegadas. |
+| Record Access / Owner Integrity | Implementado: políticas, SQL ORM v1/v2, Owner, persistencia, modos ENV/transition/database, caches y Settings. Hardening de eventos/Owner: `cb7271ca0c` (2026-10-16); fuente presente en HEAD. | Baseline histórico local `database` del 2026-08-24. DEV-LOCAL-R1 validó Lead con Admin `MANAGED` revisión `1`, en `transition` y con Owner explícito. | Superficies no soportadas siguen denegadas. El alcance físico del 18 de noviembre se limita a DEV-LOCAL-R1. |
 | Commercial Teams | Implementado bajo Record Access: administración, membresía, atomic move, cache endurecido y Settings. Contrato conservado del checkpoint histórico. | Baseline local reportado el 2026-08-24; no es aceptación física universal ni inspección actual. | No cambiar Roles por membresía; no rediseño ni despliegue nuevo. |
-| Lead Management | **ACCEPTED SOURCE-ONLY — INCONNECT LEAD MANAGEMENT INTEGRATED MVP**, aceptación independiente 2026-10-27, commit `f164bf937a`. | PostgreSQL físico, DDL instalado, DI completa, HTTP y E2E navegador pendientes. No se declara instalación terminada. | NORMAL/MESSAGE_PENDING NOT_READY; TODOS deshabilitado. No activo/desplegado por esta aceptación. |
+| Lead Management | **ACCEPTED SOURCE-ONLY — INCONNECT LEAD MANAGEMENT INTEGRATED MVP**, aceptación independiente 2026-10-27, commit `f164bf937a`. | CRUD del Lead base verificado en Chrome en DEV-LOCAL-R1. Para el Distribuidor siguen pendientes el Store, la validación física integral y la activación. | NORMAL/MESSAGE_PENDING NOT_READY; TODOS deshabilitado. |
 | Messaging base | Fuente integrada: persistencia, autorización, inbox, manual Pending, Favorite/Unread, media, Send, templates, realtime, context/Settings y linking manual. | Pruebas históricas de desarrollo/disposable de comandos, work-state, context y linking; ver contratos y evidencia histórica. No se inspeccionó instalación actual. | Límites funcionales en backlog; ningún despliegue nuevo acreditado. |
-| WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | No aceptación PostgreSQL física del ledger/R4 ni instalación de su DDL acreditadas. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
-| F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29; F13C.2B aceptado físicamente en PostgreSQL disposable de desarrollo 2026-10-12. No son el mismo entorno ni prueba externa Twilio/Redis completa. | F13C.3 preparación/instalación por entorno pendiente; sin afirmación de 5698/5700 ejecutados en `default` o producción. |
+| WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
+| F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | Requisito confirmado de backlog. | Sin implementación/instalación/activación acreditada. | Diseño y desarrollo en tarea separada. |
+| Telephony REQ-TEL-001 | VOICE-V0-R2 implementado en fuente. | VOICE-V0-R1 instalado y probado en Chrome en DEV-LOCAL-R1. La API comprobada devolvió 404 para el estado R2. | Instalar R2, autorizar la activación y la primera llamada por separado. [Backlog](INCONNECT_PRODUCT_BACKLOG.md) |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 
@@ -224,9 +224,10 @@ asignar; nunca relink. La aceptación física de desarrollo de 2026-10-12 no
 establece instalación normal local ni despliegue.
 
 Comandos F13 registrados 1790793305698 (configuración) **antes de** 1790793305700
-(principal); registro no demuestra ejecución. Comprobar tracking por entorno
-requiere inspección específicamente autorizada, no realizada aquí. C2-I-B añade en fuente el Fast 1792540800000 para el ledger;
-no se acredita su ejecución/instalación física.
+(principal). C2-I-B registra el Fast 1792540800000 para el ledger. La ejecución
+acreditada por Gate B se limita a DEV-LOCAL-R1, con F13 auto-create desactivado
+y Attention `DISABLED`. Cualquier inspección de tracking requiere autorización
+específica.
 
 [Operaciones](INCONNECT_OPERATIONS_AND_UPGRADES.md),
 [runner](INCONNECT_EXACT_INSTANCE_COMMAND_RUNNER.md) y
@@ -238,8 +239,8 @@ cleanup no prueban aislamiento de un workload PostgreSQL. No modificar el
 bind mount de reparación WSL ni normal `default`.
 
 INSTALL-F1 corrigió en fuente la causa localizada del SQLSTATE 42P07 del setup
-legacy. Su comprobación física sigue pendiente. La duda FilesFieldSync sobre
-transaction binding sigue como seguimiento separado. Retención, purga y borrado
+legacy. Gate B acreditó el bootstrap sin ese error en DEV-LOCAL-R1. La duda
+FilesFieldSync sobre transaction binding sigue como seguimiento separado. Retención, purga y borrado
 de workspace siguen sujetos a autorización separada.
 
 ## Uso y mantenimiento

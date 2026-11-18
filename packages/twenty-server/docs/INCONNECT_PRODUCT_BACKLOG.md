@@ -43,7 +43,21 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
 
 ### REQ-TEL-001 — INCONNECT Telephony / Softphone
 
-**USER-CONFIRMED REQUIREMENT. NOT IMPLEMENTED. DESIGN AND DEVELOPMENT RESERVED FOR A SEPARATE CONVERSATION/TASK.**
+**Requisito confirmado. Estado al 18 de noviembre de 2026.**
+
+- **Implementado en DEV-LOCAL-R1, VOICE-V0-R1.** Campo Phone del Lead, botón
+  **Llamar**, softphone inicial y lectura del destino desde el CRM con los
+  permisos vigentes. Flujo comprobado en Chrome con salida deshabilitada.
+- **Implementado en fuente, pendiente de instalación y activación,
+  VOICE-V0-R2.** Integración de `@twilio/voice-sdk` 2.19.0 y endpoints de
+  estado, sesión e intercambio TwiML. La API activa devolvió 404 para el
+  endpoint de estado R2. [Checkpoint](INCONNECT_PROJECT_STATUS.md#checkpoint-del-18-de-noviembre-de-2026)
+  · [Guía R2](INCONNECT_VOICE_V0_R2.md)
+- **Pendiente.** Primera llamada real, llamadas entrantes, enrutamiento por
+  Owner y Commercial Team, Round Robin, transferencias, historial de llamadas,
+  duración, grabaciones, consentimiento, retención y políticas operativas.
+
+Alcance funcional del requisito original:
 
 - Twilio voice telephony with a browser-based softphone embedded in Twenty; inbound and outbound calls; click-to-call directly from a CRM Lead.
 - Transfer active calls between executives and coordinators; record calls where configured and permitted.
@@ -57,4 +71,4 @@ Confirmed inbound routing:
 
 Ambiguous phone matches, no available agents, failed transfers, offline owners, and disconnected calls require design before implementation; no fallback behavior is specified.
 
-Authorization, recording consent, retention, and Twilio Voice integration must each be evaluated separately. WhatsApp Messaging is implemented in development; telephony is not, and the existing Twilio WhatsApp adapter does not implement voice. Reuse existing INCONNECT concepts where appropriate, without assuming WhatsApp permission flags, Conversations, or provider transport apply to voice.
+Authorization, recording consent, retention, and Twilio Voice integration must each be evaluated separately. Voice uses its own configuration and authority. Reuse existing INCONNECT concepts where appropriate, without assuming WhatsApp permission flags, Conversations, or provider transport apply to voice.

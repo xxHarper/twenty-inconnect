@@ -21,7 +21,9 @@ PG0/PG1/Stage C5/exact-upgrade. No hay adaptador live ni evidencia kernel nueva.
 
 ## Validación recuperable y dependencias
 
-Ejecutar una validación a la vez, con recursos limitados y Jest --runInBand.
+Aplicar la [política de validación por alcance](#testing-strategy). Para
+validación sustancial, ejecutar una comprobación a la vez, con recursos limitados
+y Jest `--runInBand` cuando corresponda.
 Conservar comando, fuentes/scope, stdout/stderr, exit, JSON cuando aplique,
 boot ID y recursos antes/después, y resumen incremental. Tras interrupción,
 comparar identidad/estado y validar evidencia antes de continuar; una sesión
@@ -40,9 +42,78 @@ Registrar nuevos comandos en descubrimiento normal; no editar up/down ya
 committed. Revisar código, locks, efectos y rollback, backups y restauración
 por entorno antes de ejecutar. La aceptación source-only no sustituye esos gates.
 
+## DEV-LOCAL-R1 · operación del CRM real
+
+Entorno funcional de desarrollo en WSL2. Su directorio privado, con permisos
+`0700`, es `/home/alberto/twenty-inconnect-dev-local-r1`. Contiene `postgres/`,
+`redis/` con AOF, `run/` con socket y PID dedicados, `storage/` del CRM,
+logs, `credentials/` y `app.env` privado con permisos `0600`.
+
+| Componente | Loopback en WSL | Alcance |
+| --- | --- | --- |
+| PostgreSQL 18.6 | `127.0.0.1:55432` | Clúster y base `twenty_inconnect_dev_local_r1` dedicados |
+| Redis 8.10.0 | `127.0.0.1:56379` | Instancia y ACL dedicadas, incluida `PUNSUBSCRIBE` para la aplicación |
+| API Nest | `127.0.0.1:33000` | Entrada `node dist/main.js` del backend |
+| Frontend Vite | `127.0.0.1:33001` | HMR y proxy hacia la API dedicada |
+
+El [checkpoint del 18 de noviembre](INCONNECT_PROJECT_STATUS.md#checkpoint-del-18-de-noviembre-de-2026)
+acredita bootstrap, acceso desde Chrome de Windows y persistencia del Lead.
+El CRM real usa sesión, metadata, permisos y datos persistidos. Storybook
+DEMO-A5 sirve en `127.0.0.1:6006` y usa fixtures con Apollo/MSW en memoria.
+En DEV-LOCAL-R1 el worker y el registro de cron quedaron inactivos.
+
+Cada paso de la siguiente secuencia requiere autorización específica.
+
+1. **Servicios de datos.** Comprobar primero la identidad del clúster y de
+   Redis, el propietario, los directorios, la configuración y los listeners
+   dedicados. Si están detenidos, usar sólo el `pg_ctl` de PostgreSQL 18 con
+   `-D /home/alberto/twenty-inconnect-dev-local-r1/postgres` y
+   `redis-server /home/alberto/twenty-inconnect-dev-local-r1/redis.conf` del
+   entorno existente. Cotejar el `system_identifier` de PostgreSQL y el
+   `run_id` de Redis por sus destinos dedicados según la
+   [evidencia histórica de Gate A](INCONNECT_DEV_LOCAL_R1.md). El bloque de
+   creación histórico incluye `initdb` y generación de credenciales para una
+   instalación nueva. Para el entorno existente se reutilizan sus datos y
+   configuración.
+2. **API.** Arrancar por separado desde `packages/twenty-server`, con Node
+   Linux y entorno de proceso limpio. Cargar el `app.env` dedicado en privado.
+   Verificar los destinos explícitos de `PG_DATABASE_URL`, de la réplica si
+   corresponde, de `REDIS_URL` y de `REDIS_QUEUE_URL`. Fijar
+   `NODE_HOST=127.0.0.1`, `NODE_PORT=33000`, `PG_INSTALL_EXTENSIONS=false`,
+   `DISABLE_DB_MIGRATIONS=true` y `DISABLE_CRON_JOBS_REGISTRATION=true`.
+   Confirmar storage dedicado, los orígenes `FRONTEND_URL` y `SERVER_URL`,
+   y la configuración de proveedores aprobada antes de ejecutar
+   `node dist/main.js`. Evitar imprimir variables privadas o dejar que el
+   proceso seleccione los destinos compartidos de los archivos `.env`.
+3. **Frontend.** En otro proceso, desde `packages/twenty-front`, fijar
+   `REACT_APP_SERVER_BASE_URL=http://127.0.0.1:33000` y ejecutar
+   `../../node_modules/.bin/vite --host 127.0.0.1 --port 33001 --strictPort`.
+   Mantener las credenciales del backend fuera de Vite. Después de autorizar
+   los checks, comprobar listeners y PID, `/healthz` directo y vía proxy,
+   GraphQL por el proxy y, en Chrome, login y el flujo CRM autorizado. El
+   health HTTP por sí solo acredita la respuesta del proceso.
+4. **Reconstrucción y parada.** Tras un cambio de backend, verificar que
+   `dist` corresponde a la fuente y dependencias previstas. Antes de
+   reconstruir, identificar los artefactos usados por la API activa y
+   conservar un build recuperable. Con autorización para reconstruir y
+   reiniciar, parar de forma limpia el PID verificado, reconstruir el backend
+   y las dependencias locales que cambiaron, y arrancar la API con los mismos
+   límites. Repetir las comprobaciones focales desde Vite y Chrome. Para una
+   parada del entorno, detener Vite y Nest por sus terminales o por PID
+   verificado con `SIGTERM`, luego Redis y PostgreSQL por el
+   [procedimiento de parada dedicado de Gate A](INCONNECT_DEV_LOCAL_R1.md#parada-limpia-de-gate-a).
+   Confirmar que se liberaron los cuatro listeners y conservar los datos.
+
+En DEV-LOCAL-R1, usar las entradas independientes de API y frontend. Queda
+prohibido usar `yarn start` cuando su composición pueda levantar el worker.
+Ninguna comprobación de navegador autoriza setup, bootstrap, migraciones,
+resets, comandos de Workspace, cambios de datos, cron, workers o proveedores.
+El PostgreSQL `default` y Redis compartido quedan fuera de alcance. PHYS-A0
+sigue **NO-GO**. PG0/PG1, Stage C5 y exact-upgrade operativo siguen **BLOCKED**.
+
 ## Estado operativo al 10 de noviembre de 2026
 
-La vía autorizada para preparar la presentación es la colección estática de
+La vía autorizada en ese checkpoint para preparar la presentación era la colección estática de
 Storybook DEMO-A5. Evitar `yarn start` para ese fin. El script raíz inicia
 frontend y backend. También inicia el worker cuando puede conectarse al
 puerto TCP 3000.
@@ -170,10 +241,11 @@ physical lifecycle execution, PostgreSQL upgrades, or production activation.
 All examples below are references subject to the execution warning and action-specific authorization.
 
 ### Development
-```bash
-# Start development environment (frontend + backend + worker)
-yarn start
 
+Use the independent entries above for DEV-LOCAL-R1. The worker target requires
+separate authorization.
+
+```bash
 # Individual package development
 npx nx start twenty-front     # Start frontend dev server
 npx nx start twenty-server    # Start backend server
@@ -182,13 +254,14 @@ npx nx run twenty-server:worker  # Start background worker
 
 ### Testing
 
-Prefer source-only focused tests. Integration tests with DB reset require explicit authorization for that reset and target.
+Select checks using the [testing strategy](#testing-strategy). Integration
+tests with a DB reset require explicit authorization for the action and target.
 
 ```bash
 # Preferred: run a single test file (fast)
-npx jest path/to/test.test.ts --config=packages/PROJECT/jest.config.mjs
+npx jest path/to/test.test.ts --config=packages/PROJECT/jest.config.mjs --runInBand
 
-# Run all tests for a package
+# Run a full package suite when justified by scope or risk
 npx nx test twenty-front      # Frontend unit tests
 npx nx test twenty-server     # Backend unit tests
 npx nx run twenty-server:test:integration:with-db-reset  # Integration tests with DB reset
@@ -199,12 +272,11 @@ cd packages/{workspace} && npx jest "pattern or filename"
 npx nx storybook:build twenty-front
 npx nx storybook:test twenty-front
 
-# When testing the UI end to end, click on "Continue with Email" and use the prefilled credentials.
 ```
 
 ### Code Quality
 ```bash
-# Linting (diff with main - fastest, always prefer this)
+# Diff lint when main gives a useful scope for the current change
 npx nx lint:diff-with-main twenty-front
 npx nx lint:diff-with-main twenty-server
 npx nx lint:diff-with-main twenty-front --configuration=fix  # Auto-fix
@@ -289,7 +361,7 @@ This script starts Postgres + Redis (auto-detecting local services versus Docker
 - `--docker` — force Docker mode (uses `packages/twenty-docker/docker-compose.dev.yml`)
 - `--down` — stop services
 - `--reset` — wipe data and restart fresh
-- **Skip the setup script** for source-only tasks, including architecture questions, code review, documentation, and focused source validation. Prefer Jest, TypeScript, lint, and formatting without starting services or databases.
+- **Skip the setup script** for source-only tasks, including architecture questions, code review, documentation, and focused source validation. Select static and behavior checks by scope, without starting services or databases.
 
 **Note:** CI workflows (GitHub Actions) manage services via Actions service containers and run setup steps individually — they don't use this script.
 
@@ -476,11 +548,9 @@ packages/
 IMPORTANT: When Context7 is available and appropriate, use it for code generation, setup or configuration steps, and library/API documentation. Do not assume Context7 or another MCP is configured, and do not block work only because it is absent unless the requested task genuinely depends on that external source.
 
 ### Before Making Changes
-1. Always run linting (`lint:diff-with-main`) and type checking after code changes
-2. Test changes with relevant test suites (prefer single-file test runs)
-3. Ensure entity changes include instance commands; running `database:migrate:generate` requires action-specific authorization
-4. Check that GraphQL schema changes are backward compatible
-5. Run `graphql:generate` after any GraphQL schema changes
+1. Choose validation proportional to the change using the testing strategy below.
+2. Ensure entity changes include instance commands. Running `database:migrate:generate` requires action-specific authorization.
+3. Check backward compatibility of GraphQL schema changes and run `graphql:generate` after those changes.
 
 ### Code Style Notes
 - Use **Linaria** for styling with zero-runtime CSS-in-JS (styled-components pattern)
@@ -489,13 +559,13 @@ IMPORTANT: When Context7 is available and appropriate, use it for code generatio
 - Apply security first, then formatting (sanitize before format)
 
 ### Testing Strategy
-- **Test behavior, not implementation** — focus on user perspective
-- **Test pyramid**: 70% unit, 20% integration, 10% E2E
-- Query by user-visible elements (text, roles, labels) over test IDs
-- Use `@testing-library/user-event` for realistic interactions
-- Descriptive test names: "should [behavior] when [condition]"
-- Clear mocks between tests with `jest.clearAllMocks()`
 
+- Documentation-only changes use document integrity, relevant link and whitespace checks only.
+- For small code changes, run focused checks of the affected behavior when needed. Use lint, types and formatting at the scope the change warrants. Skip `lint:diff-with-main` if it would scan a large historical diff and scoped checks cover the change.
+- For security, authorization or persistence changes, exercise the critical paths and denials affected by the change. Preserve Owner Integrity, Record Access, isolation, transaction and idempotency guarantees.
+- For functional validation, prefer the real browser flow in DEV-LOCAL-R1 when available and specifically authorized. Full suites are reserved for concrete risks, broad integration or a gate that requires them.
+- Reuse recorded results while the covered code, dependencies and relevant conditions remain unchanged. Keep evidence of the checks actually run. Consolidate duplicate tests only while working in their module and preserve coverage. Keep the existing suites.
+- Test observable behavior. Prefer user-visible roles, labels and text, realistic interactions with `@testing-library/user-event`, descriptive test names and clean mocks between tests.
 
 ## Important Files
 - `nx.json` - Nx workspace configuration with task definitions
