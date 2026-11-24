@@ -15,6 +15,68 @@ una aceptación nunca levanta gates de ejecución. «Fuente implementada»,
 «instalado en un entorno», «activado» y «desplegado» son afirmaciones distintas.
 La evidencia física describe el entorno y el momento de su comprobación.
 
+## Checkpoint del 24 de noviembre de 2026
+
+**Voice V0 de salida quedó validado de extremo a extremo en DEV-LOCAL-R1.**
+El operador autorizado llamó manualmente desde un Lead al único celular de
+prueba aprobado. La primera llamada llegó al celular y terminó poco después de
+contestar. En la segunda, Twilio registró **55 s** en el tramo navegador → Twilio
+y **47 s** en el tramo Twilio → celular, ambos con estado `completed`.
+El operador confirmó que la conexión se mantuvo estable y que hubo audio en
+ambos sentidos. Tras la prueba, el endpoint autenticado devolvió HTTP 200 con
+`disabled` y Nest volvió a arrancar con `INCONNECT_VOICE_ENABLE_OUTBOUND=false`.
+
+El piloto incluyó la proyección de los componentes de Phone mediante la lectura
+autorizada, la ACL persistida para las intenciones en Redis dedicado y los
+diagnósticos del softphone y de la emisión de sesión. La validación corresponde
+al entorno de desarrollo y al destino aprobado. Voice V0 carece de autorización
+para producción y PHYS-A0 sigue **NO-GO**. [Evidencia y correcciones del piloto](INCONNECT_VOICE_V0_R2.md#evidencia-de-voice-v0)
+
+## Checkpoint del 18 de noviembre de 2026
+
+**DEV-LOCAL-R1** es el entorno funcional de desarrollo en WSL2. La evidencia
+física de este apartado corresponde sólo a ese entorno. La revisión del
+checkpoint usó los registros locales existentes y la fuente.
+
+- **Gate A · servicios dedicados.** PostgreSQL **18.6** en `127.0.0.1:55432` y
+  Redis **8.10.0** en `127.0.0.1:56379`, con almacenamiento y credenciales
+  propios fuera del checkout. [Registro histórico de Gate A](INCONNECT_DEV_LOCAL_R1.md)
+- **Gate B · bootstrap físico.** Se registraron **182 Legacy, 127 Fast y 33
+  Slow**, con cero Workspace Commands en Gate B. El registro acredita
+  INSTALL-F1 sin SQLSTATE 42P07 y la aplicación de los Fast F13
+  `1790793305698` y `1790793305700` y del Fast de Attention `1792540800000` en
+  el destino dedicado. F13 auto-create quedó desactivado y Attention en
+  `DISABLED`. El Store del Distribuidor quedó sin instalar.
+- **Gate C · CRM real.** API Nest en `127.0.0.1:33000` y frontend Vite en
+  `127.0.0.1:33001`, con workspace y administrador locales. El Lead se
+  configuró con **Name** y **Owner**. Se incorporó **Phone** para Voice.
+  Para Admin, la política de Record
+  Access está `MANAGED`, revisión `1`, con source mode `transition`.
+  En Chrome se verificaron la creación, la edición y la persistencia tras
+  recargar el mismo Lead. C-LEAD-UX quedó funcional con Owner explícito y la
+  escritura con Owner nulo fue denegada. Worker y cron quedaron inactivos.
+  [Operación local](INCONNECT_OPERATIONS_AND_UPGRADES.md#dev-local-r1--operación-del-crm-real)
+- **VOICE-V0-R1 · instalado y probado en Chrome.** El botón **Llamar** y
+  el softphone inicial mostraron el destino leído desde el CRM con los permisos
+  vigentes, incluidas la recarga y la vista sin Phone. La salida permaneció
+  deshabilitada. Se corrigió de forma persistente la ACL del usuario de
+  aplicación del Redis dedicado para permitir `PUNSUBSCRIBE`. El
+  recorrido posterior registró cero nuevos `NOPERM` de ese comando.
+- **VOICE-V0-R2 · SOURCE-ONLY.** La fuente incorpora `@twilio/voice-sdk`
+  **2.19.0**, Access Tokens de **300 segundos** e intenciones de **45 segundos**.
+  Los registros previos de Jest acreditan cinco casos del servidor y cuatro
+  con SDK simulado. Cubren la firma del callback, la denegación del destino
+  fuera de lo aprobado y la revalidación de autorización y Phone. El sondeo
+  previo de la API activa devolvió **HTTP 404** en
+  `GET /auth/inconnect-voice/status`. Quedan pendientes el build de instalación
+  y el reinicio autorizado de Nest con R2. La llamada real, el webhook público
+  y la activación de Twilio Voice siguen pendientes.
+  [Guía de Voice R2](INCONNECT_VOICE_V0_R2.md)
+
+El Distribuidor de Leads conserva **ACCEPTED SOURCE-ONLY**. El Store
+sigue sin instalar y el Distribuidor sin activar. PHYS-A0 sigue **NO-GO**
+y PG0/PG1, Stage C5 y exact-upgrade operativo siguen **BLOCKED**.
+
 ## Checkpoint del 10 de noviembre de 2026
 
 ### INSTALL-F1 · corrección SOURCE-ONLY
@@ -79,6 +141,30 @@ efectivo de la VM quedan sin comprobación en esta revisión.
   el worker siguen sin arrancar y que el bootstrap, las migraciones y la
   instalación del Store siguen sin ejecutarse. [Procedimiento S2](../../twenty-docker/inconnect-staging/STAGING-S2.md)
 
+### STAGING-S2-R2 · cierre operativo preparado en fuente
+
+- **Reporte físico del operador.** La VM tiene ~23 GiB reconocidos, 4 vCPU
+  y 82 GB libres. Sobre los 26 candidatos cotejados contra índices firmados,
+  la clausura seleccionada es de 18 instalaciones y cero upgrades. Se
+  reportaron los hashes de los archivos y la simulación offline correctos.
+  El manifiesto candidato tiene SHA-256
+  `fec9d988193526ca10589f480b95b0ad95f3e08f72702f26c01c5ca23bf5b0b5`.
+  El builder `inconnect-s2r2` está registrado e inactivo. El perímetro R1
+  reportó acceso Yarn y DROP hacia los almacenes, con HTTPS público y reglas
+  volátiles. El jefe autorizó compilar en la VM bajo los límites y separación
+  reportados, sujeto a la preparación técnica del entorno.
+- **Fuente R2.** Se reprodujo el SHA-256 del Dockerfile R1. La ruta propuesta
+  fija bridge interno, firewall propio persistente, proxy CONNECT por
+  autoridad exacta y preflight para el nodo dedicado. Conserva el Dockerfile
+  R1 y deriva el tar sólo para añadir el proxy al RC Yarn. Incluye probe
+  sobre el worker real y verificación del tar. [Runbook R2](../../twenty-docker/inconnect-staging/STAGING-S2-R2.md)
+- **Gates.** Falta completar el registro independiente de claves Alpine,
+  snapshot y manifiesto, aprobar el delta de contexto y autorizar/validar el
+  perímetro y las dependencias en la VM. Bootstrap y primer build siguen
+  bloqueados hasta sus gates respectivos. La entrega es SOURCE-ONLY.
+  Se conserva `staging-app-blocked` y el alcance operativo de S1.
+  [Registro de aprobación R2](../../twenty-docker/inconnect-staging/S2R2-APPROVAL.md)
+
 ### DEMO-A1–A5 · demostración visual con Storybook
 
 El commit `6b30325a2e3c06be23c2c6740cf397f694efdd8a` contiene las 26 rutas del
@@ -118,7 +204,7 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 | WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
 | F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | VOICE-V0-R2 implementado en fuente. | VOICE-V0-R1 instalado y probado en Chrome en DEV-LOCAL-R1. La API comprobada devolvió 404 para el estado R2. | Instalar R2, autorizar la activación y la primera llamada por separado. [Backlog](INCONNECT_PRODUCT_BACKLOG.md) |
+| Telephony REQ-TEL-001 | Voice V0 de salida desde Lead, con autorización de operador y destino, intención de un uso y TwiML firmado. | Validado de extremo a extremo en DEV-LOCAL-R1 el 24 de noviembre de 2026. Segunda llamada completada con audio bidireccional y 47 s al celular. Voice volvió a `DISABLED`. | Producción sin autorización. Entrantes, enrutamiento, transferencias e historial siguen en el [backlog](INCONNECT_PRODUCT_BACKLOG.md#req-tel-001--inconnect-telephony--softphone). |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 

@@ -1,12 +1,54 @@
-# INCONNECT Voice V0-R2 en DEV-LOCAL-R1
+# INCONNECT Voice V0 en DEV-LOCAL-R1
 
-**Estado al 18 de noviembre de 2026 · SOURCE-ONLY.** La API activa registrada
-devolvió HTTP 404 en `GET /auth/inconnect-voice/status`. Falta instalar el
-build que incluye R2 y reiniciar la API con autorización específica.
-El webhook público, la activación de Twilio Voice y la primera llamada
-siguen pendientes. [Estado canónico y alcance de las pruebas](INCONNECT_PROJECT_STATUS.md#checkpoint-del-18-de-noviembre-de-2026)
+**Estado al 24 de noviembre de 2026.** La salida desde un Lead quedó validada
+de extremo a extremo en DEV-LOCAL-R1 con una llamada estable y audio
+bidireccional. Voice quedó en `DISABLED` al cerrar el piloto. El alcance se
+limita al desarrollo y al único destino aprobado. Producción sigue sin
+autorización. [Estado canónico](INCONNECT_PROJECT_STATUS.md#checkpoint-del-24-de-noviembre-de-2026)
 
 El botón Llamar comprueba disponibilidad en el backend. El primer intento explícito requiere una sesión humana permitida, autorización vigente sobre el Lead y su campo Phone, y coincidencia con el destino de prueba aprobado. El backend emite un Access Token de 300 segundos y una intención de 45 segundos. El SDK envía sólo el identificador opaco de la intención. El callback verifica la firma, consume la intención y vuelve a validar la sesión y el Phone antes de devolver TwiML. La llamada permite hasta 300 segundos y usa `do-not-record`.
+
+## Evidencia de Voice V0
+
+Las llamadas se realizaron manualmente el 24 de noviembre de 2026 desde el
+softphone del Lead en DEV-LOCAL-R1. Twilio registró las siguientes duraciones
+por tramo.
+
+| Llamada | Navegador → Twilio | Twilio → celular | Resultado observado |
+| --- | ---: | ---: | --- |
+| Primera | 14 s · `completed` | 4 s · `completed` | El operador contestó y reportó una desconexión temprana. |
+| Segunda | 55 s · `completed` | 47 s · `completed` | El operador contestó, confirmó audio en ambos sentidos y no observó desconexión prematura. |
+
+La segunda llamada terminó a las **11:46:37** en Ciudad de México. A las
+**11:47:06**, el observador confirmó HTTP 200 con `disabled` tras la reversión
+de Nest. En ambas ventanas R9 habilitó temporalmente el entorno del proceso y
+mantuvo `INCONNECT_VOICE_ENABLE_OUTBOUND=false` en `app.env`. El supervisor
+revirtió al cierre del operador, al vencimiento de la ventana de 10 minutos o
+al perder la señal del observador. La salida se limitó al operador y al
+destino configurados en R7. El TwiML fijó `timeLimit=300` y `record=do-not-record`.
+
+R9 conserva la evidencia privada en `first-real-call.json` y
+`second-real-call.json` bajo el directorio dedicado de DEV-LOCAL-R1. Los
+registros documentan los dos tramos, sus tiempos y el cierre autenticado,
+sin guardar números, credenciales, tokens ni audio.
+
+### Correcciones durante el piloto
+
+- **Lectura de Phone.** La selección del campo compuesto ahora incluye el
+  número principal, el código de país y el prefijo. Common Find One aplica
+  los permisos de objeto y campo y Record Access a la lectura del Lead.
+  Voice normaliza el número y lo compara con el único destino aprobado.
+- **ACL de Redis dedicado.** Redis rechazaba el almacenamiento de la
+  intención con `NOPERM`. El usuario de Nest recibió un selector persistido
+  para `inconnectVoice:intent:*` limitado a `SET`, `GET`, `DEL` y `EVAL`.
+  La emisión almacena la intención cifrada con `SET ... EX 45 NX`. El Lua
+  del callback la recupera y elimina de forma atómica. La comprobación
+  focal con un valor sintético acreditó un único consumo.
+- **Diagnósticos del softphone y del backend.** El navegador verifica el
+  acceso al micrófono antes de pedir la intención, limita la espera en cada
+  etapa y muestra la etapa y el código disponible si falla. El endpoint
+  conserva el error público genérico y Nest registra sólo la etapa y una
+  causa segura de la emisión fallida.
 
 ## Operador en la consola de Twilio
 
@@ -41,6 +83,6 @@ separado. [Operación local](INCONNECT_OPERATIONS_AND_UPGRADES.md#dev-local-r1--
 | `INCONNECT_VOICE_USER_WORKSPACE_ID` | UUID del operador autorizado para V0 |
 | `INCONNECT_VOICE_LEAD_OBJECT_ID` | UUID de ObjectMetadata de Lead |
 | `INCONNECT_VOICE_PHONE_FIELD_ID` | UUID de FieldMetadata de Phone |
-| `INCONNECT_VOICE_ENABLE_OUTBOUND` | `false` hasta autorizar la llamada real |
+| `INCONNECT_VOICE_ENABLE_OUTBOUND` | `false` en `app.env`. Cada habilitación temporal del proceso requiere autorización expresa |
 
-El backend requiere la clave de cifrado vigente de Twenty (`ENCRYPTION_KEY` o el `APP_SECRET` de una instalación legacy) y Redis dedicado con `SET`, `GET`, `DEL` y `EVAL` para intenciones efímeras. Después del reinicio autorizado de la API, comprobar el endpoint autenticado con salida deshabilitada. La activación y la primera llamada a ese único destino requieren aprobación independiente.
+El backend requiere la clave de cifrado vigente de Twenty (`ENCRYPTION_KEY` o el `APP_SECRET` de una instalación legacy) y Redis dedicado con `SET`, `GET`, `DEL` y `EVAL` para intenciones efímeras. Después del reinicio autorizado de la API, comprobar el endpoint autenticado con salida deshabilitada. Cada nueva ventana de activación y su intento manual requieren autorización independiente.

@@ -43,19 +43,18 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
 
 ### REQ-TEL-001 — INCONNECT Telephony / Softphone
 
-**Requisito confirmado. Estado al 18 de noviembre de 2026.**
+**Requisito confirmado. Estado al 24 de noviembre de 2026.**
 
-- **Implementado en DEV-LOCAL-R1, VOICE-V0-R1.** Campo Phone del Lead, botón
-  **Llamar**, softphone inicial y lectura del destino desde el CRM con los
-  permisos vigentes. Flujo comprobado en Chrome con salida deshabilitada.
-- **Implementado en fuente, pendiente de instalación y activación,
-  VOICE-V0-R2.** Integración de `@twilio/voice-sdk` 2.19.0 y endpoints de
-  estado, sesión e intercambio TwiML. La API activa devolvió 404 para el
-  endpoint de estado R2. [Checkpoint](INCONNECT_PROJECT_STATUS.md#checkpoint-del-18-de-noviembre-de-2026)
-  · [Guía R2](INCONNECT_VOICE_V0_R2.md)
-- **Pendiente.** Primera llamada real, llamadas entrantes, enrutamiento por
-  Owner y Commercial Team, Round Robin, transferencias, historial de llamadas,
-  duración, grabaciones, consentimiento, retención y políticas operativas.
+- **Voice V0 de salida validado en DEV-LOCAL-R1.** El operador autorizado
+  llamó desde el botón **Llamar** de un Lead al único destino aprobado con
+  Twilio Voice SDK 2.19.0. La segunda llamada se mantuvo estable con audio
+  bidireccional y un tramo al celular de **47 segundos**. Tras el piloto, Voice
+  volvió a `DISABLED`. [Estado del proyecto](INCONNECT_PROJECT_STATUS.md#checkpoint-del-24-de-noviembre-de-2026)
+  · [Evidencia de Voice V0](INCONNECT_VOICE_V0_R2.md#evidencia-de-voice-v0)
+- **Pendiente.** Validación y autorización para producción, llamadas
+  entrantes, enrutamiento por Owner y Commercial Team, Round Robin,
+  transferencias, historial y duración en el CRM, grabaciones,
+  consentimiento, retención y políticas operativas.
 
 Alcance funcional del requisito original:
 
