@@ -32,6 +32,17 @@ diagnósticos del softphone y de la emisión de sesión. La validación correspo
 al entorno de desarrollo y al destino aprobado. Voice V0 carece de autorización
 para producción y PHYS-A0 sigue **NO-GO**. [Evidencia y correcciones del piloto](INCONNECT_VOICE_V0_R2.md#evidencia-de-voice-v0)
 
+**Voice V1.1 validado funcionalmente en DEV-LOCAL-R1.** El operador confirmó
+dos llamadas salientes reales con audio bidireccional. El softphone conservó
+la llamada, el Lead original y el cronómetro al navegar entre Leads y
+Messaging. Se comprobaron minimizar, expandir, silenciar, reactivar, colgar
+desde otra pantalla y comenzar una segunda llamada con estado limpio. Al
+cerrar R9, Nest quedó en `INCONNECT_VOICE_ENABLE_OUTBOUND=false` y el
+observador autenticado confirmó HTTP 200 `disabled`. V1.2 queda pendiente con
+la duración efectiva del destino, el resultado telefónico, el historial
+persistente y la exclusión entre pestañas en backend. PHYS-A0 sigue **NO-GO**.
+[Evidencia funcional de Voice V1.1](INCONNECT_VOICE_V0_R2.md#evidencia-funcional-del-24-de-noviembre-de-2026)
+
 ## Checkpoint del 18 de noviembre de 2026
 
 **DEV-LOCAL-R1** es el entorno funcional de desarrollo en WSL2. La evidencia
@@ -204,7 +215,7 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 | WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
 | F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | Voice V0 de salida desde Lead, con autorización de operador y destino, intención de un uso y TwiML firmado. | Validado de extremo a extremo en DEV-LOCAL-R1 el 24 de noviembre de 2026. Segunda llamada completada con audio bidireccional y 47 s al celular. Voice volvió a `DISABLED`. | Producción sin autorización. Entrantes, enrutamiento, transferencias e historial siguen en el [backlog](INCONNECT_PRODUCT_BACKLOG.md#req-tel-001--inconnect-telephony--softphone). |
+| Telephony REQ-TEL-001 | Voice V1.1 con softphone global de salida desde Lead sobre la autorización de Voice V0. | Validado funcionalmente en DEV-LOCAL-R1 el 24 de noviembre de 2026 con dos llamadas reales y audio bidireccional. Voice volvió a `DISABLED`. | Duración efectiva del destino, resultado telefónico, historial persistente y exclusión entre pestañas pendientes para V1.2. Producción sin autorización. [Backlog](INCONNECT_PRODUCT_BACKLOG.md#req-tel-001--inconnect-telephony--softphone). |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 

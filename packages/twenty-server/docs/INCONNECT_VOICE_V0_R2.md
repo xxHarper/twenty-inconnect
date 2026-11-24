@@ -8,6 +8,85 @@ autorización. [Estado canónico](INCONNECT_PROJECT_STATUS.md#checkpoint-del-24-
 
 El botón Llamar comprueba disponibilidad en el backend. El primer intento explícito requiere una sesión humana permitida, autorización vigente sobre el Lead y su campo Phone, y coincidencia con el destino de prueba aprobado. El backend emite un Access Token de 300 segundos y una intención de 45 segundos. El SDK envía sólo el identificador opaco de la intención. El callback verifica la firma, consume la intención y vuelve a validar la sesión y el Phone antes de devolver TwiML. La llamada permite hasta 300 segundos y usa `do-not-record`.
 
+## Voice V1.1 — softphone global
+
+**Voice V1.1 quedó validado funcionalmente en DEV-LOCAL-R1 el 24 de noviembre
+de 2026.** El operador completó dos llamadas salientes reales al destino
+autorizado durante una ventana supervisada R9. Voice volvió a `DISABLED`
+al cerrar la ventana.
+
+**Llamar** en el Lead abre un panel flotante en la esquina inferior derecha.
+**Place call** confirma la marcación. El panel conserva el Lead de origen al
+navegar por el CRM y muestra su etiqueta de texto y teléfono cuando la lectura
+actual del CRM los autoriza. Minimizarlo mantiene visibles el estado, el
+cronómetro y los controles de silencio y colgado.
+
+- El layout principal mantiene un dispositivo Twilio por sesión de usuario,
+  miembro y workspace en la pestaña. Cada marcación solicita una intención de
+  un uso y un token nuevos por el flujo de V0. El dispositivo reutilizable
+  recibe el token antes de marcar. Evitar renovarlo en plena llamada reduce el
+  riesgo de un corte breve de audio. [Twilio Device](https://www.twilio.com/docs/voice/sdks/javascript/twiliodevice#deviceupdatetokentoken)
+- **Browser connected to Twilio** y **Browser time** corresponden a la
+  conexión de audio del navegador. El cronómetro empieza con la evidencia
+  del SDK, conserva la referencia temporal durante una reconexión y se
+  detiene al terminar. **Ringing** aparece cuando el SDK reporta ese estado.
+  El flujo V0 no acredita la respuesta del destino. La duración y el
+  resultado telefónicos quedan para V1.2. [Twilio Call](https://www.twilio.com/docs/voice/sdks/javascript/twiliocall)
+- El cambio local de sesión limpia el panel y termina la llamada. Mientras
+  el panel está abierto, se comprueban la disponibilidad de Voice y la
+  lectura autorizada del Lead original sin usar la caché. Cada comprobación
+  se repite 15 segundos después de la respuesta anterior y tiene un plazo de
+  15 segundos. Una comprobación fallida durante la llamada quita los datos
+  y termina la sesión del SDK. Una revocación remota se detecta mediante
+  estas consultas del navegador.
+- El bloqueo de marcación simultánea es local a la pestaña. Una exclusión
+  entre pestañas o dispositivos requiere autoridad de backend. Recargar o
+  cerrar la pestaña termina el ciclo de vida local.
+
+### Evidencia funcional del 24 de noviembre de 2026
+
+| Llamada | Resultado confirmado por el operador |
+| --- | --- |
+| Primera | Audio bidireccional. Panel flotante minimizado y expandido, navegación entre Leads y Messaging sin interrupción, Lead de origen conservado, cronómetro continuo, silencio y reactivación, y colgado desde otra pantalla. |
+| Segunda | Nueva llamada con estado limpio y audio bidireccional. |
+
+El operador reportó ambas llamadas exitosas y ninguna falla durante el
+recorrido. Antes de abrir la ventana, se comprobó la vigencia del túnel R9 y
+que Vite servía seis módulos de V1.1 con fuentes idénticas al checkout.
+El observador autenticado confirmó HTTP 200 `ready` a las **12:52:50** y
+HTTP 200 `disabled` a las **12:56:39** (Ciudad de México). El único servicio
+reiniciado fue NestJS. El proceso restaurado quedó saludable con
+`INCONNECT_VOICE_ENABLE_OUTBOUND=false` y el valor persistente de `app.env`
+quedó intacto. El registro de las dos llamadas procede del operador y el
+estado de la ventana procede del observador y de la comprobación de Nest.
+
+**Pendiente para V1.2.** Medición de la duración efectiva del destino,
+resultado telefónico, historial persistente y exclusión de llamadas entre
+pestañas mediante autoridad del backend. El cronómetro de V1.1 mide la
+conexión del navegador con Twilio.
+
+### Prueba manual de Voice V1.1
+
+Usar DEV-LOCAL-R1 con el frontend V1.1, el operador y destino ya aprobados y
+una ventana de salida expresamente autorizada según el procedimiento vigente.
+
+1. Abrir el Lead con el teléfono aprobado. Pulsar **Llamar**, revisar el nombre
+   y número en el panel y pulsar **Place call**. Conceder acceso al micrófono si
+   el navegador lo solicita.
+2. Contestar en el teléfono de prueba y confirmar que ambos extremos se oyen.
+   Comprobar el estado del SDK y que **Browser time** avanza.
+3. Minimizar el panel. Ir a la lista de Leads, abrir otro Lead y pulsar
+   **Llamar** en éste para expandir el panel. Verificar que sigue mostrando
+   el Lead original, que el tiempo sigue avanzando y que continúa el audio.
+4. Navegar a Messaging u otra pantalla disponible. Desde el panel minimizado,
+   pulsar **Mute** y confirmar que el teléfono de prueba deja de oír al
+   ejecutivo. Pulsar **Unmute** y confirmar que vuelve a oírlo.
+5. Expandir el panel y pulsar **Hang up** desde esa pantalla. Comprobar que
+   termina el audio en ambos extremos y que el cronómetro queda detenido.
+6. Volver al Lead con el destino aprobado y marcar de nuevo. Confirmar que
+   el nuevo intento inicia con el micrófono activo y su propio cronómetro.
+   Colgar y cerrar la ventana autorizada del piloto.
+
 ## Evidencia de Voice V0
 
 Las llamadas se realizaron manualmente el 24 de noviembre de 2026 desde el

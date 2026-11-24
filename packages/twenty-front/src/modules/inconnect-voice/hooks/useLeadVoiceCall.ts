@@ -4,9 +4,9 @@ import {
   type VoiceAvailability,
   VoiceApiError,
 } from '@/inconnect-voice/utils/voiceApi';
-import { type Device } from '@twilio/voice-sdk';
+import { type Call, type Device } from '@twilio/voice-sdk';
 import { atom, useStore } from 'jotai';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 
 export type VoiceCallState =
   | 'idle'
@@ -17,6 +17,7 @@ export type VoiceCallState =
   | 'ringing'
   | 'active'
   | 'reconnecting'
+  | 'ending'
   | 'disconnected'
   | 'microphone-unavailable'
   | 'microphone-denied'
@@ -26,7 +27,9 @@ export type VoiceCallState =
   | 'timeout'
   | 'error';
 
+export const VOICE_AUTHORIZATION_CHECK_MS = 15_000;
 const PREPARATION_TIMEOUT_MS = 20_000;
+const HANGUP_TIMEOUT_MS = 5_000;
 
 type VoiceStage = 'microphone' | 'sdk' | 'session' | 'connection';
 
@@ -35,11 +38,40 @@ type VoiceFailure = {
   code?: number;
 };
 
+type VoiceCallSnapshot = {
+  state: VoiceCallState;
+  busy: boolean;
+  canMute: boolean;
+  muted: boolean;
+  connectedAt: number | null;
+  endedAt: number | null;
+  destination: string | null;
+  failure: VoiceFailure | null;
+};
+
+const idleCall: VoiceCallSnapshot = {
+  state: 'idle',
+  busy: false,
+  canMute: false,
+  muted: false,
+  connectedAt: null,
+  endedAt: null,
+  destination: null,
+  failure: null,
+};
+
 type VoiceAttempt = {
   abort: AbortController;
   stage: VoiceStage;
   timeout?: number;
-  device?: Device;
+  call?: Call;
+  unbind?: () => void;
+  ending?: boolean;
+};
+
+type VoiceDevice = {
+  instance: Device;
+  unbind: () => void;
 };
 
 const getFailureCode = (error: unknown): number | undefined => {
@@ -78,51 +110,193 @@ const getFailureState = (error: unknown): VoiceCallState => {
   return 'error';
 };
 
-export const useLeadVoiceCall = (recordId: string) => {
+export const useLeadVoiceCall = (isOpen: boolean) => {
   const [availability, setAvailability] =
     useState<VoiceAvailability>('loading');
-  const [state, setState] = useState<VoiceCallState>('idle');
-  const [tokenExpiring, setTokenExpiring] = useState(false);
-  const [failure, setFailure] = useState<VoiceFailure | null>(null);
-  const [attemptAtom] = useState(() => atom<VoiceAttempt | null>(null));
+  const [snapshot, setSnapshot] = useState<VoiceCallSnapshot>(idleCall);
+  const [runtimeAtom] = useState(() =>
+    atom<{
+      availability: VoiceAvailability;
+      attempt: VoiceAttempt | null;
+      device: VoiceDevice | null;
+      mounted: boolean;
+    }>({
+      availability: 'loading',
+      attempt: null,
+      device: null,
+      mounted: false,
+    }),
+  );
   const store = useStore();
+  const readRuntime = useCallback(
+    () => store.get(runtimeAtom),
+    [runtimeAtom, store],
+  );
+  const writeRuntime = useCallback(
+    (patch: Partial<ReturnType<typeof readRuntime>>) =>
+      store.set(runtimeAtom, (previous) => ({ ...previous, ...patch })),
+    [runtimeAtom, store],
+  );
 
-  const release = useCallback(() => {
-    const attempt = store.get(attemptAtom);
-    store.set(attemptAtom, null);
-    window.clearTimeout(attempt?.timeout);
-    attempt?.abort.abort();
-    attempt?.device?.destroy();
-  }, [attemptAtom, store]);
+  const release = useCallback(
+    (destroyDevice: boolean) => {
+      const { attempt, device } = readRuntime();
+      writeRuntime({ attempt: null, device: destroyDevice ? null : device });
+      window.clearTimeout(attempt?.timeout);
+      attempt?.abort.abort();
+      attempt?.unbind?.();
+
+      if (destroyDevice && device) {
+        device.unbind();
+        device.instance.destroy();
+      }
+    },
+    [readRuntime, writeRuntime],
+  );
+
+  useLayoutEffect(() => {
+    writeRuntime({ mounted: true });
+
+    return () => {
+      writeRuntime({ mounted: false });
+      release(true);
+    };
+  }, [release, writeRuntime]);
+
+  const finish = useCallback(
+    (
+      state: VoiceCallState,
+      destroyDevice: boolean,
+      failure: VoiceFailure | null = null,
+    ) => {
+      release(destroyDevice);
+      const endedAt = performance.now();
+      setSnapshot((previous) => ({
+        ...previous,
+        state,
+        busy: false,
+        canMute: false,
+        muted: false,
+        endedAt,
+        destination: null,
+        failure,
+      }));
+    },
+    [release],
+  );
+
+  const revokeAuthorization = useCallback(() => {
+    if (readRuntime().attempt) {
+      finish('unauthorized', true);
+    } else {
+      release(true);
+    }
+  }, [finish, readRuntime, release]);
 
   useEffect(() => {
+    if (!isOpen) return;
+
     const abort = new AbortController();
-    void getVoiceStatus(abort.signal).then(
-      (status) => {
-        if (!abort.signal.aborted) setAvailability(status);
-      },
-      () => {
-        if (!abort.signal.aborted) setAvailability('unavailable');
-      },
-    );
+    let nextCheck: number | undefined;
+    const check = async () => {
+      const request = new AbortController();
+      const cancelRequest = () => request.abort();
+      abort.signal.addEventListener('abort', cancelRequest, { once: true });
+      const timeout = window.setTimeout(
+        cancelRequest,
+        VOICE_AUTHORIZATION_CHECK_MS,
+      );
+      let status: VoiceAvailability;
+      try {
+        status = await getVoiceStatus(request.signal);
+        if (request.signal.aborted) status = 'unavailable';
+      } catch {
+        status = 'unavailable';
+      } finally {
+        window.clearTimeout(timeout);
+        abort.signal.removeEventListener('abort', cancelRequest);
+      }
+      if (abort.signal.aborted || !readRuntime().mounted) return;
+      writeRuntime({ availability: status });
+      setAvailability(status);
+      if (status !== 'ready') revokeAuthorization();
+      nextCheck = window.setTimeout(
+        () => void check(),
+        VOICE_AUTHORIZATION_CHECK_MS,
+      );
+    };
+    void check();
 
     return () => {
       abort.abort();
-      release();
+      window.clearTimeout(nextCheck);
+      writeRuntime({ availability: 'loading' });
     };
-  }, [recordId, release]);
+  }, [isOpen, readRuntime, revokeAuthorization, writeRuntime]);
 
-  const hangUp = () => {
-    release();
-    setTokenExpiring(false);
-    setFailure(null);
-    setState('disconnected');
+  const resetCall = () => {
+    if (readRuntime().attempt) return false;
+    setSnapshot(idleCall);
+    return true;
   };
 
-  const placeCall = async (expectedDestination: string) => {
-    if (availability !== 'ready' || store.get(attemptAtom)) return;
+  const fail = (error: unknown) => {
+    const attempt = readRuntime().attempt;
+    if (attempt) {
+      finish(getFailureState(error), true, {
+        stage: attempt.stage,
+        code: getFailureCode(error),
+      });
+    }
+  };
+
+  const hangUp = () => {
+    const attempt = readRuntime().attempt;
+    if (!attempt || attempt.ending) return;
+
+    attempt.ending = true;
+    setSnapshot((previous) => ({
+      ...previous,
+      state: 'ending',
+      canMute: false,
+    }));
+    if (!attempt.call) {
+      // A pending SDK connect must be destroyed so it cannot dial after cancellation.
+      finish('disconnected', attempt.stage === 'connection');
+      return;
+    }
+
+    window.clearTimeout(attempt.timeout);
+    attempt.timeout = window.setTimeout(
+      () => finish('timeout', true, { stage: 'connection' }),
+      HANGUP_TIMEOUT_MS,
+    );
+    try {
+      attempt.call.disconnect();
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const toggleMute = () => {
+    const attempt = readRuntime().attempt;
+    if (!attempt?.call || attempt.ending) return;
+    try {
+      attempt.call.mute(!attempt.call.isMuted());
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const placeCall = async (recordId: string, expectedDestination: string) => {
+    if (
+      !readRuntime().mounted ||
+      readRuntime().availability !== 'ready' ||
+      readRuntime().attempt
+    )
+      return;
     if (typeof navigator.mediaDevices?.getUserMedia !== 'function') {
-      setState('microphone-unavailable');
+      setSnapshot({ ...idleCall, state: 'microphone-unavailable' });
       return;
     }
 
@@ -130,48 +304,47 @@ export const useLeadVoiceCall = (recordId: string) => {
       abort: new AbortController(),
       stage: 'microphone',
     };
-    store.set(attemptAtom, attempt);
-    setFailure(null);
+    writeRuntime({ attempt });
+    setSnapshot({
+      ...idleCall,
+      busy: true,
+      state: 'checking-microphone',
+      destination: expectedDestination,
+    });
 
-    const isCurrent = () => store.get(attemptAtom) === attempt;
-    const update = (nextState: VoiceCallState) => {
-      if (!isCurrent()) return;
+    const isCurrent = () => readRuntime().attempt === attempt;
+    const update = (state: VoiceCallState) => {
+      if (!isCurrent() || attempt.ending) return;
       window.clearTimeout(attempt.timeout);
-      setState(nextState);
+      setSnapshot((previous) => ({ ...previous, state }));
     };
-    const finish = (
-      nextState: VoiceCallState,
-      diagnostic: VoiceFailure | null = null,
-    ) => {
-      if (!isCurrent()) return;
-      release();
-      setTokenExpiring(false);
-      setFailure(diagnostic);
-      setState(nextState);
-    };
-    const fail = (error: unknown) => {
-      finish(getFailureState(error), {
-        stage: attempt.stage,
-        code: getFailureCode(error),
-      });
+    const connectAudio = () => {
+      if (!isCurrent() || attempt.ending) return;
+      window.clearTimeout(attempt.timeout);
+      const connectedAt = performance.now();
+      setSnapshot((previous) => ({
+        ...previous,
+        state: 'active',
+        canMute: true,
+        connectedAt: previous.connectedAt ?? connectedAt,
+      }));
     };
     const beginStage = (
       stage: VoiceStage,
-      nextState: VoiceCallState,
+      state: VoiceCallState,
       timeout = PREPARATION_TIMEOUT_MS,
     ) => {
-      update(nextState);
+      update(state);
       attempt.stage = stage;
       attempt.timeout = window.setTimeout(
-        () => finish('timeout', { stage }),
+        () => finish('timeout', stage === 'connection', { stage }),
         timeout,
       );
     };
 
     try {
       beginStage('microphone', 'checking-microphone');
-      // Get permission before issuing the short-lived intent. The SDK
-      // acquires its own input stream when it connects.
+      // The SDK acquires its own input stream when it connects.
       const microphone = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
@@ -179,29 +352,50 @@ export const useLeadVoiceCall = (recordId: string) => {
       if (!isCurrent()) return;
 
       beginStage('sdk', 'loading-sdk');
-      const { Call, Device: TwilioDevice } = await import('@twilio/voice-sdk');
+      const { Call: TwilioCall, Device: TwilioDevice } =
+        await import('@twilio/voice-sdk');
       if (!isCurrent()) return;
 
       beginStage('session', 'preparing');
       const session = await createVoiceSession(recordId, attempt.abort.signal);
       if (!isCurrent()) return;
       if (session.destination !== expectedDestination)
-        return finish('destination-changed');
-      if (session.intentExpiresAt <= Date.now()) return finish('expired');
+        return finish('destination-changed', false);
+      if (session.intentExpiresAt <= Date.now())
+        return finish('expired', false);
 
       attempt.stage = 'sdk';
-      const device = new TwilioDevice(session.token, {
-        enableImprovedSignalingErrorPrecision: true,
-        logLevel: 'silent',
-      });
-      attempt.device = device;
-      device.on('error', fail);
-      device.on('tokenWillExpire', () => {
-        if (isCurrent()) setTokenExpiring(true);
-      });
+      let device = readRuntime().device?.instance;
+      if (device) {
+        // Each explicitly authorized dial supplies a fresh token before connecting.
+        device.updateToken(session.token);
+      } else {
+        const instance = new TwilioDevice(session.token, {
+          enableImprovedSignalingErrorPrecision: true,
+          logLevel: 'silent',
+        });
+        const onError = (error: unknown, call?: Call) => {
+          const current = readRuntime().attempt;
+          if (
+            readRuntime().device?.instance === instance &&
+            current?.stage === 'connection' &&
+            (!call || !current.call || call === current.call)
+          ) {
+            fail(error);
+          }
+        };
+        instance.on('error', onError);
+        writeRuntime({
+          device: {
+            instance,
+            unbind: () => instance.off('error', onError),
+          },
+        });
+        device = instance;
+      }
 
       const remaining = session.intentExpiresAt - Date.now();
-      if (remaining <= 0) return finish('expired');
+      if (remaining <= 0) return finish('expired', false);
       beginStage('connection', 'connecting', remaining);
       const call = await device.connect({
         params: { intentId: session.intentId },
@@ -211,23 +405,57 @@ export const useLeadVoiceCall = (recordId: string) => {
         return;
       }
 
-      call.on('ringing', () => update('ringing'));
-      call.on('accept', () => update('active'));
-      call.on('reconnecting', () => update('reconnecting'));
-      call.on('reconnected', () => update('active'));
-      call.on('disconnect', () => finish('disconnected'));
-      call.on('cancel', () => finish('disconnected'));
-      call.on('reject', () => finish('disconnected'));
-      call.on('error', fail);
+      attempt.call = call;
+      const onRinging = () => update('ringing');
+      const onReconnecting = () => update('reconnecting');
+      const onEnd = () => {
+        if (isCurrent()) finish('disconnected', false);
+      };
+      const onError = (error: unknown) => {
+        if (isCurrent()) fail(error);
+      };
+      const onMute = (muted: boolean) => {
+        if (isCurrent()) setSnapshot((previous) => ({ ...previous, muted }));
+      };
+
+      call.on('ringing', onRinging);
+      call.on('accept', connectAudio);
+      call.on('reconnecting', onReconnecting);
+      call.on('reconnected', connectAudio);
+      call.on('disconnect', onEnd);
+      call.on('cancel', onEnd);
+      call.on('reject', onEnd);
+      call.on('error', onError);
+      call.on('mute', onMute);
+      attempt.unbind = () => {
+        call.off('ringing', onRinging);
+        call.off('accept', connectAudio);
+        call.off('reconnecting', onReconnecting);
+        call.off('reconnected', connectAudio);
+        call.off('disconnect', onEnd);
+        call.off('cancel', onEnd);
+        call.off('reject', onEnd);
+        call.off('error', onError);
+        call.off('mute', onMute);
+      };
 
       const status = call.status();
-      if (status === Call.State.Closed) finish('disconnected');
-      else if (status === Call.State.Open) update('active');
-      else if (status === Call.State.Ringing) update('ringing');
+      if (status === TwilioCall.State.Closed) onEnd();
+      else if (status === TwilioCall.State.Open) connectAudio();
+      else if (status === TwilioCall.State.Ringing) onRinging();
+      else if (status === TwilioCall.State.Reconnecting) onReconnecting();
     } catch (error) {
-      fail(error);
+      if (isCurrent()) fail(error);
     }
   };
 
-  return { availability, state, failure, tokenExpiring, hangUp, placeCall };
+  return {
+    availability,
+    snapshot,
+    resetCall,
+    hangUp,
+    toggleMute,
+    placeCall,
+    revokeAuthorization,
+  };
 };
