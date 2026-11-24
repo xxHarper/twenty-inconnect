@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 
@@ -146,6 +147,8 @@ const consumeIntentScript = `
 
 @Injectable()
 export class InconnectVoiceService {
+  private readonly logger = new Logger(InconnectVoiceService.name);
+
   constructor(
     private readonly accessTokens: AccessTokenService,
     private readonly destination: InconnectVoiceDestinationService,
@@ -185,12 +188,17 @@ export class InconnectVoiceService {
       credential,
     };
 
+    let stage: 'encrypt-intent' | 'sign-token' | 'store-intent' =
+      'encrypt-intent';
+    let reason = 'operation-failed';
+
     try {
       // Seal only the original credential needed to revalidate this human at the callback.
       const sealed = this.encryption.encryptVersioned(
         plaintextStringSchema.parse(JSON.stringify(intent)),
         { workspaceId: config.workspaceId },
       );
+      stage = 'sign-token';
       const token = new Twilio.jwt.AccessToken(
         config.accountSid,
         config.apiKeySid,
@@ -207,6 +215,7 @@ export class InconnectVoiceService {
         }),
       );
       const jwt = token.toJwt();
+      stage = 'store-intent';
       const stored = await this.redis
         .getClient()
         .set(
@@ -216,10 +225,23 @@ export class InconnectVoiceService {
           VOICE_INTENT_TTL_SECONDS,
           'NX',
         );
-      if (stored !== 'OK') throw forbidden();
+      if (stored !== 'OK') {
+        reason = 'intent-not-stored';
+        throw forbidden();
+      }
 
       return { token: jwt, intentId, intentExpiresAt, destination };
-    } catch {
+    } catch (error) {
+      if (
+        stage === 'store-intent' &&
+        error instanceof Error &&
+        error.message.startsWith('NOPERM ')
+      ) {
+        reason = 'redis-acl-denied';
+      }
+
+      // Redis errors may contain the key, account identifiers, or connection details.
+      this.logger.warn({ event: 'voice-session-unavailable', stage, reason });
       throw new ServiceUnavailableException('Outbound Voice is unavailable');
     }
   }

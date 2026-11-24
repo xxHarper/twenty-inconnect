@@ -1,4 +1,4 @@
-import { type INestApplication } from '@nestjs/common';
+import { type INestApplication, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import { type Request } from 'express';
@@ -7,6 +7,12 @@ import { FieldMetadataType } from 'twenty-shared/types';
 import Twilio from 'twilio';
 
 import { CommonFindOneQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-find-one-query-runner.service';
+import {
+  type CommonInput,
+  type FindOneQueryArgs,
+} from 'src/engine/api/common/types/common-query-args.type';
+import { type CommonBaseQueryRunnerContext } from 'src/engine/api/common/types/common-base-query-runner-context.type';
+import { GraphqlQuerySelectedFieldsParser } from 'src/engine/api/graphql/graphql-query-runner/graphql-query-parsers/graphql-query-selected-fields/graphql-selected-fields.parser';
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
@@ -45,6 +51,10 @@ describe('INCONNECT Voice REST boundary', () => {
   const readScope = jest.fn();
   const intents = new Map<string, string>();
   const envelopes = new Map<string, string>();
+  const storeIntent = jest.fn(async (key: string, value: string) => {
+    intents.set(key, value);
+    return 'OK';
+  });
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -79,6 +89,7 @@ describe('INCONNECT Voice REST boundary', () => {
                 workspaceId,
                 isActive: true,
                 nameSingular: 'lead',
+                fieldIds: [fieldId],
               }),
               flatFieldMetadataMaps: mapOf({
                 id: fieldId,
@@ -106,10 +117,7 @@ describe('INCONNECT Voice REST boundary', () => {
           provide: RedisClientService,
           useValue: {
             getClient: () => ({
-              set: (key: string, value: string) => {
-                intents.set(key, value);
-                return 'OK';
-              },
+              set: storeIntent,
               eval: (_script: string, _keys: number, key: string) => {
                 const value = intents.get(key);
                 intents.delete(key);
@@ -148,6 +156,7 @@ describe('INCONNECT Voice REST boundary', () => {
       INCONNECT_VOICE_ALLOWED_DESTINATION: destination,
     });
     intents.clear();
+    storeIntent.mockClear();
     envelopes.clear();
     validateTokenByRequest
       .mockReset()
@@ -163,9 +172,41 @@ describe('INCONNECT Voice REST boundary', () => {
           tokenType: JwtTokenTypeEnum.ACCESS,
         };
       });
-    readLead.mockReset().mockResolvedValue({
-      results: { id: recordId, phone: { primaryPhoneNumber: destination } },
-    });
+    readLead
+      .mockReset()
+      .mockImplementation(
+        (
+          { selectedFields }: CommonInput<FindOneQueryArgs>,
+          {
+            flatObjectMetadata,
+            flatObjectMetadataMaps,
+            flatFieldMetadataMaps,
+          }: CommonBaseQueryRunnerContext,
+        ) => {
+          const parser = new GraphqlQuerySelectedFieldsParser(
+            flatObjectMetadataMaps,
+            flatFieldMetadataMaps,
+          );
+          const { select } = parser.parse(selectedFields, flatObjectMetadata);
+
+          return {
+            results: {
+              id: recordId,
+              phone: {
+                primaryPhoneNumber: select.phonePrimaryPhoneNumber
+                  ? '2015550123'
+                  : undefined,
+                primaryPhoneCallingCode: select.phonePrimaryPhoneCallingCode
+                  ? '+1'
+                  : undefined,
+                primaryPhoneCountryCode: select.phonePrimaryPhoneCountryCode
+                  ? 'US'
+                  : undefined,
+              },
+            },
+          };
+        },
+      );
     readScope.mockReset().mockResolvedValue({ kind: 'owner-scoped' });
   });
 
@@ -242,6 +283,26 @@ describe('INCONNECT Voice REST boundary', () => {
     });
     await issue({ recordId }).expect(403);
     expect(intents.size).toBe(0);
+  });
+
+  it('keeps the 503 generic and logs only the stage and safe reason for a Redis ACL denial', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    storeIntent.mockRejectedValueOnce(
+      new Error('NOPERM synthetic Redis message with a sensitive key'),
+    );
+
+    const { body } = await issue({ recordId }).expect(503);
+
+    expect(body.message).toBe('Outbound Voice is unavailable');
+    expect(body.token).toBeUndefined();
+    expect(body.intentId).toBeUndefined();
+    expect(intents.size).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith({
+      event: 'voice-session-unavailable',
+      stage: 'store-intent',
+      reason: 'redis-acl-denied',
+    });
   });
 
   it('requires the signed callback, uses current server routing and consumes the intent once', async () => {

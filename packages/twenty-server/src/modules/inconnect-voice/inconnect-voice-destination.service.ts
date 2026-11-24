@@ -127,7 +127,14 @@ export class InconnectVoiceDestinationService {
       const { results: record } = await this.findOne.execute(
         {
           filter: { id: { eq: recordId } },
-          selectedFields: { id: true, [field.name]: true },
+          selectedFields: {
+            id: true,
+            [field.name]: {
+              primaryPhoneNumber: true,
+              primaryPhoneCallingCode: true,
+              primaryPhoneCountryCode: true,
+            },
+          },
         },
         {
           authContext,
