@@ -41,7 +41,7 @@ const LeadVoiceSoftphone = ({
   const { t } = useLingui();
   const isMobile = useIsMobile();
   const apolloClient = useApolloCoreClient();
-  const { availability, state, tokenExpiring, hangUp, placeCall } =
+  const { availability, state, failure, tokenExpiring, hangUp, placeCall } =
     useLeadVoiceCall(recordId);
   const phoneFields = objectMetadataItem.fields.filter(
     (field) => field.isActive && field.type === FieldMetadataType.PHONES,
@@ -95,8 +95,10 @@ const LeadVoiceSoftphone = ({
   };
   const callLabels = {
     idle: null,
+    'checking-microphone': t`Checking microphone access. Allow access if asked.`,
+    'loading-sdk': t`Loading the Voice SDK…`,
     preparing: t`Authorizing call…`,
-    connecting: t`Connecting. Allow microphone access if asked.`,
+    connecting: t`Connecting to Twilio…`,
     ringing: t`Ringing…`,
     active: t`Call connected`,
     reconnecting: t`Reconnecting…`,
@@ -106,9 +108,20 @@ const LeadVoiceSoftphone = ({
     expired: t`The Voice session expired. Start a new call to get a new session.`,
     unauthorized: t`This session does not have permission to call this lead.`,
     'destination-changed': t`The authorized phone number changed. Reopen the softphone to review it.`,
+    timeout: t`Voice did not respond in time. The attempt was stopped.`,
     error: t`Voice could not complete the call.`,
   };
+  const failureStages = {
+    microphone: t`Microphone access`,
+    sdk: t`Voice SDK setup`,
+    session: t`Authorization and Voice session`,
+    connection: t`Twilio connection`,
+  };
+  const failureStage = failure && failureStages[failure.stage];
+  const failureCode = failure?.code;
   const busy = [
+    'checking-microphone',
+    'loading-sdk',
     'preparing',
     'connecting',
     'ringing',
@@ -143,6 +156,13 @@ const LeadVoiceSoftphone = ({
         <InputHint role="status">{availabilityLabels[availability]}</InputHint>
         {callLabels[state] && (
           <InputHint role="status">{callLabels[state]}</InputHint>
+        )}
+        {failureStage && (
+          <InputHint role="status">
+            {failureCode === undefined
+              ? failureStage
+              : t`${failureStage} (code ${failureCode})`}
+          </InputHint>
         )}
         {tokenExpiring && (
           <InputHint role="status">{t`This Voice session is nearing expiry. A new call will request a fresh token.`}</InputHint>

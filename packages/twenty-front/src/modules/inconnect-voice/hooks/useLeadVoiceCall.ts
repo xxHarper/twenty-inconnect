@@ -10,6 +10,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 export type VoiceCallState =
   | 'idle'
+  | 'checking-microphone'
+  | 'loading-sdk'
   | 'preparing'
   | 'connecting'
   | 'ringing'
@@ -21,11 +23,40 @@ export type VoiceCallState =
   | 'expired'
   | 'unauthorized'
   | 'destination-changed'
+  | 'timeout'
   | 'error';
+
+const PREPARATION_TIMEOUT_MS = 20_000;
+
+type VoiceStage = 'microphone' | 'sdk' | 'session' | 'connection';
+
+type VoiceFailure = {
+  stage: VoiceStage;
+  code?: number;
+};
 
 type VoiceAttempt = {
   abort: AbortController;
+  stage: VoiceStage;
+  timeout?: number;
   device?: Device;
+};
+
+const getFailureCode = (error: unknown): number | undefined => {
+  if (error instanceof VoiceApiError) return error.status;
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'number' &&
+    Number.isInteger(error.code) &&
+    error.code >= 10_000 &&
+    error.code <= 99_999
+  )
+    return error.code;
+
+  return undefined;
 };
 
 const getFailureState = (error: unknown): VoiceCallState => {
@@ -52,12 +83,14 @@ export const useLeadVoiceCall = (recordId: string) => {
     useState<VoiceAvailability>('loading');
   const [state, setState] = useState<VoiceCallState>('idle');
   const [tokenExpiring, setTokenExpiring] = useState(false);
+  const [failure, setFailure] = useState<VoiceFailure | null>(null);
   const [attemptAtom] = useState(() => atom<VoiceAttempt | null>(null));
   const store = useStore();
 
   const release = useCallback(() => {
     const attempt = store.get(attemptAtom);
     store.set(attemptAtom, null);
+    window.clearTimeout(attempt?.timeout);
     attempt?.abort.abort();
     attempt?.device?.destroy();
   }, [attemptAtom, store]);
@@ -82,6 +115,7 @@ export const useLeadVoiceCall = (recordId: string) => {
   const hangUp = () => {
     release();
     setTokenExpiring(false);
+    setFailure(null);
     setState('disconnected');
   };
 
@@ -92,37 +126,70 @@ export const useLeadVoiceCall = (recordId: string) => {
       return;
     }
 
-    const attempt: VoiceAttempt = { abort: new AbortController() };
+    const attempt: VoiceAttempt = {
+      abort: new AbortController(),
+      stage: 'microphone',
+    };
     store.set(attemptAtom, attempt);
-    setState('preparing');
+    setFailure(null);
 
     const isCurrent = () => store.get(attemptAtom) === attempt;
     const update = (nextState: VoiceCallState) => {
-      if (isCurrent()) setState(nextState);
+      if (!isCurrent()) return;
+      window.clearTimeout(attempt.timeout);
+      setState(nextState);
     };
-    const finish = (nextState: VoiceCallState) => {
+    const finish = (
+      nextState: VoiceCallState,
+      diagnostic: VoiceFailure | null = null,
+    ) => {
       if (!isCurrent()) return;
       release();
       setTokenExpiring(false);
+      setFailure(diagnostic);
       setState(nextState);
     };
     const fail = (error: unknown) => {
-      if (isCurrent() && error instanceof VoiceApiError && error.status === 503)
-        setAvailability('disabled');
-      finish(getFailureState(error));
+      finish(getFailureState(error), {
+        stage: attempt.stage,
+        code: getFailureCode(error),
+      });
+    };
+    const beginStage = (
+      stage: VoiceStage,
+      nextState: VoiceCallState,
+      timeout = PREPARATION_TIMEOUT_MS,
+    ) => {
+      update(nextState);
+      attempt.stage = stage;
+      attempt.timeout = window.setTimeout(
+        () => finish('timeout', { stage }),
+        timeout,
+      );
     };
 
     try {
+      beginStage('microphone', 'checking-microphone');
+      // Get permission before issuing the short-lived intent. The SDK
+      // acquires its own input stream when it connects.
+      const microphone = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      for (const track of microphone.getTracks()) track.stop();
+      if (!isCurrent()) return;
+
+      beginStage('sdk', 'loading-sdk');
+      const { Call, Device: TwilioDevice } = await import('@twilio/voice-sdk');
+      if (!isCurrent()) return;
+
+      beginStage('session', 'preparing');
       const session = await createVoiceSession(recordId, attempt.abort.signal);
       if (!isCurrent()) return;
       if (session.destination !== expectedDestination)
         return finish('destination-changed');
       if (session.intentExpiresAt <= Date.now()) return finish('expired');
 
-      const { Call, Device: TwilioDevice } = await import('@twilio/voice-sdk');
-      if (!isCurrent()) return;
-      if (session.intentExpiresAt <= Date.now()) return finish('expired');
-
+      attempt.stage = 'sdk';
       const device = new TwilioDevice(session.token, {
         enableImprovedSignalingErrorPrecision: true,
         logLevel: 'silent',
@@ -132,13 +199,17 @@ export const useLeadVoiceCall = (recordId: string) => {
       device.on('tokenWillExpire', () => {
         if (isCurrent()) setTokenExpiring(true);
       });
-      update('connecting');
 
-      // The outbound-only SDK requests microphone access on this user-initiated connect.
+      const remaining = session.intentExpiresAt - Date.now();
+      if (remaining <= 0) return finish('expired');
+      beginStage('connection', 'connecting', remaining);
       const call = await device.connect({
         params: { intentId: session.intentId },
       });
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        call.disconnect();
+        return;
+      }
 
       call.on('ringing', () => update('ringing'));
       call.on('accept', () => update('active'));
@@ -158,5 +229,5 @@ export const useLeadVoiceCall = (recordId: string) => {
     }
   };
 
-  return { availability, state, tokenExpiring, hangUp, placeCall };
+  return { availability, state, failure, tokenExpiring, hangUp, placeCall };
 };

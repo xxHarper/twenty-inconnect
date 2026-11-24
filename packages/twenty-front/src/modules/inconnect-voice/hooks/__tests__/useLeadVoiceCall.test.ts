@@ -31,6 +31,7 @@ describe('useLeadVoiceCall', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    microphone.mockResolvedValue({ getTracks: () => [] });
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
       value: { getUserMedia: microphone },
@@ -98,6 +99,100 @@ describe('useLeadVoiceCall', () => {
     await act(async () => result.current.placeCall('+12015550124'));
     expect(result.current.state).toBe('destination-changed');
     expect(Device).not.toHaveBeenCalled();
+  });
+
+  it('releases a microphone that becomes available after the attempt times out', async () => {
+    jest.useFakeTimers();
+    try {
+      let grantMicrophone: (stream: unknown) => void = () => undefined;
+      const stop = jest.fn();
+      microphone.mockReturnValue(
+        new Promise((resolve) => {
+          grantMicrophone = resolve;
+        }),
+      );
+      const { result } = renderHook(() => useLeadVoiceCall(recordId));
+      await waitFor(() => expect(result.current.availability).toBe('ready'));
+
+      act(() => {
+        void result.current.placeCall(destination);
+      });
+      expect(result.current.state).toBe('checking-microphone');
+      act(() => jest.advanceTimersByTime(20_000));
+      expect(result.current.state).toBe('timeout');
+      expect(result.current.failure?.stage).toBe('microphone');
+
+      await act(async () => grantMicrophone({ getTracks: () => [{ stop }] }));
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(createVoiceSession).not.toHaveBeenCalled();
+      expect(Device).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('aborts a pending Voice session and identifies the stage on timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      jest.mocked(createVoiceSession).mockReturnValue(new Promise(() => {}));
+      const { result } = renderHook(() => useLeadVoiceCall(recordId));
+      await waitFor(() => expect(result.current.availability).toBe('ready'));
+
+      await act(async () => {
+        void result.current.placeCall(destination);
+      });
+      await waitFor(() => expect(result.current.state).toBe('preparing'));
+      act(() => jest.advanceTimersByTime(20_000));
+
+      expect(result.current.state).toBe('timeout');
+      expect(result.current.failure?.stage).toBe('session');
+      expect(jest.mocked(createVoiceSession).mock.calls[0][1].aborted).toBe(
+        true,
+      );
+      expect(Device).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('releases a connection that stays pending until the intent expires', async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveCall: (call: unknown) => void = () => undefined;
+      const disconnect = jest.fn();
+      const device = Object.assign(new EventEmitter(), {
+        connect: jest.fn().mockReturnValue(
+          new Promise((resolve) => {
+            resolveCall = resolve;
+          }),
+        ),
+        destroy: jest.fn(),
+      });
+      jest.mocked(Device).mockImplementation(() => device as unknown as Device);
+      jest.mocked(createVoiceSession).mockResolvedValue({
+        token: 'test-token',
+        intentId,
+        destination,
+        intentExpiresAt: Date.now() + 45_000,
+      });
+      const { result } = renderHook(() => useLeadVoiceCall(recordId));
+      await waitFor(() => expect(result.current.availability).toBe('ready'));
+
+      await act(async () => {
+        void result.current.placeCall(destination);
+      });
+      await waitFor(() => expect(result.current.state).toBe('connecting'));
+      act(() => jest.advanceTimersByTime(45_000));
+
+      expect(result.current.state).toBe('timeout');
+      expect(result.current.failure?.stage).toBe('connection');
+      expect(device.destroy).toHaveBeenCalledTimes(1);
+
+      await act(async () => resolveCall({ disconnect }));
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('requires a fresh session when the intention expires before connect', async () => {
