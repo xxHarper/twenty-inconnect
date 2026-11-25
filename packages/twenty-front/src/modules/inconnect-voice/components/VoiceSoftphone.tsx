@@ -1,6 +1,7 @@
 import { VoiceCallTimer } from '@/inconnect-voice/components/VoiceCallTimer';
 import { type VoiceLeadTarget } from '@/inconnect-voice/contexts/VoiceCallContext';
 import { type useLeadVoiceCall } from '@/inconnect-voice/hooks/useLeadVoiceCall';
+import { useVoiceResultLabel } from '@/inconnect-voice/hooks/useVoiceResultLabel';
 import {
   type VoiceLeadDetails,
   useVoiceLeadDetails,
@@ -102,16 +103,12 @@ const VoiceSoftphoneControls = ({
   const { t } = useLingui();
   const isMobile = useIsMobile();
   const { availability, snapshot, hangUp, toggleMute, placeCall } = voice;
-  const {
-    state,
-    busy,
-    canMute,
-    muted,
-    connectedAt,
-    endedAt,
-    failure,
-    destination,
-  } = snapshot;
+  const { state, busy, canMute, muted, endedAt, failure, destination } =
+    snapshot;
+  const voiceLabels = useVoiceResultLabel();
+  const evidence = state === 'unauthorized' ? null : voice.providerProgress;
+  const provider = evidence?.progress;
+  const connectedAt = evidence?.connectedAt ?? null;
   const title = t`Softphone`;
   const muteLabel = muted ? t`Unmute` : t`Mute`;
   const hangUpLabel = t`Hang up`;
@@ -129,7 +126,7 @@ const VoiceSoftphoneControls = ({
     'loading-sdk': t`Loading the Voice SDK…`,
     preparing: t`Authorizing call…`,
     connecting: t`Connecting to Twilio…`,
-    ringing: t`Ringing…`,
+    ringing: t`Waiting for destination…`,
     active: t`Browser connected to Twilio`,
     reconnecting: t`Reconnecting…`,
     ending: t`Ending call…`,
@@ -139,6 +136,7 @@ const VoiceSoftphoneControls = ({
     expired: t`The Voice session expired. Start a new call to get a new session.`,
     unauthorized: t`Voice authorization could not be verified for this lead.`,
     'destination-changed': t`The authorized phone number changed. Reopen the softphone to review it.`,
+    conflict: t`Another call is active or pending confirmation. Try again after it ends.`,
     timeout: t`Voice did not respond in time. The attempt was stopped.`,
     error: t`Voice could not complete the call.`,
   };
@@ -165,10 +163,36 @@ const VoiceSoftphoneControls = ({
     (!destination || details.number === destination)
       ? details
       : null;
+  const providerStatus =
+    provider?.status === 'finished' && provider.result
+      ? voiceLabels[
+          provider.result === 'answered' ? 'completed' : provider.result
+        ]
+      : busy && provider?.status === 'answered'
+        ? voiceLabels.answered
+        : busy && provider?.status === 'ringing'
+          ? voiceLabels.ringing
+          : busy && provider?.status === 'connecting'
+            ? voiceLabels.connecting
+            : !busy && voice.hasProviderAttempt
+              ? voiceLabels.pending
+              : null;
   const status =
     availability !== 'ready' && !busy
       ? availabilityLabels[availability]
-      : callLabels[state];
+      : state === 'ending' ||
+          state === 'reconnecting' ||
+          state === 'unauthorized'
+        ? callLabels[state]
+        : (providerStatus ?? callLabels[state]);
+  const providerEndedAt =
+    provider?.endedAt && connectedAt !== null && provider.answeredAt
+      ? connectedAt +
+        Math.max(
+          0,
+          Date.parse(provider.endedAt) - Date.parse(provider.answeredAt),
+        )
+      : endedAt;
 
   return (
     <StyledPanel
@@ -229,15 +253,22 @@ const VoiceSoftphoneControls = ({
           )}
         </>
       )}
-      {connectedAt !== null && (
+      {(connectedAt !== null || provider?.durationSeconds != null) && (
         <StyledTimer>
           <VoiceCallTimer
-            key={connectedAt}
+            key={provider?.id}
             connectedAt={connectedAt}
-            endedAt={endedAt}
+            endedAt={providerEndedAt}
+            durationSeconds={provider?.durationSeconds}
           />
         </StyledTimer>
       )}
+      {provider &&
+        (provider.status === 'answered' || provider.result === 'answered') &&
+        connectedAt === null &&
+        provider.durationSeconds === null && (
+          <InputHint>{t`Connected time pending confirmation`}</InputHint>
+        )}
       <StyledActions>
         {busy ? (
           <>

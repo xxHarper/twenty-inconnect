@@ -81,7 +81,7 @@ const StyledAddButton = styled.div`
 `;
 
 type PageLayoutTabListProps = Omit<TabListProps, 'tabs'> & {
-  tabs: PageLayoutTab[];
+  tabs: Pick<PageLayoutTab, 'id' | 'title' | 'icon' | 'layoutMode'>[];
   isReorderEnabled: boolean;
   addTabStrategy?: PageLayoutAddTabStrategy;
   behaveAsLinks: boolean;

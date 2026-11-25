@@ -3,7 +3,7 @@ import { isDefined } from 'twenty-shared/utils';
 
 type GetPageLayoutTabListInitialActiveTabIdParams = {
   activeTabId: string | null;
-  tabs: PageLayoutTab[];
+  tabs: Pick<PageLayoutTab, 'id'>[];
   defaultTabToFocusOnMobileAndSidePanelId?: string;
   isMobile: boolean;
   isInSidePanel: boolean;

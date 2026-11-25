@@ -5,7 +5,9 @@ import {
   Get,
   Header,
   HttpCode,
+  Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -21,6 +23,11 @@ import { INCONNECT_VOICE_PATH } from 'src/modules/inconnect-voice/inconnect-voic
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 const requestSchema = z.object({ recordId: z.string().uuid() }).strict();
+const parseId = (value: unknown) => {
+  const parsed = z.string().uuid().safeParse(value);
+  if (!parsed.success) throw new BadRequestException('Expected an ID');
+  return parsed.data;
+};
 
 @Controller(INCONNECT_VOICE_PATH)
 export class InconnectVoiceController {
@@ -53,5 +60,67 @@ export class InconnectVoiceController {
   renderTwiml(@Req() request: Request & { rawBody?: Buffer }) {
     // Twilio authenticates this callback with its signature and a one-time intent.
     return this.voice.renderTwiml(request);
+  }
+
+  @Post('call-progress')
+  @UseGuards(PublicEndpointGuard, CustomPermissionGuard)
+  @HttpCode(200)
+  @Header('Content-Type', 'text/xml; charset=utf-8')
+  @Header('Cache-Control', 'no-store')
+  progressCallback(@Req() request: Request & { rawBody?: Buffer }) {
+    return this.voice.progressCallback(request);
+  }
+
+  @Get('history-access/:recordId')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @Header('Cache-Control', 'no-store')
+  historyAccess(@Req() request: Request, @Param('recordId') recordId: string) {
+    return this.voice.historyAccess(request, parseId(recordId));
+  }
+
+  @Get('history/:recordId')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @Header('Cache-Control', 'no-store')
+  history(
+    @Req() request: Request,
+    @Param('recordId') recordId: string,
+    @Query('before') before?: string,
+  ) {
+    return this.voice.history(
+      request,
+      parseId(recordId),
+      before === undefined ? undefined : parseId(before),
+    );
+  }
+
+  @Get('history/:recordId/call/:callId')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @Header('Cache-Control', 'no-store')
+  callStatus(
+    @Req() request: Request,
+    @Param('recordId') recordId: string,
+    @Param('callId') callId: string,
+  ) {
+    return this.voice.callStatus(request, parseId(recordId), parseId(callId));
+  }
+
+  @Post('history/:recordId/call/:callId/:action')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  updateCall(
+    @Req() request: Request,
+    @Param('recordId') recordId: string,
+    @Param('callId') callId: string,
+    @Param('action') action: string,
+  ) {
+    if (action !== 'cancel' && action !== 'reconcile')
+      throw new BadRequestException('Unknown Voice action');
+    return this.voice.callStatus(
+      request,
+      parseId(recordId),
+      parseId(callId),
+      action,
+    );
   }
 }

@@ -31,6 +31,7 @@ export const getInconnectVoiceConfig = (
     INCONNECT_VOICE_LEAD_OBJECT_ID: objectId = '',
     INCONNECT_VOICE_PHONE_FIELD_ID: fieldId = '',
     INCONNECT_VOICE_ENABLE_OUTBOUND: enabled,
+    INCONNECT_VOICE_HISTORY_USER_WORKSPACE_IDS: historyUsers = '',
   } = env;
 
   if (
@@ -79,6 +80,10 @@ export const getInconnectVoiceConfig = (
     userWorkspaceId,
     objectId,
     fieldId,
+    historyUserWorkspaceIds: historyUsers
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => isUUID(value)),
     enabled: enabled === 'true',
   };
 };

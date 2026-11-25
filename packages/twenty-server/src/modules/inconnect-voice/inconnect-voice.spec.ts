@@ -21,7 +21,9 @@ import { SecretEncryptionService } from 'src/engine/core-modules/secret-encrypti
 import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage/workspace-cache-storage.service';
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import { InconnectVoiceDestinationService } from 'src/modules/inconnect-voice/inconnect-voice-destination.service';
+import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceController } from 'src/modules/inconnect-voice/inconnect-voice.controller';
+import { InconnectVoiceProviderService } from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
@@ -49,6 +51,11 @@ describe('INCONNECT Voice REST boundary', () => {
   const validateTokenByRequest = jest.fn();
   const readLead = jest.fn();
   const readScope = jest.fn();
+  const recordCondition = jest.fn();
+  const reserve = jest.fn();
+  const claim = jest.fn();
+  const recordProgress = jest.fn();
+  const history = jest.fn();
   const intents = new Map<string, string>();
   const envelopes = new Map<string, string>();
   const storeIntent = jest.fn(async (key: string, value: string) => {
@@ -62,6 +69,18 @@ describe('INCONNECT Voice REST boundary', () => {
       providers: [
         InconnectVoiceService,
         InconnectVoiceDestinationService,
+        InconnectVoiceProviderService,
+        {
+          provide: InconnectVoiceCallStore,
+          useValue: {
+            reserve,
+            claim,
+            recordProgress,
+            history,
+            denyRouting: jest.fn().mockResolvedValue(undefined),
+            leaseReconciliation: jest.fn().mockResolvedValue(null),
+          },
+        },
         { provide: AccessTokenService, useValue: { validateTokenByRequest } },
         {
           provide: CommonFindOneQueryRunnerService,
@@ -75,6 +94,7 @@ describe('INCONNECT Voice REST boundary', () => {
           provide: InconnectRecordAccessAuthorizationService,
           useValue: {
             resolveReadScope: readScope,
+            buildAuthorizedRecordExistsCondition: recordCondition,
             isAuthenticatedWorkspaceMemberValid: jest
               .fn()
               .mockResolvedValue(true),
@@ -158,6 +178,20 @@ describe('INCONNECT Voice REST boundary', () => {
     intents.clear();
     storeIntent.mockClear();
     envelopes.clear();
+    recordCondition.mockReset().mockResolvedValue({
+      scope: { kind: 'owner-scoped' },
+      sql: 'EXISTS (SELECT 1)',
+      parameters: {},
+    });
+    reserve.mockReset().mockResolvedValue(true);
+    claim.mockReset().mockResolvedValue(true);
+    recordProgress.mockReset().mockResolvedValue(undefined);
+    history.mockReset().mockResolvedValue({
+      attempts: 0,
+      answered: 0,
+      durationSeconds: '0',
+      rows: [],
+    });
     validateTokenByRequest
       .mockReset()
       .mockImplementation(async (req: Request) => {
@@ -314,11 +348,15 @@ describe('INCONNECT Voice REST boundary', () => {
     expect([...intents.values()]).toEqual(['sealed-0']);
     await callback(body.intentId, false).expect(403);
     const { text } = await callback(body.intentId).expect(200);
-    expect(text).toContain(`<Number>${destination}</Number>`);
+    expect(text).toContain(`>${destination}</Number>`);
+    expect(text).toContain(
+      'statusCallbackEvent="initiated ringing answered completed"',
+    );
     expect(text).toContain(`callerId="${callerId}"`);
     expect(text).toContain('record="do-not-record"');
     expect(text).not.toContain('+12015550198');
     await callback(body.intentId).expect(403);
+    expect(claim).toHaveBeenCalledTimes(1);
   });
 
   it('revalidates the original authorization and persisted phone before returning TwiML', async () => {
@@ -328,5 +366,105 @@ describe('INCONNECT Voice REST boundary', () => {
     const changed = await issue({ recordId }).expect(200);
     readLead.mockRejectedValueOnce(new Error('Field permission denied'));
     await callback(changed.body.intentId).expect(403);
+  });
+
+  it('returns conflict before handing a second session or token to another tab', async () => {
+    reserve.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const responses = await Promise.all([
+      issue({ recordId }),
+      issue({ recordId }),
+    ]);
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 409]);
+    expect(
+      responses.find(({ status }) => status === 409)?.body.token,
+    ).toBeUndefined();
+  });
+
+  it('accepts only exact, signed destination progress and waits for durable persistence while outbound is disabled', async () => {
+    const { body } = await issue({ recordId }).expect(200);
+    await callback(body.intentId).expect(200);
+    process.env.INCONNECT_VOICE_ENABLE_OUTBOUND = 'false';
+    const path = `${base}/call-progress?id=${body.intentId}&source=number`;
+    const form = {
+      AccountSid: accountSid,
+      CallSid: `CA${'e'.repeat(32)}`,
+      ParentCallSid: `CA${'d'.repeat(32)}`,
+      CallStatus: 'busy',
+      CallbackSource: 'call-progress-events',
+      SequenceNumber: '2',
+      Timestamp: 'Tue, 24 Nov 2026 18:56:39 +0000',
+    };
+    const send = (key: string, params = form) =>
+      request(app.getHttpServer())
+        .post(path)
+        .type('form')
+        .set(
+          'X-Twilio-Signature',
+          Twilio.getExpectedTwilioSignature(
+            key,
+            `https://voice.example.test${path}`,
+            params,
+          ),
+        )
+        .send(params);
+
+    await send('incorrect').expect(403);
+    await send(signingSecret, {
+      ...form,
+      AccountSid: `AC${'b'.repeat(32)}`,
+    }).expect(403);
+    expect(recordProgress).not.toHaveBeenCalled();
+    recordProgress.mockRejectedValueOnce(new Error('Database unavailable'));
+    await send(signingSecret).expect(503);
+    await send(signingSecret).expect(200);
+    expect(recordProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspaceId }),
+      {
+        id: body.intentId,
+        parentSid: form.ParentCallSid,
+        childSid: form.CallSid,
+      },
+      expect.objectContaining({
+        status: 'finished',
+        result: 'busy',
+        durationSeconds: null,
+      }),
+    );
+  });
+
+  it('requires Voice authority, current CRM permissions and an authorized SQL predicate for history', async () => {
+    const getHistory = () =>
+      request(app.getHttpServer())
+        .get(`${base}/history/${recordId}`)
+        .set('Authorization', bearer);
+    const actor = await validateTokenByRequest({
+      headers: { authorization: bearer },
+    });
+    validateTokenByRequest.mockResolvedValueOnce({
+      ...actor,
+      workspace: { id: fieldId },
+    });
+    await getHistory().expect(403);
+    readScope.mockResolvedValueOnce({ kind: 'denied' });
+    await getHistory().expect(403);
+    readLead.mockRejectedValueOnce(new Error('Object read denied'));
+    await getHistory().expect(403);
+    recordCondition.mockResolvedValueOnce({ scope: { kind: 'not-managed' } });
+    await getHistory().expect(403);
+    expect(history).not.toHaveBeenCalled();
+    await getHistory().expect(200, {
+      attempts: 0,
+      answered: 0,
+      durationSeconds: '0',
+      rows: [],
+      next: null,
+    });
+    expect(history).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId }),
+      recordId,
+      expect.objectContaining({ sql: 'EXISTS (SELECT 1)' }),
+      memberId,
+      undefined,
+    );
   });
 });

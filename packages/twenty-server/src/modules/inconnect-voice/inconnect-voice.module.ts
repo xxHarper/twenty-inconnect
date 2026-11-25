@@ -8,7 +8,9 @@ import { SecretEncryptionModule } from 'src/engine/core-modules/secret-encryptio
 import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/workspace-cache-storage.module';
 import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
 import { InconnectVoiceDestinationService } from 'src/modules/inconnect-voice/inconnect-voice-destination.service';
+import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceController } from 'src/modules/inconnect-voice/inconnect-voice.controller';
+import { InconnectVoiceProviderService } from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 @Module({
@@ -22,6 +24,11 @@ import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voi
     WorkspaceCacheStorageModule,
   ],
   controllers: [InconnectVoiceController],
-  providers: [InconnectVoiceDestinationService, InconnectVoiceService],
+  providers: [
+    InconnectVoiceDestinationService,
+    InconnectVoiceService,
+    InconnectVoiceCallStore,
+    InconnectVoiceProviderService,
+  ],
 })
 export class InconnectVoiceModule {}

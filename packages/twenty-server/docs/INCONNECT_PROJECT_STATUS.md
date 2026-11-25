@@ -15,6 +15,29 @@ una aceptación nunca levanta gates de ejecución. «Fuente implementada»,
 «instalado en un entorno», «activado» y «desplegado» son afirmaciones distintas.
 La evidencia física describe el entorno y el momento de su comprobación.
 
+## Checkpoint del 25 de noviembre de 2026
+
+**DEV-LOCAL-R1 recuperado tras un apagado completo.** Los cinco servicios
+dedicados están saludables y Nest mantiene Voice Outbound deshabilitado.
+PostgreSQL conserva el esquema, tracking, cursor y las tres llamadas de
+Voice V1.2. Twilio confirmó por SID los tres tramos al destino, que suman
+80 segundos. El nuevo Quick Tunnel pasó las comprobaciones públicas de
+routing y se sincronizó con `app.env` y la TwiML App de desarrollo. Nest
+quedó saludable con la salida deshabilitada. PHYS-A0 sigue **NO-GO**.
+[Evidencia del piloto y de la recuperación](INCONNECT_VOICE_V1_2.md#recuperación-del-25-de-noviembre-de-2026)
+
+**Voice V1.2 validado funcionalmente en DEV-LOCAL-R1.** El operador
+confirmó el cronómetro efectivo, el bloqueo desde la segunda pestaña, el
+colgado desde Twenty y Calls. La ventana final sumó 54 s contestados,
+`no-answer` sin conversación y 5 s contestados. PostgreSQL y Twilio
+coincidieron por tramo. Twilio confirmó tres llamadas para el operador y el
+destino, sin una cuarta. El historial acumula seis intentos, cinco
+contestadas y 139 s. El observador confirmó HTTP 200 `disabled` a las
+10:25:18. Quedan la reproducción controlada de `No answer` sin buzón, el
+estado de proveedor `canceled` y la captura directa del HTTP 409 del
+intento simultáneo.
+[Evidencia de la ventana](INCONNECT_VOICE_V1_2.md#ventana-supervisada-del-25-de-noviembre-de-2026)
+
 ## Checkpoint del 24 de noviembre de 2026
 
 **Voice V0 de salida quedó validado de extremo a extremo en DEV-LOCAL-R1.**
@@ -38,10 +61,23 @@ la llamada, el Lead original y el cronómetro al navegar entre Leads y
 Messaging. Se comprobaron minimizar, expandir, silenciar, reactivar, colgar
 desde otra pantalla y comenzar una segunda llamada con estado limpio. Al
 cerrar R9, Nest quedó en `INCONNECT_VOICE_ENABLE_OUTBOUND=false` y el
-observador autenticado confirmó HTTP 200 `disabled`. V1.2 queda pendiente con
-la duración efectiva del destino, el resultado telefónico, el historial
-persistente y la exclusión entre pestañas en backend. PHYS-A0 sigue **NO-GO**.
+observador autenticado confirmó HTTP 200 `disabled`. PHYS-A0 sigue **NO-GO**.
 [Evidencia funcional de Voice V1.1](INCONNECT_VOICE_V0_R2.md#evidencia-funcional-del-24-de-noviembre-de-2026)
+
+**Voice V1.2 instalado en DEV-LOCAL-R1.** El Fast `1795521600000` completó
+el DDL y tracking de instancia y workspace con respaldo comprobado y
+cursor conservado. La exclusión concurrente se verificó en PostgreSQL
+con transacciones revertidas. La URL coincide entre Twilio y la
+configuración local, Nest está saludable con salida deshabilitada y Vite
+sirve los módulos actuales de Calls. El callback público rechaza firmas
+ausentes e inválidas. Las pruebas de firma válida y persistencia del
+servicio se revirtieron por completo. En el piloto manual, el operador vio
+tres intentos contestados con 69, 7 y 4 segundos, para un total de 80 s.
+Las dos últimas respuestas fueron de buzón. El observador confirmó el cierre
+con HTTP 200 `disabled` a las 17:24:13, hora de Ciudad de México. Quedan los
+casos reales `no-answer` y `canceled` y la evidencia del conflicto desde
+otra pestaña.
+[Voice V1.2, DDL y validación](INCONNECT_VOICE_V1_2.md)
 
 ## Checkpoint del 18 de noviembre de 2026
 
@@ -215,7 +251,7 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 | WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
 | F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | Voice V1.1 con softphone global de salida desde Lead sobre la autorización de Voice V0. | Validado funcionalmente en DEV-LOCAL-R1 el 24 de noviembre de 2026 con dos llamadas reales y audio bidireccional. Voice volvió a `DISABLED`. | Duración efectiva del destino, resultado telefónico, historial persistente y exclusión entre pestañas pendientes para V1.2. Producción sin autorización. [Backlog](INCONNECT_PRODUCT_BACKLOG.md#req-tel-001--inconnect-telephony--softphone). |
+| Telephony REQ-TEL-001 | Voice V1.2 con historial persistente, ciclo del tramo destino, reconciliación y exclusión backend entre pestañas. | Validado funcionalmente en DEV-LOCAL-R1. Seis intentos y 139 s confirmados. Bloqueo observado sin una cuarta llamada. Voice sigue en `DISABLED`. | Reproducción controlada de `No answer` y `canceled`, y captura del HTTP 409. Producción sin autorización. [Voice V1.2](INCONNECT_VOICE_V1_2.md). |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 

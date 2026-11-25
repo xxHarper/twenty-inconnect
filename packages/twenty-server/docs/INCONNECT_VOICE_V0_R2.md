@@ -60,10 +60,9 @@ reiniciado fue NestJS. El proceso restaurado quedó saludable con
 quedó intacto. El registro de las dos llamadas procede del operador y el
 estado de la ventana procede del observador y de la comprobación de Nest.
 
-**Pendiente para V1.2.** Medición de la duración efectiva del destino,
-resultado telefónico, historial persistente y exclusión de llamadas entre
-pestañas mediante autoridad del backend. El cronómetro de V1.1 mide la
-conexión del navegador con Twilio.
+**Voice V1.2 instalado en DEV-LOCAL-R1.** El piloto del 24 de noviembre
+confirmó tres llamadas conectadas y sus 80 segundos en el historial del Lead.
+[Voice V1.2, DDL y validación](INCONNECT_VOICE_V1_2.md)
 
 ### Prueba manual de Voice V1.1
 

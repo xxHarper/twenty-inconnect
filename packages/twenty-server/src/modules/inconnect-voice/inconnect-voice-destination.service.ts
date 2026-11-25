@@ -72,6 +72,58 @@ export class InconnectVoiceDestinationService {
     config: InconnectVoiceConfig,
     recordId: string,
   ) {
+    const { record, phoneFieldName } = await this.readRecord(
+      authContext,
+      config,
+      recordId,
+      true,
+    );
+    const destination = normalizePrimaryPhone(
+      phoneFieldName && record[phoneFieldName],
+    );
+
+    if (!destination || destination !== config.allowedDestination)
+      throw new ForbiddenException('Voice destination is unavailable');
+
+    return destination;
+  }
+
+  async authorizeHistory(
+    authContext: UserWorkspaceAuthContext,
+    config: InconnectVoiceConfig,
+    recordId: string,
+  ) {
+    await this.readRecord(authContext, config, recordId, false);
+    return this.getRecordCondition(authContext, config);
+  }
+
+  async getRecordCondition(
+    authContext: UserWorkspaceAuthContext,
+    config: InconnectVoiceConfig,
+  ) {
+    const scope = await this.recordAccess.buildAuthorizedRecordExistsCondition({
+      authContext,
+      workspaceId: config.workspaceId,
+      objectMetadataId: config.objectId,
+      recordIdReference: { tableAlias: 'call', columnName: 'recordId' },
+    });
+
+    if (
+      scope.scope.kind !== 'all-records' &&
+      scope.scope.kind !== 'owner-scoped'
+    ) {
+      throw new ForbiddenException('Voice history is unavailable');
+    }
+
+    return scope;
+  }
+
+  private async readRecord(
+    authContext: UserWorkspaceAuthContext,
+    config: InconnectVoiceConfig,
+    recordId: string,
+    includePhone: boolean,
+  ) {
     const workspaceId = authContext.workspace.id;
     const deny = () =>
       new ForbiddenException('Voice destination is unavailable');
@@ -79,7 +131,6 @@ export class InconnectVoiceDestinationService {
     try {
       if (
         workspaceId !== config.workspaceId ||
-        authContext.userWorkspaceId !== config.userWorkspaceId ||
         !(await this.recordAccess.isAuthenticatedWorkspaceMemberValid({
           authContext,
           workspaceId,
@@ -115,10 +166,11 @@ export class InconnectVoiceDestinationService {
         object.workspaceId !== workspaceId ||
         object.isSystem ||
         object.isRemote ||
-        !field?.isActive ||
-        field.workspaceId !== workspaceId ||
-        field.objectMetadataId !== object.id ||
-        field.type !== FieldMetadataType.PHONES
+        (includePhone &&
+          (!field?.isActive ||
+            field.workspaceId !== workspaceId ||
+            field.objectMetadataId !== object.id ||
+            field.type !== FieldMetadataType.PHONES))
       ) {
         throw deny();
       }
@@ -129,11 +181,14 @@ export class InconnectVoiceDestinationService {
           filter: { id: { eq: recordId } },
           selectedFields: {
             id: true,
-            [field.name]: {
-              primaryPhoneNumber: true,
-              primaryPhoneCallingCode: true,
-              primaryPhoneCountryCode: true,
-            },
+            ...(includePhone &&
+              field && {
+                [field.name]: {
+                  primaryPhoneNumber: true,
+                  primaryPhoneCallingCode: true,
+                  primaryPhoneCountryCode: true,
+                },
+              }),
           },
         },
         {
@@ -146,16 +201,8 @@ export class InconnectVoiceDestinationService {
           ).idByNameSingular,
         },
       );
-      const destination = normalizePrimaryPhone(record[field.name]);
-
-      if (
-        record.id !== recordId ||
-        !destination ||
-        destination !== config.allowedDestination
-      )
-        throw deny();
-
-      return destination;
+      if (record.id !== recordId) throw deny();
+      return { record, phoneFieldName: includePhone ? field?.name : undefined };
     } catch {
       throw deny();
     }

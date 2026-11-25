@@ -9,6 +9,10 @@ import { UpgradeMigrationService } from 'src/engine/core-modules/upgrade/service
 import { UpgradeSequenceReaderService } from 'src/engine/core-modules/upgrade/services/upgrade-sequence-reader.service';
 import { UpgradeStatusCacheService } from 'src/engine/core-modules/upgrade/services/upgrade-status-cache.service';
 import { UpgradeStatusService } from 'src/engine/core-modules/upgrade/services/upgrade-status.service';
+import {
+  VOICE_HISTORY_FOLLOWING_SLOW_NAME,
+  VOICE_HISTORY_UPGRADE_NAME,
+} from 'src/engine/core-modules/upgrade/utils/voice-history-upgrade-order.util';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 
 // The three most recent supported versions: the upgrade sequence only ever
@@ -54,6 +58,7 @@ describe('UpgradeStatusService', () => {
   let service: UpgradeStatusService;
   let sequence: { kind: string; name: string }[];
   let getLastAttemptedInstanceCommand: jest.Mock;
+  let getVoiceHistoryTrackingState: jest.Mock;
   let getWorkspaceLastAttemptedCommandName: jest.Mock;
   let workspaceFind: jest.Mock;
   let cacheGetComputedAt: jest.Mock;
@@ -70,6 +75,7 @@ describe('UpgradeStatusService', () => {
   beforeEach(async () => {
     sequence = MOCK_SEQUENCE;
     getLastAttemptedInstanceCommand = jest.fn();
+    getVoiceHistoryTrackingState = jest.fn();
     getWorkspaceLastAttemptedCommandName = jest.fn();
     workspaceFind = jest.fn().mockResolvedValue([]);
     cacheGetComputedAt = jest.fn();
@@ -86,6 +92,7 @@ describe('UpgradeStatusService', () => {
           provide: UpgradeMigrationService,
           useValue: {
             getLastAttemptedInstanceCommand,
+            getVoiceHistoryTrackingState,
             getWorkspaceLastAttemptedCommandName,
           },
         },
@@ -123,6 +130,37 @@ describe('UpgradeStatusService', () => {
   });
 
   describe('getInstanceStatus', () => {
+    it.each([
+      ['pending', 'completed', UpgradeHealthEnum.BEHIND],
+      ['failed', 'completed', UpgradeHealthEnum.FAILED],
+      ['completed', 'completed', UpgradeHealthEnum.UP_TO_DATE],
+      ['pending', 'failed', UpgradeHealthEnum.FAILED],
+    ])(
+      'Voice V1.2 exposes %s tracking without replacing the %s native cursor',
+      async (state, status, health) => {
+        sequence = [
+          { kind: 'fast-instance', name: MIDDLE_INSTANCE_COMMAND },
+          { kind: 'fast-instance', name: VOICE_HISTORY_UPGRADE_NAME },
+          { kind: 'slow-instance', name: VOICE_HISTORY_FOLLOWING_SLOW_NAME },
+        ];
+        getVoiceHistoryTrackingState.mockResolvedValue(state);
+        getLastAttemptedInstanceCommand.mockResolvedValue({
+          name: VOICE_HISTORY_FOLLOWING_SLOW_NAME,
+          status,
+          executedByVersion: NEWEST_VERSION,
+          errorMessage: null,
+          createdAt: new Date('2026-11-18T00:00:00Z'),
+        });
+        const result = await service.getInstanceStatus();
+        expect(result.health).toBe(health);
+        expect(result.latestCommand?.name).toBe(
+          VOICE_HISTORY_FOLLOWING_SLOW_NAME,
+        );
+        if (status === 'completed')
+          expect(result.inferredVersion).toBe(NEWEST_VERSION);
+      },
+    );
+
     it('should return up-to-date when cursor is at last instance command', async () => {
       getLastAttemptedInstanceCommand.mockResolvedValue({
         name: NEWEST_INSTANCE_COMMAND,

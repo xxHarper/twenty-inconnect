@@ -11,6 +11,7 @@ import { UpgradeSequenceReaderService } from 'src/engine/core-modules/upgrade/se
 import { UpgradeStatusCacheService } from 'src/engine/core-modules/upgrade/services/upgrade-status-cache.service';
 import { advanceThroughVersionsWithoutInstanceCommands } from 'src/engine/core-modules/upgrade/utils/advance-through-versions-without-instance-commands.util';
 import { extractVersionFromCommandNameOrThrow } from 'src/engine/core-modules/upgrade/utils/extract-version-from-command-name-or-throw.util';
+import { cursorHasPassedVoiceHistory } from 'src/engine/core-modules/upgrade/utils/voice-history-upgrade-order.util';
 import {
   resolveCompletedVersionFromCursor,
   type UpgradeCursor,
@@ -109,8 +110,21 @@ export class UpgradeStatusService {
     });
     const lastExpectedCommandName = stepNames[stepNames.length - 1] ?? null;
 
+    const status = this.buildCursorStatus(cursor, lastExpectedCommandName);
+
+    if (
+      cursor &&
+      cursorHasPassedVoiceHistory(stepNames, cursor.name, cursor.status)
+    ) {
+      const voice =
+        await this.upgradeMigrationService.getVoiceHistoryTrackingState([]);
+      if (voice === 'failed') status.health = UpgradeHealthEnum.FAILED;
+      if (voice === 'pending' && status.health === UpgradeHealthEnum.UP_TO_DATE)
+        status.health = UpgradeHealthEnum.BEHIND;
+    }
+
     return {
-      ...this.buildCursorStatus(cursor, lastExpectedCommandName),
+      ...status,
       inferredVersion: this.resolveInstanceCompletedVersion(cursor),
     };
   }

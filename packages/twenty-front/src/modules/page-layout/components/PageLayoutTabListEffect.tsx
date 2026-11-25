@@ -11,7 +11,7 @@ type PageLayoutTabListEffectProps = Pick<
   TabListProps,
   'componentInstanceId' | 'onChangeTab'
 > & {
-  tabs: PageLayoutTab[];
+  tabs: Pick<PageLayoutTab, 'id'>[];
   defaultTabToFocusOnMobileAndSidePanelId?: string;
 };
 

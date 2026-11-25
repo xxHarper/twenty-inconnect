@@ -1,5 +1,6 @@
 import {
   ForbiddenException,
+  ConflictException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -22,12 +23,18 @@ import { USER_SESSION_COOKIE_NAME } from 'src/engine/core-modules/user-session/c
 import { USER_SESSION_SECURE_COOKIE_NAME } from 'src/engine/core-modules/user-session/constants/user-session-secure-cookie-name.constant';
 import {
   getInconnectVoiceConfig,
-  INCONNECT_VOICE_PATH,
   type InconnectVoiceConfig,
   VOICE_INTENT_TTL_SECONDS,
   VOICE_TOKEN_TTL_SECONDS,
 } from 'src/modules/inconnect-voice/inconnect-voice-config';
+import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceDestinationService } from 'src/modules/inconnect-voice/inconnect-voice-destination.service';
+import { isTwilioCallSid } from 'src/modules/inconnect-voice/inconnect-voice-lifecycle';
+import {
+  InconnectVoiceProviderService,
+  readSignedVoiceWebhook,
+  voiceProgressUrl,
+} from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
 
 const credentialSchema = z.union([
   z
@@ -71,6 +78,7 @@ type VoiceAuthContext = Pick<
 const resolveActor = (
   context: VoiceAuthContext,
   config: InconnectVoiceConfig,
+  allowHistory = false,
 ) => {
   const {
     user,
@@ -92,7 +100,10 @@ const resolveActor = (
     !workspaceMemberId ||
     !userWorkspaceId ||
     workspace.id !== config.workspaceId ||
-    userWorkspaceId !== config.userWorkspaceId ||
+    (userWorkspaceId !== config.userWorkspaceId &&
+      !(
+        allowHistory && config.historyUserWorkspaceIds.includes(userWorkspaceId)
+      )) ||
     workspaceMember.id !== workspaceMemberId ||
     workspaceMember.userId !== user.id
   ) {
@@ -154,6 +165,8 @@ export class InconnectVoiceService {
     private readonly destination: InconnectVoiceDestinationService,
     private readonly redis: RedisClientService,
     private readonly encryption: SecretEncryptionService,
+    private readonly calls: InconnectVoiceCallStore,
+    private readonly provider: InconnectVoiceProviderService,
   ) {}
 
   status(context: VoiceAuthContext): {
@@ -188,8 +201,11 @@ export class InconnectVoiceService {
       credential,
     };
 
-    let stage: 'encrypt-intent' | 'sign-token' | 'store-intent' =
-      'encrypt-intent';
+    let stage:
+      | 'encrypt-intent'
+      | 'sign-token'
+      | 'store-intent'
+      | 'reserve-call' = 'encrypt-intent';
     let reason = 'operation-failed';
 
     try {
@@ -230,8 +246,43 @@ export class InconnectVoiceService {
         throw forbidden();
       }
 
+      stage = 'reserve-call';
+      const authority = {
+        workspaceId: actor.workspace.id,
+        actorMemberId: actor.workspaceMemberId,
+      };
+      const recovery = await this.calls.leaseReconciliation(config, authority);
+      if (recovery) await this.provider.reconcile(config, recovery);
+
+      const actorLabel = [actor.user.firstName, actor.user.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const scope = await this.destination.getRecordCondition(actor, config);
+      if (
+        !(await this.calls.reserve(
+          config,
+          {
+            ...authority,
+            id: intentId,
+            recordId,
+            destination,
+            expiresAt: intentExpiresAt,
+          },
+          actorLabel,
+          scope,
+        ))
+      ) {
+        throw new ConflictException(
+          'Another Voice call is active or pending confirmation',
+        );
+      }
+
       return { token: jwt, intentId, intentExpiresAt, destination };
     } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (stage === 'reserve-call' && error instanceof ForbiddenException)
+        throw error;
       if (
         stage === 'store-intent' &&
         error instanceof Error &&
@@ -248,39 +299,16 @@ export class InconnectVoiceService {
 
   async renderTwiml(request: Request & { rawBody?: Buffer }) {
     const config = getInconnectVoiceConfig();
-    const signature = request.headers['x-twilio-signature'];
-    const rawBody = request.rawBody;
-
-    if (
-      !config?.enabled ||
-      request.originalUrl !== `/${INCONNECT_VOICE_PATH}/twiml` ||
-      typeof signature !== 'string' ||
-      !/^[a-zA-Z0-9+/]{27}=$/.test(signature) ||
-      !/^application\/x-www-form-urlencoded(?:\s*;\s*charset=utf-8)?$/i.test(
-        request.headers['content-type'] ?? '',
-      ) ||
-      !rawBody?.length ||
-      rawBody.length > 16_384
-    ) {
-      throw forbidden();
-    }
+    if (!config?.enabled) throw forbidden();
+    let reservation:
+      | Parameters<InconnectVoiceCallStore['denyRouting']>[1]
+      | undefined;
 
     try {
-      const entries = [...new URLSearchParams(rawBody.toString('utf8'))];
-      if (new Set(entries.map(([key]) => key)).size !== entries.length)
-        throw forbidden();
-
-      const params = Object.fromEntries(entries);
+      const params = readSignedVoiceWebhook(request, config, config.voiceUrl);
       if (
-        !Twilio.validateRequest(
-          config.authToken,
-          signature,
-          config.voiceUrl,
-          params,
-        ) ||
-        params.AccountSid !== config.accountSid ||
         params.From !== `client:${getIdentity(config)}` ||
-        !/^CA[a-fA-F0-9]{32}$/.test(params.CallSid ?? '') ||
+        !isTwilioCallSid(params.CallSid) ||
         !z.string().uuid().safeParse(params.intentId).success
       ) {
         throw forbidden();
@@ -305,6 +333,15 @@ export class InconnectVoiceService {
       )
         throw forbidden();
 
+      reservation = {
+        id: intent.intentId,
+        workspaceId: config.workspaceId,
+        actorMemberId: intent.actorMemberId,
+        recordId: intent.recordId,
+        destination: intent.destination,
+        expiresAt: intent.expiresAt,
+      };
+
       // The standard validator uses only the credential headers for this request shape.
       const auth = await this.accessTokens.validateTokenByRequest({
         headers: intent.credential,
@@ -322,15 +359,143 @@ export class InconnectVoiceService {
       const response = new Twilio.twiml.VoiceResponse();
       response
         .dial({
+          action: voiceProgressUrl(config, intent.intentId, 'dial'),
+          method: 'POST',
           callerId: config.callerId,
           record: 'do-not-record',
           timeLimit: 300,
         })
-        .number(destination);
+        .number(
+          {
+            statusCallback: voiceProgressUrl(config, intent.intentId, 'number'),
+            statusCallbackMethod: 'POST',
+            statusCallbackEvent: [
+              'initiated',
+              'ringing',
+              'answered',
+              'completed',
+            ],
+          },
+          destination,
+        );
+
+      const scope = await this.destination.getRecordCondition(actor, config);
+      if (!(await this.calls.claim(config, reservation, params.CallSid, scope)))
+        throw forbidden();
 
       return response.toString();
     } catch {
+      if (reservation) {
+        try {
+          await this.calls.denyRouting(config, reservation);
+        } catch {
+          this.logger.warn('Voice routing denial could not be persisted');
+        }
+      }
       throw forbidden();
     }
+  }
+
+  async progressCallback(request: Request & { rawBody?: Buffer }) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    try {
+      return await this.provider.callback(request, config);
+    } catch (error) {
+      if (error instanceof ForbiddenException) throw error;
+      // Failed persistence must remain retryable and must not expose bound SQL parameters.
+      throw new ServiceUnavailableException('Voice callback is unavailable');
+    }
+  }
+
+  private async historyAuthority(request: Request, recordId: string) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    const actor = resolveActor(request, config, true);
+    const scope = await this.destination.authorizeHistory(
+      actor,
+      config,
+      recordId,
+    );
+
+    return {
+      config,
+      scope,
+      authority: {
+        workspaceId: actor.workspace.id,
+        actorMemberId: actor.workspaceMemberId,
+      },
+    };
+  }
+
+  async historyAccess(request: Request, recordId: string) {
+    const { config } = await this.historyAuthority(request, recordId);
+    return { objectMetadataId: config.objectId };
+  }
+
+  async history(request: Request, recordId: string, before?: string) {
+    const { config, scope, authority } = await this.historyAuthority(
+      request,
+      recordId,
+    );
+    const data = await this.calls.history(
+      config,
+      recordId,
+      scope,
+      authority.actorMemberId,
+      before,
+    );
+    if (!data)
+      throw new ServiceUnavailableException('Voice history is unavailable');
+
+    return {
+      ...data,
+      rows: data.rows.slice(0, 20),
+      next: data.rows.length > 20 ? data.rows[19].id : null,
+    };
+  }
+
+  async callStatus(
+    request: Request,
+    recordId: string,
+    callId: string,
+    action?: 'cancel' | 'reconcile',
+  ) {
+    const { config, scope, authority } = await this.historyAuthority(
+      request,
+      recordId,
+    );
+    const read = (condition: typeof scope) =>
+      this.calls.callStatus(
+        config,
+        recordId,
+        condition,
+        callId,
+        authority.actorMemberId,
+      );
+    const current = await read(scope);
+    if (!current) throw forbidden();
+    if (!action) return { ...current, observedAt: Date.now() };
+
+    if (action === 'cancel' || current.status === 'reserved') {
+      await this.calls.cancelReservation(
+        authority,
+        callId,
+        action !== 'cancel',
+        scope,
+      );
+    } else {
+      const target = await this.calls.leaseReconciliation(
+        config,
+        authority,
+        callId,
+      );
+      if (target) await this.provider.reconcile(config, target);
+    }
+
+    const refreshed = await this.historyAuthority(request, recordId);
+    const updated = await read(refreshed.scope);
+    if (!updated) throw forbidden();
+    return { ...updated, observedAt: Date.now() };
   }
 }

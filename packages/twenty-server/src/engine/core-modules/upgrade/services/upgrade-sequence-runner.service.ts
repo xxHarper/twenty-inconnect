@@ -19,6 +19,7 @@ import {
 } from 'src/engine/core-modules/upgrade/services/upgrade-sequence-reader.service';
 import { WorkspaceCommandRunnerService } from 'src/engine/core-modules/upgrade/services/workspace-command-runner.service';
 import { formatUpgradeLog } from 'src/engine/core-modules/upgrade/utils/format-upgrade-log.util';
+import { cursorHasPassedVoiceHistory } from 'src/engine/core-modules/upgrade/utils/voice-history-upgrade-order.util';
 import { UpgradeAwareEntityMetadataAdapter } from 'src/engine/twenty-orm/upgrade-aware/upgrade-aware-entity-metadata.adapter';
 import { WorkspaceVersionService } from 'src/engine/workspace-manager/workspace-version/services/workspace-version.service';
 import { assertUnreachable, isDefined } from 'twenty-shared/utils';
@@ -238,6 +239,21 @@ export class UpgradeSequenceRunnerService {
       });
 
     const lastAttemptedStep = sequence[lastAttemptedCursor];
+
+    if (
+      cursorHasPassedVoiceHistory(
+        sequence.map(({ name }) => name),
+        lastAttempted.name,
+        lastAttempted.status,
+      ) &&
+      (await this.upgradeMigrationService.getVoiceHistoryTrackingState(
+        allProvisionedWorkspaceIds,
+      )) !== 'completed'
+    ) {
+      throw new Error(
+        `Voice V1.2 has missing or failed tracking before the current upgrade cursor ${lastAttempted.name} (${lastAttempted.status}). Complete the Voice upgrade before continuing.`,
+      );
+    }
 
     switch (lastAttemptedStep.kind) {
       case 'fast-instance':

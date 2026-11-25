@@ -51,9 +51,21 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
   bidireccional y un tramo al celular de **47 segundos**. Tras el piloto, Voice
   volvió a `DISABLED`. [Estado del proyecto](INCONNECT_PROJECT_STATUS.md#checkpoint-del-24-de-noviembre-de-2026)
   · [Evidencia de Voice V0](INCONNECT_VOICE_V0_R2.md#evidencia-de-voice-v0)
+- **Voice V1.2 instalado en DEV-LOCAL-R1.** Historial y duración en el CRM,
+  estado del tramo destino y exclusión respaldada por PostgreSQL. Los
+  pilotos confirmaron seis intentos, 139 s de conexión y el bloqueo observado
+  desde otra pestaña. Quedan la reproducción controlada de `No answer` y
+  `canceled`, y la captura del HTTP 409.
+  [Voice V1.2](INCONNECT_VOICE_V1_2.md)
+- **Futuro opcional · Answering Machine Detection (AMD).** Evaluar la
+  detección de persona y contestador, con resultado indeterminado cuando
+  corresponda. Diseñar el colgado automático configurable y la clasificación
+  comercial, preservando el resultado telefónico y su evidencia. La adopción
+  requiere evaluar exactitud, latencia, coste y autorización por entorno.
+  [AMD de Twilio](https://www.twilio.com/docs/voice/answering-machine-detection)
 - **Pendiente.** Validación y autorización para producción, llamadas
   entrantes, enrutamiento por Owner y Commercial Team, Round Robin,
-  transferencias, historial y duración en el CRM, grabaciones,
+  transferencias, grabaciones,
   consentimiento, retención y políticas operativas.
 
 Alcance funcional del requisito original:

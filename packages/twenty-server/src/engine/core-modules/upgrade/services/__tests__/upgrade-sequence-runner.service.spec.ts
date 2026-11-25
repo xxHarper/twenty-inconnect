@@ -8,6 +8,10 @@ import {
 } from 'src/engine/core-modules/upgrade/services/upgrade-sequence-reader.service';
 import { UpgradeSequenceRunnerService } from 'src/engine/core-modules/upgrade/services/upgrade-sequence-runner.service';
 import { type WorkspaceCommandRunnerService } from 'src/engine/core-modules/upgrade/services/workspace-command-runner.service';
+import {
+  VOICE_HISTORY_FOLLOWING_SLOW_NAME,
+  VOICE_HISTORY_UPGRADE_NAME,
+} from 'src/engine/core-modules/upgrade/utils/voice-history-upgrade-order.util';
 import { type UpgradeAwareEntityMetadataAdapter } from 'src/engine/twenty-orm/upgrade-aware/upgrade-aware-entity-metadata.adapter';
 import { type WorkspaceVersionService } from 'src/engine/workspace-manager/workspace-version/services/workspace-version.service';
 
@@ -27,6 +31,9 @@ describe('UpgradeSequenceRunnerService shutdown handling', () => {
   let isShutdownRequested: jest.Mock<boolean, []>;
   let runFastInstanceCommand: jest.Mock;
   let iterate: jest.Mock;
+  let currentCursor: jest.Mock;
+  let voiceTracking: jest.Mock;
+  let locateStep: jest.Mock;
 
   beforeEach(() => {
     isShutdownRequested = jest.fn().mockReturnValue(false);
@@ -37,17 +44,21 @@ describe('UpgradeSequenceRunnerService shutdown handling', () => {
       interrupted: false,
     });
 
+    currentCursor = jest
+      .fn()
+      .mockResolvedValue({ name: 'step-1', status: 'failed' });
+    voiceTracking = jest.fn();
+    locateStep = jest.fn().mockReturnValue(0);
     const upgradeMigrationService = {
-      getLastAttemptedCommandNameOrThrow: jest
-        .fn()
-        .mockResolvedValue({ name: 'step-1', status: 'failed' }),
+      getLastAttemptedCommandNameOrThrow: currentCursor,
+      getVoiceHistoryTrackingState: voiceTracking,
       getWorkspaceLastAttemptedCommandNameOrThrow: jest
         .fn()
         .mockResolvedValue(new Map()),
     } as unknown as UpgradeMigrationService;
 
     const upgradeSequenceReaderService = {
-      locateStepInSequenceOrThrow: jest.fn().mockReturnValue(0),
+      locateStepInSequenceOrThrow: locateStep,
       getWorkspaceSegmentBounds: jest
         .fn()
         .mockReturnValue({ startCursor: 0, endCursor: 0 }),
@@ -135,5 +146,58 @@ describe('UpgradeSequenceRunnerService shutdown handling', () => {
     await service.run({ sequence, options: {} });
 
     expect(runFastInstanceCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['pending', 'failed'])(
+    'Voice V1.2 stops at the known gap with %s tracking',
+    async (state) => {
+      const sequence = [
+        makeStep('fast-instance', VOICE_HISTORY_UPGRADE_NAME),
+        makeStep('slow-instance', VOICE_HISTORY_FOLLOWING_SLOW_NAME),
+        makeStep('fast-instance', 'other-pending'),
+      ];
+      currentCursor.mockResolvedValue({
+        name: VOICE_HISTORY_FOLLOWING_SLOW_NAME,
+        status: 'completed',
+      });
+      locateStep.mockReturnValue(1);
+      voiceTracking.mockResolvedValue(state);
+      await expect(service.run({ sequence, options: {} })).rejects.toThrow(
+        'Voice V1.2 has missing or failed tracking',
+      );
+      expect(voiceTracking).toHaveBeenCalledWith([WORKSPACE_ID]);
+      expect(runFastInstanceCommand).not.toHaveBeenCalled();
+    },
+  );
+
+  it('Voice V1.2 resumes the ordinary sequence after verifying the full Voice tracking', async () => {
+    const sequence = [
+      makeStep('fast-instance', VOICE_HISTORY_UPGRADE_NAME),
+      makeStep('slow-instance', VOICE_HISTORY_FOLLOWING_SLOW_NAME),
+      makeStep('fast-instance', 'other-pending'),
+    ];
+    currentCursor.mockResolvedValue({
+      name: VOICE_HISTORY_FOLLOWING_SLOW_NAME,
+      status: 'completed',
+    });
+    locateStep.mockReturnValue(1);
+    voiceTracking.mockResolvedValue('completed');
+    await service.run({ sequence, options: {} });
+    expect(runFastInstanceCommand).toHaveBeenCalledTimes(1);
+    expect(runFastInstanceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'other-pending' }),
+    );
+  });
+
+  it('Voice V1.2 leaves an ordinary empty-cursor predecessor path in native Fast order', async () => {
+    const sequence = [
+      makeStep('fast-instance', 'step-1'),
+      makeStep('fast-instance', VOICE_HISTORY_UPGRADE_NAME),
+    ];
+    await service.run({ sequence, options: {} });
+    expect(voiceTracking).not.toHaveBeenCalled();
+    expect(
+      runFastInstanceCommand.mock.calls.map(([step]) => step.name),
+    ).toEqual(['step-1', VOICE_HISTORY_UPGRADE_NAME]);
   });
 });

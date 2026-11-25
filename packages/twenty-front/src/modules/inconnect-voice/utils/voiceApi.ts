@@ -12,6 +12,34 @@ const sessionSchema = z.object({
   intentExpiresAt: z.number().int(),
   destination: z.string().regex(/^\+[1-9]\d{1,14}$/),
 });
+const progressSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['reserved', 'connecting', 'ringing', 'answered', 'finished']),
+  result: z
+    .enum(['answered', 'no-answer', 'busy', 'canceled', 'failed'])
+    .nullable(),
+  answeredAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  durationSeconds: z.number().int().nonnegative().nullable(),
+});
+const callSchema = progressSchema.extend({ observedAt: z.number() });
+const historySchema = z.object({
+  attempts: z.number().int().nonnegative(),
+  answered: z.number().int().nonnegative(),
+  durationSeconds: z.string().regex(/^\d+$/),
+  next: z.string().uuid().nullable(),
+  rows: z.array(
+    progressSchema.extend({
+      createdAt: z.string(),
+      actorLabel: z.string(),
+      direction: z.literal('outbound'),
+      canReconcile: z.boolean(),
+    }),
+  ),
+});
+
+export type VoiceProviderProgress = z.infer<typeof progressSchema>;
+export type VoiceCallHistory = z.infer<typeof historySchema>;
 
 export type VoiceAvailability =
   | z.infer<typeof statusSchema>['status']
@@ -25,9 +53,9 @@ export class VoiceApiError extends Error {
 }
 
 const requestVoice = async (
-  path: 'status' | 'session',
+  path: string,
   signal: AbortSignal,
-  recordId?: string,
+  options?: { method: 'POST'; recordId?: string },
 ): Promise<unknown> => {
   const token = getIsCookieAuthActive()
     ? undefined
@@ -35,16 +63,18 @@ const requestVoice = async (
   const response = await fetch(
     `${REACT_APP_SERVER_BASE_URL}/auth/inconnect-voice/${path}`,
     {
-      method: path === 'status' ? 'GET' : 'POST',
+      method: options?.method ?? 'GET',
       credentials: 'include',
       cache: 'no-store',
       redirect: 'error',
       signal,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(path === 'session' ? { 'Content-Type': 'application/json' } : {}),
+        ...(options?.recordId ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: path === 'session' ? JSON.stringify({ recordId }) : undefined,
+      body: options?.recordId
+        ? JSON.stringify({ recordId: options.recordId })
+        : undefined,
     },
   );
 
@@ -59,4 +89,46 @@ export const getVoiceStatus = async (signal: AbortSignal) =>
 export const createVoiceSession = async (
   recordId: string,
   signal: AbortSignal,
-) => sessionSchema.parse(await requestVoice('session', signal, recordId));
+) =>
+  sessionSchema.parse(
+    await requestVoice('session', signal, { method: 'POST', recordId }),
+  );
+
+export const getVoiceHistoryObject = async (
+  recordId: string,
+  signal: AbortSignal,
+) =>
+  z
+    .object({ objectMetadataId: z.string().uuid() })
+    .parse(
+      await requestVoice(
+        `history-access/${encodeURIComponent(recordId)}`,
+        signal,
+      ),
+    ).objectMetadataId;
+
+export const getVoiceHistory = async (
+  recordId: string,
+  signal: AbortSignal,
+  before?: string,
+) =>
+  historySchema.parse(
+    await requestVoice(
+      `history/${encodeURIComponent(recordId)}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+      signal,
+    ),
+  );
+
+export const getVoiceCallProgress = async (
+  recordId: string,
+  callId: string,
+  signal: AbortSignal,
+  action?: 'cancel' | 'reconcile',
+) =>
+  callSchema.parse(
+    await requestVoice(
+      `history/${encodeURIComponent(recordId)}/call/${encodeURIComponent(callId)}${action ? `/${action}` : ''}`,
+      signal,
+      action ? { method: 'POST' } : undefined,
+    ),
+  );

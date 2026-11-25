@@ -4,6 +4,7 @@ import {
   type VoiceAvailability,
   VoiceApiError,
 } from '@/inconnect-voice/utils/voiceApi';
+import { useVoiceProviderProgress } from '@/inconnect-voice/hooks/useVoiceProviderProgress';
 import { type Call, type Device } from '@twilio/voice-sdk';
 import { atom, useStore } from 'jotai';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
@@ -24,6 +25,7 @@ export type VoiceCallState =
   | 'expired'
   | 'unauthorized'
   | 'destination-changed'
+  | 'conflict'
   | 'timeout'
   | 'error';
 
@@ -92,6 +94,7 @@ const getFailureCode = (error: unknown): number | undefined => {
 };
 
 const getFailureState = (error: unknown): VoiceCallState => {
+  if (error instanceof VoiceApiError && error.status === 409) return 'conflict';
   if (
     error instanceof VoiceApiError &&
     (error.status === 401 || error.status === 403)
@@ -114,6 +117,13 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
   const [availability, setAvailability] =
     useState<VoiceAvailability>('loading');
   const [snapshot, setSnapshot] = useState<VoiceCallSnapshot>(idleCall);
+  const [tracking, setTracking] = useState<{
+    callId: string;
+    recordId: string;
+    deadline: number;
+  } | null>(null);
+  const providerProgress = useVoiceProviderProgress(tracking, snapshot.busy);
+  const [displayedCallId, setDisplayedCallId] = useState<string | null>(null);
   const [runtimeAtom] = useState(() =>
     atom<{
       availability: VoiceAvailability;
@@ -237,6 +247,7 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
   const resetCall = () => {
     if (readRuntime().attempt) return false;
     setSnapshot(idleCall);
+    setDisplayedCallId(null);
     return true;
   };
 
@@ -305,6 +316,7 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
       stage: 'microphone',
     };
     writeRuntime({ attempt });
+    setDisplayedCallId(null);
     setSnapshot({
       ...idleCall,
       busy: true,
@@ -359,6 +371,12 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
       beginStage('session', 'preparing');
       const session = await createVoiceSession(recordId, attempt.abort.signal);
       if (!isCurrent()) return;
+      setTracking({
+        callId: session.intentId,
+        recordId,
+        deadline: performance.now() + 8 * 60_000,
+      });
+      setDisplayedCallId(session.intentId);
       if (session.destination !== expectedDestination)
         return finish('destination-changed', false);
       if (session.intentExpiresAt <= Date.now())
@@ -452,6 +470,11 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
   return {
     availability,
     snapshot,
+    providerProgress:
+      providerProgress?.progress.id === displayedCallId
+        ? providerProgress
+        : null,
+    hasProviderAttempt: displayedCallId !== null,
     resetCall,
     hangUp,
     toggleMute,

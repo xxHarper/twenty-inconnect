@@ -17,6 +17,7 @@ import { VoiceCallContext } from '@/inconnect-voice/contexts/VoiceCallContext';
 import { useVoiceLeadDetails } from '@/inconnect-voice/hooks/useVoiceLeadDetails';
 import {
   createVoiceSession,
+  getVoiceCallProgress,
   getVoiceStatus,
 } from '@/inconnect-voice/utils/voiceApi';
 import { i18n } from '@lingui/core';
@@ -45,6 +46,7 @@ jest.mock(
 );
 jest.mock('@/inconnect-voice/utils/voiceApi', () => ({
   createVoiceSession: jest.fn(),
+  getVoiceCallProgress: jest.fn(),
   getVoiceStatus: jest.fn(),
   VoiceApiError: Error,
 }));
@@ -110,10 +112,21 @@ describe('VoiceCallProvider', () => {
       },
     });
     jest.mocked(getVoiceStatus).mockResolvedValue('ready');
+    jest
+      .mocked(getVoiceCallProgress)
+      .mockImplementation(async (_recordId, id) => ({
+        id,
+        status: 'reserved',
+        result: null,
+        answeredAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        observedAt: Date.now(),
+      }));
     jest.mocked(createVoiceSession).mockImplementation(async (recordId) => ({
       token: `token-for-${recordId}`,
       destination,
-      intentId: anotherLead,
+      intentId: recordId === originalLead ? anotherLead : originalLead,
       intentExpiresAt: Date.now() + 45_000,
     }));
     jest
@@ -203,7 +216,7 @@ describe('VoiceCallProvider', () => {
     return getDialButton();
   };
 
-  it('keeps one call and its browser timer across routes, then reuses the device for a fresh call', async () => {
+  it('requires destination evidence for the timer, keeps it across routes and reuses the device', async () => {
     jest.useFakeTimers();
     const { first, second, device, view } = setup();
     const dialButton = await openPhone();
@@ -220,12 +233,43 @@ describe('VoiceCallProvider', () => {
     act(() => {
       first.emit('ringing');
     });
-    expect(screen.getByText('Ringing…')).toBeVisible();
+    expect(screen.getByText('Waiting for destination…')).toBeVisible();
     expect(screen.queryByRole('timer')).not.toBeInTheDocument();
     act(() => {
       first.emit('accept');
     });
     expect(screen.getByText('Browser connected to Twilio')).toBeVisible();
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+
+    jest
+      .mocked(getVoiceCallProgress)
+      .mockImplementation(async (_recordId, id) => ({
+        id,
+        status: 'ringing',
+        result: null,
+        answeredAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        observedAt: Date.now(),
+      }));
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(screen.getByText('Destination ringing…')).toBeVisible();
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+
+    const answeredAt = new Date(Date.now() + 2_000).toISOString();
+    jest
+      .mocked(getVoiceCallProgress)
+      .mockImplementation(async (_recordId, id) => ({
+        id,
+        status: 'answered',
+        result: null,
+        answeredAt,
+        endedAt: null,
+        durationSeconds: null,
+        observedAt: Date.now(),
+      }));
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(screen.getByText('Destination answered')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Minimize softphone' }));
     fireEvent.click(screen.getByRole('link', { name: 'Leads' }));
@@ -239,7 +283,7 @@ describe('VoiceCallProvider', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Messaging' }));
     await screen.findByRole('heading', { name: 'Inbox' });
     fireEvent.click(screen.getByRole('button', { name: 'Minimize softphone' }));
-    act(() => jest.advanceTimersByTime(3_000));
+    await act(async () => jest.advanceTimersByTime(3_000));
     expect(screen.getByRole('timer')).toHaveTextContent('00:03');
     act(() => {
       first.emit('reconnecting');
@@ -257,18 +301,40 @@ describe('VoiceCallProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hang up' }));
     expect(screen.getByText('Ending call…')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Hang up' })).toBeDisabled();
-    act(() => {
+    jest
+      .mocked(getVoiceCallProgress)
+      .mockImplementation(async (_recordId, id) => ({
+        id,
+        status: 'finished',
+        result: 'answered',
+        answeredAt: null,
+        endedAt: new Date().toISOString(),
+        durationSeconds: 4,
+        observedAt: Date.now(),
+      }));
+    await act(async () => {
       first.emit('disconnect');
     });
     expect(first.disconnect).toHaveBeenCalledTimes(1);
     expect(first.eventNames()).toEqual([]);
-    expect(screen.getByText('Call ended')).toBeVisible();
-    act(() => jest.advanceTimersByTime(3_000));
-    expect(screen.getByRole('timer')).toHaveTextContent('00:03');
+    expect(screen.getByText('Completed')).toBeVisible();
+    await act(async () => jest.advanceTimersByTime(3_000));
+    expect(screen.getByRole('timer')).toHaveTextContent('00:04');
     expect(device.destroy).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('link', { name: 'Other lead' }));
     const nextDialButton = await openPhone();
+    jest
+      .mocked(getVoiceCallProgress)
+      .mockImplementation(async (_recordId, id) => ({
+        id,
+        status: 'reserved',
+        result: null,
+        answeredAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        observedAt: Date.now(),
+      }));
     await act(async () => fireEvent.click(nextDialButton));
     expect(createVoiceSession).toHaveBeenLastCalledWith(
       anotherLead,
@@ -280,7 +346,7 @@ describe('VoiceCallProvider', () => {
     act(() => {
       second.emit('accept');
     });
-    expect(screen.getByRole('timer')).toHaveTextContent('00:00');
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Mute$/ })).toBeEnabled();
 
     view.unmount();
@@ -360,7 +426,7 @@ describe('VoiceCallProvider', () => {
     expect(screen.getByText('Original lead')).toBeVisible();
 
     jest.mocked(useVoiceLeadDetails).mockReturnValue({ status: 'unavailable' });
-    act(() => {
+    await act(async () => {
       first.emit('reconnecting');
     });
 

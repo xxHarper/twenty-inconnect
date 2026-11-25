@@ -10,6 +10,13 @@ import {
   UpgradeMigrationStatus,
 } from 'src/engine/core-modules/upgrade/upgrade-migration.entity';
 import { formatUpgradeErrorForStorage } from 'src/engine/core-modules/upgrade/utils/format-upgrade-error-for-storage.util';
+import { buildInstanceUpgradeMigrationRows } from 'src/engine/core-modules/upgrade/utils/build-instance-upgrade-migration-rows.util';
+import {
+  VOICE_HISTORY_NAMED_CURSOR_CONDITION,
+  VOICE_HISTORY_UPGRADE_NAME,
+  VOICE_HISTORY_WORKSPACE_CURSOR_CONDITION,
+  voiceHistoryCursorParameters,
+} from 'src/engine/core-modules/upgrade/utils/voice-history-upgrade-order.util';
 
 export type WorkspaceLastAttemptedCommand = {
   workspaceId: string;
@@ -85,24 +92,14 @@ export class UpgradeMigrationService {
         where: { name, workspaceId: IsNull() },
       });
 
-      const instanceRows = [
-        {
-          name,
-          status,
-          attempt: previousAttempts + 1,
-          executedByVersion,
-          workspaceId: null,
-          errorMessage,
-        },
-        ...workspaceIds.map((workspaceId) => ({
-          name,
-          status,
-          attempt: previousAttempts + 1,
-          executedByVersion,
-          workspaceId,
-          errorMessage,
-        })),
-      ];
+      const instanceRows = buildInstanceUpgradeMigrationRows({
+        name,
+        status,
+        previousAttempts,
+        executedByVersion,
+        workspaceIds,
+        errorMessage,
+      });
 
       for (const batch of chunk(
         instanceRows,
@@ -186,6 +183,10 @@ export class UpgradeMigrationService {
       .select(['migration.name', 'migration.status'])
       .andWhere('migration."isInitial" = false')
       .andWhere(
+        VOICE_HISTORY_NAMED_CURSOR_CONDITION,
+        voiceHistoryCursorParameters,
+      )
+      .andWhere(
         `migration.attempt = (
           SELECT MAX(sub.attempt)
           FROM core."upgradeMigration" sub
@@ -255,13 +256,17 @@ export class UpgradeMigrationService {
             "errorMessage",
             "createdAt",
             "isInitial"
-          FROM core."upgradeMigration"
-          WHERE "workspaceId" = ANY($1)
+          FROM core."upgradeMigration" candidate
+          WHERE "workspaceId" = ANY($1) AND ${VOICE_HISTORY_WORKSPACE_CURSOR_CONDITION}
           ORDER BY "workspaceId", name, attempt DESC
         ) latest_per_name
         ORDER BY latest_per_name."workspaceId", latest_per_name."createdAt" DESC
       `,
-      [workspaceIds],
+      [
+        workspaceIds,
+        VOICE_HISTORY_UPGRADE_NAME,
+        voiceHistoryCursorParameters.voiceHistoryFollowingSlow,
+      ],
     );
 
     const cursors = new Map<string, WorkspaceLastAttemptedCommand>();
@@ -350,6 +355,10 @@ export class UpgradeMigrationService {
       .where('migration."workspaceId" IS NULL')
       .andWhere('migration."isInitial" = false')
       .andWhere(
+        VOICE_HISTORY_NAMED_CURSOR_CONDITION,
+        voiceHistoryCursorParameters,
+      )
+      .andWhere(
         `migration.attempt = (
           SELECT MAX(sub.attempt)
           FROM core."upgradeMigration" sub
@@ -386,5 +395,39 @@ export class UpgradeMigrationService {
     }
 
     return result;
+  }
+
+  async getVoiceHistoryTrackingState(
+    provisionedWorkspaceIds: string[],
+  ): Promise<'completed' | 'pending' | 'failed'> {
+    const [row] = await this.upgradeMigrationRepository.manager.query<
+      { state: 'completed' | 'pending' | 'failed' }[]
+    >(
+      `WITH instance_attempt AS (
+        SELECT status, attempt, "isInitial", "createdAt" FROM core."upgradeMigration"
+        WHERE name = $1 AND "workspaceId" IS NULL ORDER BY attempt DESC LIMIT 1
+      ), older_workspace_attempts AS (
+        SELECT scoped.status, scoped.attempt, scoped."isInitial"
+        FROM core.workspace w
+        CROSS JOIN instance_attempt i
+        LEFT JOIN LATERAL (
+          SELECT status, attempt, "isInitial" FROM core."upgradeMigration"
+          WHERE name = $1 AND "workspaceId" = w.id ORDER BY attempt DESC LIMIT 1
+        ) scoped ON true
+        WHERE w.id = ANY($2::uuid[]) AND w."createdAt" <= i."createdAt"
+      )
+      SELECT CASE
+        WHEN (SELECT status FROM instance_attempt) = 'failed'
+          OR EXISTS (SELECT 1 FROM older_workspace_attempts WHERE status = 'failed') THEN 'failed'
+        WHEN (SELECT status = 'completed' AND NOT "isInitial" FROM instance_attempt) IS TRUE
+          AND NOT EXISTS (SELECT 1 FROM older_workspace_attempts
+            WHERE status IS DISTINCT FROM 'completed' OR "isInitial" IS DISTINCT FROM false
+              OR attempt IS DISTINCT FROM (SELECT attempt FROM instance_attempt)) THEN 'completed'
+        ELSE 'pending'
+      END AS state`,
+      [VOICE_HISTORY_UPGRADE_NAME, provisionedWorkspaceIds],
+    );
+
+    return row?.state ?? 'pending';
   }
 }
