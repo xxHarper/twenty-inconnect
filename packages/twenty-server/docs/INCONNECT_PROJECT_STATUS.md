@@ -38,6 +38,17 @@ estado de proveedor `canceled` y la captura directa del HTTP 409 del
 intento simultáneo.
 [Evidencia de la ventana](INCONNECT_VOICE_V1_2.md#ventana-supervisada-del-25-de-noviembre-de-2026)
 
+**Voice V1.3 y UI Polish cerrados.** El operador reportó Keypad y los
+selectores de audio visibles durante una llamada real en DEV-LOCAL-R1.
+El usuario aprobó el refinamiento tras revisar las capturas simuladas.
+Quedan pendientes la recepción remota de DTMF, la compatibilidad con
+hardware y navegadores no probados y la revisión del refinamiento en una
+llamada real. La ventana cerró con HTTP 200 autenticado `disabled` a las
+11:11:05. A las 11:39:29 se reconfirmó `false` en el proceso de Nest y
+`app.env`. PHYS-A0 sigue **NO-GO**. Voice V1.4 — Global Dialer & Recent
+Calls queda pendiente del commit manual del usuario.
+[Cierre de Voice V1.3 y UI Polish](INCONNECT_VOICE_V1_3.md)
+
 ## Checkpoint del 24 de noviembre de 2026
 
 **Voice V0 de salida quedó validado de extremo a extremo en DEV-LOCAL-R1.**
@@ -251,7 +262,7 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 | WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
 | F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | Voice V1.2 con historial persistente, ciclo del tramo destino, reconciliación y exclusión backend entre pestañas. | Validado funcionalmente en DEV-LOCAL-R1. Seis intentos y 139 s confirmados. Bloqueo observado sin una cuarta llamada. Voice sigue en `DISABLED`. | Reproducción controlada de `No answer` y `canceled`, y captura del HTTP 409. Producción sin autorización. [Voice V1.2](INCONNECT_VOICE_V1_2.md). |
+| Telephony REQ-TEL-001 | Voice V1.2 con historial persistente, ciclo del tramo destino, reconciliación y exclusión backend entre pestañas. Voice V1.3 añade teclado DTMF y controles locales de audio. UI Polish aprobado por el usuario a partir de capturas simuladas. | V1.2 validado funcionalmente en DEV-LOCAL-R1. El operador reportó una prueba satisfactoria de V1.3 en navegador. Voice Outbound permanece en `DISABLED`. | Recepción remota de DTMF, compatibilidad con hardware y navegadores no probados y revisión de UI Polish en llamada real. V1.4 pendiente del commit manual. Se conservan los límites documentados de V1.2. Producción sin autorización. [Voice V1.2](INCONNECT_VOICE_V1_2.md) · [Voice V1.3](INCONNECT_VOICE_V1_3.md). |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 

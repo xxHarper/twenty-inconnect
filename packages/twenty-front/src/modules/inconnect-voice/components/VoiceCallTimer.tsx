@@ -31,5 +31,9 @@ export const VoiceCallTimer = ({
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const seconds = String(elapsed % 60).padStart(2, '0');
 
-  return <span role="timer">{t`Connected time: ${minutes}:${seconds}`}</span>;
+  return (
+    <span role="timer" aria-label={t`Connected time: ${minutes}:${seconds}`}>
+      {minutes}:{seconds}
+    </span>
+  );
 };

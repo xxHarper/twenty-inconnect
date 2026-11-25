@@ -383,7 +383,8 @@ usar ese mismo número. Cualquier destino distinto requiere autorización.
 
 ## Roadmap
 
-- V1.3 incorpora DTMF y selección de dispositivos.
+- [Voice V1.3](INCONNECT_VOICE_V1_3.md) incorpora DTMF y selección de
+  dispositivos. El informe de V1.3 recoge el piloto del operador y sus límites.
 - V2 incorpora entrada, disponibilidad, identificación de Leads y Round
   Robin general y por Commercial Team.
 - V3 incorpora transferencias directas y asistidas, espera y grabaciones.

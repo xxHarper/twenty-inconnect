@@ -13,9 +13,12 @@ import { useLeadVoiceCall } from '@/inconnect-voice/hooks/useLeadVoiceCall';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 import { type PropsWithChildren, useState } from 'react';
 
-type AuthenticatedVoiceCallProviderProps = PropsWithChildren;
+type AuthenticatedVoiceCallProviderProps = PropsWithChildren<{
+  audioScope: string;
+}>;
 
 const AuthenticatedVoiceCallProvider = ({
+  audioScope,
   children,
 }: AuthenticatedVoiceCallProviderProps) => {
   const [selection, setSelection] = useState<{
@@ -23,7 +26,7 @@ const AuthenticatedVoiceCallProvider = ({
     revision: number;
   } | null>(null);
   const [minimized, setMinimized] = useState(false);
-  const voice = useLeadVoiceCall(selection !== null);
+  const voice = useLeadVoiceCall(selection !== null, audioScope);
 
   const open = (target: VoiceLeadTarget) => {
     setMinimized(false);
@@ -80,6 +83,7 @@ export const VoiceCallProvider = ({ children }: VoiceCallProviderProps) => {
   return (
     <AuthenticatedVoiceCallProvider
       key={`${currentWorkspace.id}:${currentUser.id}:${currentWorkspaceMember.id}`}
+      audioScope={`${currentWorkspace.id}:${currentUser.id}`}
     >
       {children}
     </AuthenticatedVoiceCallProvider>

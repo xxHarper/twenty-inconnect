@@ -28,8 +28,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
-import { Device } from '@twilio/voice-sdk';
+import { Device, Logger } from '@twilio/voice-sdk';
 import { EventEmitter } from 'events';
 import { createStore, Provider } from 'jotai';
 import { useContext } from 'react';
@@ -60,6 +61,7 @@ jest.mock('@twilio/voice-sdk', () => ({
     },
   },
   Device: jest.fn(),
+  Logger: { setLevel: jest.fn() },
 }));
 
 const destination = '+12015550123';
@@ -86,8 +88,13 @@ const Lead = ({ recordId }: { recordId: string }) => {
 const makeCall = () => {
   const events = new EventEmitter();
   let muted = false;
+  let status = 'connecting';
   return Object.assign(events, {
-    status: () => 'connecting',
+    status: () => status,
+    sendDigits: jest.fn(),
+    setStatus: (next: string) => {
+      status = next;
+    },
     isMuted: () => muted,
     mute: jest.fn((value: boolean) => {
       muted = value;
@@ -272,6 +279,14 @@ describe('VoiceCallProvider', () => {
     expect(screen.getByText('Destination answered')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Minimize softphone' }));
+    expect(screen.getByText('Original lead')).toBeVisible();
+    const compactControls = within(
+      screen.getByRole('group', { name: 'Call controls' }),
+    );
+    expect(compactControls.getAllByRole('button')).toEqual([
+      compactControls.getByRole('button', { name: 'Mute' }),
+      compactControls.getByRole('button', { name: 'Hang up' }),
+    ]);
     fireEvent.click(screen.getByRole('link', { name: 'Leads' }));
     await screen.findByRole('heading', { name: 'Lead list' });
     fireEvent.click(screen.getByRole('link', { name: 'Other lead' }));
@@ -353,6 +368,168 @@ describe('VoiceCallProvider', () => {
     expect(second.eventNames()).toEqual([]);
     expect(device.listenerCount('error')).toBe(0);
     expect(device.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends only clicked tones to the authorized open call and keeps the keypad across routes', async () => {
+    jest.useFakeTimers();
+    const { first, device } = setup();
+    const dialButton = await openPhone();
+    await act(async () => fireEvent.click(dialButton));
+    const keypad = screen.getByRole('button', { name: 'Keypad' });
+    expect(Logger.setLevel).toHaveBeenCalledWith('silent', false);
+    expect(keypad).toBeDisabled();
+    expect(keypad).toHaveAttribute('aria-pressed', 'false');
+    first.setStatus('open');
+    act(() => first.emit('accept'));
+    expect(keypad).toBeDisabled();
+
+    jest
+      .mocked(getVoiceCallProgress)
+      .mockImplementation(async (_recordId, id) => ({
+        id,
+        status: 'answered',
+        result: null,
+        answeredAt: new Date().toISOString(),
+        endedAt: null,
+        durationSeconds: null,
+        observedAt: Date.now(),
+      }));
+    await act(async () => jest.advanceTimersByTime(2_000));
+    const controls = within(
+      screen.getByRole('group', { name: 'Call controls' }),
+    );
+    const audio = controls.getByRole('button', { name: 'Audio' });
+    const hangUp = controls.getByRole('button', { name: 'Hang up' });
+    expect(controls.getAllByRole('button')).toEqual([
+      controls.getByRole('button', { name: 'Mute' }),
+      keypad,
+      audio,
+      hangUp,
+    ]);
+    fireEvent.click(keypad);
+    expect(keypad).toHaveAttribute('aria-pressed', 'true');
+    expect(keypad).toHaveAttribute('aria-controls');
+    fireEvent.click(audio);
+    expect(audio).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: 'Microphone' })).toBeVisible();
+    expect(
+      screen.queryByRole('group', { name: 'Phone keypad' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(audio);
+    expect(audio).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      screen.queryByRole('combobox', { name: 'Microphone' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(keypad);
+    expect(controls.getByRole('button', { name: 'Hang up' })).toBe(hangUp);
+    for (const digit of '0123456789*#') {
+      const name = digit === '*' ? 'Star' : digit === '#' ? 'Pound' : digit;
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+    expect(first.sendDigits.mock.calls).toEqual(
+      [...'0123456789*#'].map((digit) => [digit]),
+    );
+
+    fireEvent.keyDown(document.body, { key: '8' });
+    fireEvent.click(screen.getByRole('link', { name: 'Leads' }));
+    expect(screen.getByRole('group', { name: 'Phone keypad' })).toBeVisible();
+    expect(first.sendDigits).toHaveBeenCalledTimes(12);
+
+    first.sendDigits.mockImplementationOnce(() => {
+      throw new Error('send failed');
+    });
+    fireEvent.click(screen.getByRole('button', { name: '1' }));
+    expect(
+      screen.getByText('The tone could not be sent. Try again.'),
+    ).toBeVisible();
+    first.sendDigits.mockImplementationOnce(() => {
+      first.emit('error', new Error('signaling disconnected'));
+    });
+    fireEvent.click(screen.getByRole('button', { name: '2' }));
+    expect(first.disconnect).not.toHaveBeenCalled();
+    expect(device.destroy).not.toHaveBeenCalled();
+
+    act(() => first.emit('reconnecting'));
+    expect(screen.getByRole('button', { name: '1' })).toBeDisabled();
+    act(() => first.emit('reconnected'));
+    expect(screen.getByRole('button', { name: '1' })).toBeEnabled();
+    first.setStatus('closed');
+    fireEvent.click(screen.getByRole('button', { name: '1' }));
+    expect(first.sendDigits).toHaveBeenCalledTimes(14);
+    first.setStatus('open');
+    fireEvent.click(keypad);
+    expect(keypad).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(keypad);
+    expect(
+      screen.queryByText('The tone could not be sent. Try again.'),
+    ).not.toBeInTheDocument();
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Hang up' })),
+    );
+    expect(
+      screen.queryByRole('group', { name: 'Phone keypad' }),
+    ).not.toBeInTheDocument();
+    expect(createVoiceSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers audio setup before dialing and keeps the supported control usable', async () => {
+    const microphone: MediaDeviceInfo = {
+      kind: 'audioinput',
+      deviceId: 'usb-mic',
+      label: 'USB mic',
+      groupId: 'fixture',
+      toJSON: () => ({}),
+    };
+    const stop = jest.fn();
+    const getUserMedia = jest.fn().mockResolvedValue({
+      getTracks: () => [{ stop }],
+    });
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia,
+        enumerateDevices: jest.fn().mockResolvedValue([microphone]),
+      },
+    });
+    const { device } = setup();
+    const sdkAudio = Object.assign(new EventEmitter(), {
+      availableInputDevices: new Map([[microphone.deviceId, microphone]]),
+      availableOutputDevices: new Map(),
+      speakerDevices: { get: () => new Set() },
+      isOutputSelectionSupported: false,
+      setInputDevice: jest.fn().mockResolvedValue(undefined),
+      unsetInputDevice: jest.fn().mockResolvedValue(undefined),
+    });
+    Object.assign(device, { audio: sdkAudio });
+
+    const dialButton = await openPhone();
+    fireEvent.click(screen.getByRole('button', { name: 'Audio' }));
+    expect(
+      await screen.findByRole('option', { name: 'USB mic' }),
+    ).toBeVisible();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('combobox', { name: 'Audio output' }),
+    ).toBeDisabled();
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Allow microphone access' }),
+      ),
+    );
+    expect(stop).toHaveBeenCalledTimes(1);
+    const input = screen.getByRole('combobox', { name: 'Microphone' });
+    fireEvent.change(input, { target: { value: microphone.deviceId } });
+    expect(input).toHaveValue(microphone.deviceId);
+    expect(sdkAudio.setInputDevice).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(dialButton));
+    expect(sdkAudio.setInputDevice).toHaveBeenCalledWith(microphone.deviceId);
+    expect(device.connect).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Hang up' })),
+    );
+    expect(sdkAudio.unsetInputDevice).toHaveBeenCalledTimes(1);
+    expect(input).toHaveValue(microphone.deviceId);
   });
 
   const openPhoneDuringCall = async () => {

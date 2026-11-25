@@ -16,6 +16,7 @@ jest.mock('@/inconnect-voice/utils/voiceApi', () => ({
 jest.mock('@twilio/voice-sdk', () => ({
   Call: { State: { Closed: 'closed', Open: 'open', Ringing: 'ringing' } },
   Device: jest.fn(),
+  Logger: { setLevel: jest.fn() },
 }));
 
 const recordId = '00000000-0000-4000-8000-000000000001';

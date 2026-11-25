@@ -1,4 +1,7 @@
-import { VoiceCallTimer } from '@/inconnect-voice/components/VoiceCallTimer';
+import {
+  VoiceSoftphoneView,
+  type VoiceStatusTone,
+} from '@/inconnect-voice/components/VoiceSoftphoneView';
 import { type VoiceLeadTarget } from '@/inconnect-voice/contexts/VoiceCallContext';
 import { type useLeadVoiceCall } from '@/inconnect-voice/hooks/useLeadVoiceCall';
 import { useVoiceResultLabel } from '@/inconnect-voice/hooks/useVoiceResultLabel';
@@ -8,79 +11,10 @@ import {
 } from '@/inconnect-voice/hooks/useVoiceLeadDetails';
 import { objectMetadataItemFamilySelector } from '@/object-metadata/states/objectMetadataItemFamilySelector';
 import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/EnrichedObjectMetadataItem';
-import { InputHint } from '@/ui/input/components/InputHint';
-import { RootStackingContextZIndices } from '@/ui/layout/constants/RootStackingContextZIndices';
 import { useIsMobile } from '@/ui/utilities/responsive/hooks/useIsMobile';
 import { useAtomFamilySelectorValue } from '@/ui/utilities/state/jotai/hooks/useAtomFamilySelectorValue';
-import { styled } from '@linaria/react';
 import { useLingui } from '@lingui/react/macro';
 import { useLayoutEffect } from 'react';
-import {
-  IconChevronDown,
-  IconChevronUp,
-  IconPhone,
-  IconX,
-} from 'twenty-ui/icon';
-import { Button, IconButton } from 'twenty-ui/input';
-import { themeCssVariables } from 'twenty-ui/theme-constants';
-
-const StyledPanel = styled.aside`
-  background: ${themeCssVariables.background.primary};
-  border: 1px solid ${themeCssVariables.border.color.medium};
-  border-radius: ${themeCssVariables.border.radius.md};
-  bottom: ${themeCssVariables.spacing[4]};
-  box-shadow: ${themeCssVariables.boxShadow.strong};
-  box-sizing: border-box;
-  color: ${themeCssVariables.font.color.primary};
-  display: flex;
-  flex-direction: column;
-  gap: ${themeCssVariables.spacing[2]};
-  max-width: calc(100% - 32px);
-  padding: ${themeCssVariables.spacing[3]};
-  position: fixed;
-  right: ${themeCssVariables.spacing[4]};
-  width: 320px;
-  z-index: ${RootStackingContextZIndices.VoiceSoftphone};
-
-  &[data-minimized='true'] {
-    width: fit-content;
-  }
-
-  &[data-mobile='true'] {
-    bottom: calc(64px + env(safe-area-inset-bottom));
-  }
-
-  @media print {
-    display: none;
-  }
-`;
-
-const StyledHeader = styled.div`
-  align-items: center;
-  display: flex;
-  gap: ${themeCssVariables.spacing[2]};
-  justify-content: space-between;
-`;
-
-const StyledActions = styled.div`
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: ${themeCssVariables.spacing[2]};
-  justify-content: flex-end;
-`;
-
-const StyledDetails = styled.div`
-  display: grid;
-  gap: ${themeCssVariables.spacing[1]};
-  overflow-wrap: anywhere;
-`;
-
-const StyledTimer = styled.div`
-  color: ${themeCssVariables.font.color.secondary};
-  font-size: ${themeCssVariables.font.size.sm};
-  font-variant-numeric: tabular-nums;
-`;
 
 type VoiceSoftphoneProps = {
   voice: ReturnType<typeof useLeadVoiceCall>;
@@ -109,10 +43,6 @@ const VoiceSoftphoneControls = ({
   const evidence = state === 'unauthorized' ? null : voice.providerProgress;
   const provider = evidence?.progress;
   const connectedAt = evidence?.connectedAt ?? null;
-  const title = t`Softphone`;
-  const muteLabel = muted ? t`Unmute` : t`Mute`;
-  const hangUpLabel = t`Hang up`;
-  const dialLabel = t`Place call`;
   const availabilityLabels = {
     loading: t`Checking Voice availability…`,
     ready: t`Available`,
@@ -133,6 +63,8 @@ const VoiceSoftphoneControls = ({
     disconnected: t`Call ended`,
     'microphone-unavailable': t`Microphone access is unavailable in this browser.`,
     'microphone-denied': t`Microphone access was denied.`,
+    'microphone-missing': t`No microphone is available.`,
+    'microphone-failed': t`The microphone could not be opened.`,
     expired: t`The Voice session expired. Start a new call to get a new session.`,
     unauthorized: t`Voice authorization could not be verified for this lead.`,
     'destination-changed': t`The authorized phone number changed. Reopen the softphone to review it.`,
@@ -163,6 +95,7 @@ const VoiceSoftphoneControls = ({
     (!destination || details.number === destination)
       ? details
       : null;
+  const canSendDigit = voice.canSendDigit && authorizedDetails !== null;
   const providerStatus =
     provider?.status === 'finished' && provider.result
       ? voiceLabels[
@@ -194,118 +127,81 @@ const VoiceSoftphoneControls = ({
         )
       : endedAt;
 
+  const tone: VoiceStatusTone =
+    state === 'reconnecting'
+      ? 'warning'
+      : state === 'unauthorized' ||
+          (!busy &&
+            (availability === 'unavailable' ||
+              availability === 'not-configured')) ||
+          (availability === 'ready' &&
+            (failure || provider?.result === 'failed'))
+        ? 'danger'
+        : state === 'ending'
+          ? 'neutral'
+          : busy && provider?.status === 'answered'
+            ? 'connected'
+            : busy && (provider?.status === 'ringing' || state === 'ringing')
+              ? 'waiting'
+              : 'neutral';
+  const hasTimer = connectedAt !== null || provider?.durationSeconds != null;
+
   return (
-    <StyledPanel
-      aria-label={title}
-      data-mobile={isMobile}
-      data-minimized={minimized}
-    >
-      <StyledHeader>
-        {!minimized && <strong>{title}</strong>}
-        {minimized && <InputHint role="status">{status}</InputHint>}
-        <StyledActions>
-          {(busy || minimized) && (
-            <IconButton
-              variant="tertiary"
-              size="small"
-              ariaLabel={
-                minimized ? t`Expand softphone` : t`Minimize softphone`
-              }
-              Icon={minimized ? IconChevronUp : IconChevronDown}
-              onClick={onToggleMinimized}
-            />
-          )}
-          {!busy && (
-            <IconButton
-              variant="tertiary"
-              size="small"
-              ariaLabel={t`Close softphone`}
-              Icon={IconX}
-              onClick={onClose}
-            />
-          )}
-        </StyledActions>
-      </StyledHeader>
-      {!minimized && (
-        <>
-          {authorizedDetails && (
-            <StyledDetails>
-              {authorizedDetails.name && (
-                <strong>{authorizedDetails.name}</strong>
-              )}
-              <span>
-                {t`Destination`} {authorizedDetails.number}
-              </span>
-            </StyledDetails>
-          )}
-          <InputHint role="status">{status}</InputHint>
-          {details && details.status !== 'valid' && (
-            <InputHint danger={details.status !== 'loading'}>
-              {detailLabels[details.status]}
-            </InputHint>
-          )}
-          {failureStage && (
-            <InputHint>
-              {failureCode === undefined
-                ? failureStage
-                : t`${failureStage} (code ${failureCode})`}
-            </InputHint>
-          )}
-        </>
-      )}
-      {(connectedAt !== null || provider?.durationSeconds != null) && (
-        <StyledTimer>
-          <VoiceCallTimer
-            key={provider?.id}
-            connectedAt={connectedAt}
-            endedAt={providerEndedAt}
-            durationSeconds={provider?.durationSeconds}
-          />
-        </StyledTimer>
-      )}
-      {provider &&
-        (provider.status === 'answered' || provider.result === 'answered') &&
+    <VoiceSoftphoneView
+      minimized={minimized}
+      mobile={isMobile}
+      busy={busy}
+      ending={state === 'ending'}
+      muted={muted}
+      canMute={canMute}
+      canSendDigit={canSendDigit}
+      canSwitchAudio={state === 'active'}
+      callId={provider?.id}
+      lead={authorizedDetails}
+      status={status}
+      tone={tone}
+      detailHint={
+        details && details.status !== 'valid'
+          ? {
+              text: detailLabels[details.status],
+              danger: details.status !== 'loading',
+            }
+          : undefined
+      }
+      failureLabel={
+        failureStage &&
+        (failureCode === undefined
+          ? failureStage
+          : t`${failureStage} (code ${failureCode})`)
+      }
+      timer={
+        hasTimer
+          ? {
+              connectedAt,
+              endedAt: providerEndedAt,
+              durationSeconds: provider?.durationSeconds,
+            }
+          : undefined
+      }
+      awaitingConnectedTime={
+        (provider?.status === 'answered' || provider?.result === 'answered') &&
         connectedAt === null &&
-        provider.durationSeconds === null && (
-          <InputHint>{t`Connected time pending confirmation`}</InputHint>
-        )}
-      <StyledActions>
-        {busy ? (
-          <>
-            <Button
-              size="small"
-              title={muteLabel}
-              ariaLabel={muteLabel}
-              variant="secondary"
-              disabled={!canMute}
-              onClick={toggleMute}
-            />
-            <Button
-              size="small"
-              title={hangUpLabel}
-              ariaLabel={hangUpLabel}
-              accent="danger"
-              disabled={state === 'ending'}
-              onClick={hangUp}
-            />
-          </>
-        ) : (
-          !minimized && (
-            <Button
-              size="small"
-              title={dialLabel}
-              ariaLabel={dialLabel}
-              Icon={IconPhone}
-              disabled={!authorizedDetails}
-              onClick={() => {
-                if (authorizedDetails)
-                  void placeCall(target.recordId, authorizedDetails.number);
-              }}
-            />
-          )
-        )}
-      </StyledActions>
-    </StyledPanel>
+        provider.durationSeconds === null
+      }
+      audioSettings={voice.audioSettings}
+      onToggleMinimized={onToggleMinimized}
+      onClose={onClose}
+      onToggleMute={toggleMute}
+      onHangUp={hangUp}
+      onDial={
+        authorizedDetails
+          ? () => void placeCall(target.recordId, authorizedDetails.number)
+          : undefined
+      }
+      onDigit={voice.sendDigit}
+      onSelectAudioDevice={voice.selectAudioDevice}
+      onRequestMicrophoneAccess={voice.requestMicrophoneAccess}
+    />
   );
 };
 

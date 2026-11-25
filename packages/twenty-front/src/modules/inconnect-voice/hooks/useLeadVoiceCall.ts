@@ -5,6 +5,11 @@ import {
   VoiceApiError,
 } from '@/inconnect-voice/utils/voiceApi';
 import { useVoiceProviderProgress } from '@/inconnect-voice/hooks/useVoiceProviderProgress';
+import { createVoiceAudio } from '@/inconnect-voice/utils/createVoiceAudio';
+import {
+  getVoiceAudioIssue,
+  type VoiceAudioSettings,
+} from '@/inconnect-voice/utils/voiceAudioPreferences';
 import { type Call, type Device } from '@twilio/voice-sdk';
 import { atom, useStore } from 'jotai';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
@@ -22,6 +27,8 @@ export type VoiceCallState =
   | 'disconnected'
   | 'microphone-unavailable'
   | 'microphone-denied'
+  | 'microphone-missing'
+  | 'microphone-failed'
   | 'expired'
   | 'unauthorized'
   | 'destination-changed'
@@ -69,6 +76,10 @@ type VoiceAttempt = {
   call?: Call;
   unbind?: () => void;
   ending?: boolean;
+  sdkOpen?: boolean;
+  intentId?: string;
+  sendingDigit?: boolean;
+  digitFailed?: boolean;
 };
 
 type VoiceDevice = {
@@ -113,10 +124,16 @@ const getFailureState = (error: unknown): VoiceCallState => {
   return 'error';
 };
 
-export const useLeadVoiceCall = (isOpen: boolean) => {
+export const useLeadVoiceCall = (isOpen: boolean, audioScope = '') => {
   const [availability, setAvailability] =
     useState<VoiceAvailability>('loading');
   const [snapshot, setSnapshot] = useState<VoiceCallSnapshot>(idleCall);
+  const [audioSettings, setAudioSettings] = useState<VoiceAudioSettings | null>(
+    null,
+  );
+  const [audio] = useState(() =>
+    createVoiceAudio(audioScope, setAudioSettings),
+  );
   const [tracking, setTracking] = useState<{
     callId: string;
     recordId: string;
@@ -151,17 +168,19 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
   const release = useCallback(
     (destroyDevice: boolean) => {
       const { attempt, device } = readRuntime();
-      writeRuntime({ attempt: null, device: destroyDevice ? null : device });
+      writeRuntime({ attempt: null });
       window.clearTimeout(attempt?.timeout);
       attempt?.abort.abort();
       attempt?.unbind?.();
 
-      if (destroyDevice && device) {
+      const retireAudioDevice = audio.end(destroyDevice);
+      if ((destroyDevice || retireAudioDevice) && device) {
+        writeRuntime({ device: null });
         device.unbind();
         device.instance.destroy();
       }
     },
-    [readRuntime, writeRuntime],
+    [audio, readRuntime, writeRuntime],
   );
 
   useLayoutEffect(() => {
@@ -244,6 +263,10 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
     };
   }, [isOpen, readRuntime, revokeAuthorization, writeRuntime]);
 
+  useEffect(() => {
+    if (isOpen) return audio.watch();
+  }, [audio, isOpen]);
+
   const resetCall = () => {
     if (readRuntime().attempt) return false;
     setSnapshot(idleCall);
@@ -299,6 +322,41 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
     }
   };
 
+  const activeProgress =
+    providerProgress?.progress.id === displayedCallId ? providerProgress : null;
+  const canSendDigit =
+    availability === 'ready' &&
+    snapshot.state === 'active' &&
+    activeProgress?.progress.status === 'answered';
+
+  const sendDigit = (digit: string) => {
+    const { attempt, availability } = readRuntime();
+    if (
+      digit.length !== 1 ||
+      !'0123456789*#'.includes(digit) ||
+      availability !== 'ready' ||
+      !canSendDigit ||
+      !attempt?.call ||
+      attempt.intentId !== activeProgress.progress.id ||
+      attempt.ending ||
+      !attempt.sdkOpen ||
+      attempt.call.status() !== 'open'
+    ) {
+      return 'unavailable';
+    }
+    attempt.sendingDigit = true;
+    attempt.digitFailed = false;
+    try {
+      attempt.call.sendDigits(digit);
+      return attempt.digitFailed ? 'failed' : 'sent';
+    } catch {
+      return 'failed';
+    } finally {
+      attempt.sendingDigit = false;
+      attempt.digitFailed = false;
+    }
+  };
+
   const placeCall = async (recordId: string, expectedDestination: string) => {
     if (
       !readRuntime().mounted ||
@@ -332,6 +390,8 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
     };
     const connectAudio = () => {
       if (!isCurrent() || attempt.ending) return;
+      attempt.sdkOpen = true;
+      audio.refreshEffective();
       window.clearTimeout(attempt.timeout);
       const connectedAt = performance.now();
       setSnapshot((previous) => ({
@@ -356,21 +416,23 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
 
     try {
       beginStage('microphone', 'checking-microphone');
-      // The SDK acquires its own input stream when it connects.
-      const microphone = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      for (const track of microphone.getTracks()) track.stop();
+      await audio.checkMicrophone();
       if (!isCurrent()) return;
 
       beginStage('sdk', 'loading-sdk');
-      const { Call: TwilioCall, Device: TwilioDevice } =
-        await import('@twilio/voice-sdk');
+      const {
+        Call: TwilioCall,
+        Device: TwilioDevice,
+        Logger,
+      } = await import('@twilio/voice-sdk');
       if (!isCurrent()) return;
+      // The SDK's debug logger receives the original DTMF value.
+      Logger.setLevel('silent', false);
 
       beginStage('session', 'preparing');
       const session = await createVoiceSession(recordId, attempt.abort.signal);
       if (!isCurrent()) return;
+      attempt.intentId = session.intentId;
       setTracking({
         callId: session.intentId,
         recordId,
@@ -383,13 +445,26 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
         return finish('expired', false);
 
       attempt.stage = 'sdk';
-      let device = readRuntime().device?.instance;
-      if (device) {
+      let retained = readRuntime().device;
+      if (retained && !(await audio.canReuseDevice())) {
+        if (!isCurrent()) return;
+        audio.end(true);
+        writeRuntime({ device: null });
+        retained.unbind();
+        retained.instance.destroy();
+        retained = null;
+      }
+      if (!isCurrent()) return;
+      let device: Device;
+      if (retained) {
         // Each explicitly authorized dial supplies a fresh token before connecting.
+        device = retained.instance;
         device.updateToken(session.token);
       } else {
+        const capture = audio.createCapture();
         const instance = new TwilioDevice(session.token, {
           enableImprovedSignalingErrorPrecision: true,
+          getUserMedia: capture.getUserMedia,
           logLevel: 'silent',
         });
         const onError = (error: unknown, call?: Call) => {
@@ -399,7 +474,8 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
             current?.stage === 'connection' &&
             (!call || !current.call || call === current.call)
           ) {
-            fail(error);
+            if (current.sendingDigit) current.digitFailed = true;
+            else fail(error);
           }
         };
         instance.on('error', onError);
@@ -409,12 +485,16 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
             unbind: () => instance.off('error', onError),
           },
         });
+        audio.attach(instance, capture);
         device = instance;
       }
 
       const remaining = session.intentExpiresAt - Date.now();
       if (remaining <= 0) return finish('expired', false);
       beginStage('connection', 'connecting', remaining);
+      await audio.prepare(attempt.abort.signal, () => attempt.call);
+      if (!isCurrent()) return;
+      if (session.intentExpiresAt <= Date.now()) return finish('expired', true);
       const call = await device.connect({
         params: { intentId: session.intentId },
       });
@@ -424,13 +504,21 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
       }
 
       attempt.call = call;
-      const onRinging = () => update('ringing');
-      const onReconnecting = () => update('reconnecting');
+      const onRinging = () => {
+        attempt.sdkOpen = false;
+        update('ringing');
+      };
+      const onReconnecting = () => {
+        attempt.sdkOpen = false;
+        update('reconnecting');
+      };
       const onEnd = () => {
         if (isCurrent()) finish('disconnected', false);
       };
       const onError = (error: unknown) => {
-        if (isCurrent()) fail(error);
+        if (!isCurrent()) return;
+        if (attempt.sendingDigit) attempt.digitFailed = true;
+        else fail(error);
       };
       const onMute = (muted: boolean) => {
         if (isCurrent()) setSnapshot((previous) => ({ ...previous, muted }));
@@ -463,17 +551,31 @@ export const useLeadVoiceCall = (isOpen: boolean) => {
       else if (status === TwilioCall.State.Ringing) onRinging();
       else if (status === TwilioCall.State.Reconnecting) onReconnecting();
     } catch (error) {
-      if (isCurrent()) fail(error);
+      if (!isCurrent()) return;
+      if (attempt.stage === 'microphone') {
+        const issue = getVoiceAudioIssue(error);
+        const state = {
+          denied: 'microphone-denied',
+          unavailable: 'microphone-missing',
+          unsupported: 'microphone-unavailable',
+          failed: 'microphone-failed',
+        } as const;
+        finish(state[issue], false, { stage: 'microphone' });
+      } else {
+        fail(error);
+      }
     }
   };
 
   return {
     availability,
     snapshot,
-    providerProgress:
-      providerProgress?.progress.id === displayedCallId
-        ? providerProgress
-        : null,
+    providerProgress: activeProgress,
+    audioSettings: audioSettings ?? audio.getSettings(),
+    selectAudioDevice: audio.select,
+    requestMicrophoneAccess: audio.checkMicrophone,
+    canSendDigit,
+    sendDigit,
     hasProviderAttempt: displayedCallId !== null,
     resetCall,
     hangUp,

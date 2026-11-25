@@ -43,7 +43,7 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
 
 ### REQ-TEL-001 — INCONNECT Telephony / Softphone
 
-**Requisito confirmado. Estado al 24 de noviembre de 2026.**
+**Requisito confirmado. Estado al 25 de noviembre de 2026.**
 
 - **Voice V0 de salida validado en DEV-LOCAL-R1.** El operador autorizado
   llamó desde el botón **Llamar** de un Lead al único destino aprobado con
@@ -57,6 +57,14 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
   desde otra pestaña. Quedan la reproducción controlada de `No answer` y
   `canceled`, y la captura del HTTP 409.
   [Voice V1.2](INCONNECT_VOICE_V1_2.md)
+- **Voice V1.3 y UI Polish cerrados.** El operador reportó Keypad y los
+  selectores de audio visibles durante una llamada real en DEV-LOCAL-R1.
+  El usuario aprobó el diseño a partir de capturas simuladas. Quedan
+  pendientes la recepción remota de DTMF, la compatibilidad con hardware
+  y navegadores no probados y la revisión visual durante una llamada real.
+  Voice V1.4 — Global Dialer & Recent Calls queda pendiente del commit
+  manual de esta entrega.
+  [Voice V1.3](INCONNECT_VOICE_V1_3.md)
 - **Futuro opcional · Answering Machine Detection (AMD).** Evaluar la
   detección de persona y contestador, con resultado indeterminado cuando
   corresponda. Diseñar el colgado automático configurable y la clasificación
