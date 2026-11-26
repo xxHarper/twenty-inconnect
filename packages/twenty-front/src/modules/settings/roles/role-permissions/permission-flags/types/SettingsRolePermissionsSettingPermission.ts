@@ -7,6 +7,7 @@ export type SettingsRolePermissionsSettingPermission = {
   description: string;
   Icon: IconComponent;
   isToolPermission?: boolean;
+  requiresExplicitGrant?: boolean;
   isRelevantForAgents?: boolean;
   isRelevantForApiKeys?: boolean;
   isRelevantForUsers?: boolean;

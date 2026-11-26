@@ -1,4 +1,5 @@
 import {
+  createManualVoiceSession,
   createVoiceSession,
   getVoiceStatus,
   type VoiceAvailability,
@@ -136,10 +137,10 @@ export const useLeadVoiceCall = (isOpen: boolean, audioScope = '') => {
   );
   const [tracking, setTracking] = useState<{
     callId: string;
-    recordId: string;
+    recordId: string | null;
+    manual?: true;
     deadline: number;
   } | null>(null);
-  const providerProgress = useVoiceProviderProgress(tracking, snapshot.busy);
   const [displayedCallId, setDisplayedCallId] = useState<string | null>(null);
   const [runtimeAtom] = useState(() =>
     atom<{
@@ -221,6 +222,11 @@ export const useLeadVoiceCall = (isOpen: boolean, audioScope = '') => {
       release(true);
     }
   }, [finish, readRuntime, release]);
+  const providerProgress = useVoiceProviderProgress(
+    tracking,
+    snapshot.busy,
+    revokeAuthorization,
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -357,7 +363,11 @@ export const useLeadVoiceCall = (isOpen: boolean, audioScope = '') => {
     }
   };
 
-  const placeCall = async (recordId: string, expectedDestination: string) => {
+  const placeCall = async (
+    recordId: string | null,
+    expectedDestination: string,
+    manual = false,
+  ) => {
     if (
       !readRuntime().mounted ||
       readRuntime().availability !== 'ready' ||
@@ -430,12 +440,22 @@ export const useLeadVoiceCall = (isOpen: boolean, audioScope = '') => {
       Logger.setLevel('silent', false);
 
       beginStage('session', 'preparing');
-      const session = await createVoiceSession(recordId, attempt.abort.signal);
+      const session = manual
+        ? await createManualVoiceSession(
+            expectedDestination,
+            recordId,
+            attempt.abort.signal,
+          )
+        : recordId
+          ? await createVoiceSession(recordId, attempt.abort.signal)
+          : null;
+      if (session === null) return finish('unauthorized', true);
       if (!isCurrent()) return;
       attempt.intentId = session.intentId;
       setTracking({
         callId: session.intentId,
         recordId,
+        ...(manual ? { manual: true } : {}),
         deadline: performance.now() + 8 * 60_000,
       });
       setDisplayedCallId(session.intentId);

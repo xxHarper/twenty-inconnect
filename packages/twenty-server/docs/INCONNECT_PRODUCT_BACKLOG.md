@@ -62,18 +62,31 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
   El usuario aprobó el diseño a partir de capturas simuladas. Quedan
   pendientes la recepción remota de DTMF, la compatibilidad con hardware
   y navegadores no probados y la revisión visual durante una llamada real.
-  Voice V1.4 — Global Dialer & Recent Calls queda pendiente del commit
-  manual de esta entrega.
   [Voice V1.3](INCONNECT_VOICE_V1_3.md)
+- **Voice V1.4 funcionalmente validado en DEV-LOCAL-R1.** Phone, búsqueda,
+  marcación vinculada y sin Lead, remarcación real y Recents se comprobaron
+  en el piloto. El administrador conserva el modo de desarrollo persistente.
+  Sigue pendiente confirmar la recepción remota de DTMF. La visibilidad de
+  llamadas vinculadas en Recents está limitada a la coincidencia del teléfono
+  visible actual del Lead con el destino histórico.
+  [Voice V1.4](INCONNECT_VOICE_V1_4.md)
+- **Seguimiento de V1.4.** Clasificación comercial, creación manual de
+  Lead desde una llamada sin asociación y asociación posterior mediante
+  un flujo autorizado.
 - **Futuro opcional · Answering Machine Detection (AMD).** Evaluar la
   detección de persona y contestador, con resultado indeterminado cuando
   corresponda. Diseñar el colgado automático configurable y la clasificación
   comercial, preservando el resultado telefónico y su evidencia. La adopción
   requiere evaluar exactitud, latencia, coste y autorización por entorno.
   [AMD de Twilio](https://www.twilio.com/docs/voice/answering-machine-detection)
-- **Pendiente.** Validación y autorización para producción, llamadas
-  entrantes, enrutamiento por Owner y Commercial Team, Round Robin,
-  transferencias, grabaciones,
+- **Voice V2.** Llamadas entrantes, identificación automática del Lead,
+  disponibilidad de agentes, distribución por Owner y Round Robin telefónico
+  por Commercial Team y general. La etapa sigue sin iniciar.
+- **Voice V3.** Transferencias directas o asistidas entre agentes, incluidos
+  ejecutivos y coordinadores, y espera. Grabación de llamadas entrantes y
+  salientes y reproducción de grabaciones dentro de Twenty.
+- **Voice V4.** Supervisión, productividad y estadísticas.
+- **Pendiente operativo.** Validación y autorización para producción,
   consentimiento, retención y políticas operativas.
 
 Alcance funcional del requisito original:

@@ -4,11 +4,14 @@ import {
   Injectable,
   Logger,
   ServiceUnavailableException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 
 import { randomUUID } from 'crypto';
 import { type Request } from 'express';
 import Twilio from 'twilio';
+import { PermissionFlagType } from 'twenty-shared/constants';
 import { z } from 'zod';
 
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
@@ -21,6 +24,8 @@ import { plaintextStringSchema } from 'src/engine/core-modules/secret-encryption
 import { SecretEncryptionService } from 'src/engine/core-modules/secret-encryption/secret-encryption.service';
 import { USER_SESSION_COOKIE_NAME } from 'src/engine/core-modules/user-session/constants/user-session-cookie-name.constant';
 import { USER_SESSION_SECURE_COOKIE_NAME } from 'src/engine/core-modules/user-session/constants/user-session-secure-cookie-name.constant';
+import { type UserWorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
+import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import {
   getInconnectVoiceConfig,
   type InconnectVoiceConfig,
@@ -29,6 +34,12 @@ import {
 } from 'src/modules/inconnect-voice/inconnect-voice-config';
 import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceDestinationService } from 'src/modules/inconnect-voice/inconnect-voice-destination.service';
+import { InconnectVoiceDirectoryService } from 'src/modules/inconnect-voice/inconnect-voice-directory.service';
+import {
+  canDialVoiceNumber,
+  normalizeVoiceDialNumber,
+  requireVoiceDialNumber,
+} from 'src/modules/inconnect-voice/inconnect-voice-dial-number';
 import { isTwilioCallSid } from 'src/modules/inconnect-voice/inconnect-voice-lifecycle';
 import {
   InconnectVoiceProviderService,
@@ -51,14 +62,16 @@ const credentialSchema = z.union([
 const intentSchema = z
   .object({
     intentId: z.string().uuid(),
-    recordId: z.string().uuid(),
+    recordId: z.string().uuid().nullable(),
+    manual: z.literal(true).optional(),
     actorMemberId: z.string().uuid(),
     destination: z.string(),
     callerId: z.string(),
     expiresAt: z.number().int(),
     credential: credentialSchema,
   })
-  .strict();
+  .strict()
+  .refine((intent) => intent.recordId !== null || intent.manual === true);
 
 const forbidden = () => new ForbiddenException('Voice call is unavailable');
 
@@ -167,6 +180,8 @@ export class InconnectVoiceService {
     private readonly encryption: SecretEncryptionService,
     private readonly calls: InconnectVoiceCallStore,
     private readonly provider: InconnectVoiceProviderService,
+    private readonly directory: InconnectVoiceDirectoryService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   status(context: VoiceAuthContext): {
@@ -180,7 +195,94 @@ export class InconnectVoiceService {
     return { status: config.enabled ? 'ready' : 'disabled' };
   }
 
-  async issue(request: Request, recordId: string) {
+  async phoneAccess(request: Request) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    const actor = resolveActor(request, config);
+    await this.directory.rolePermissions(actor);
+
+    return { available: true };
+  }
+
+  private async hasFlag(
+    actor: UserWorkspaceAuthContext,
+    flag: PermissionFlagType,
+  ) {
+    const { rolePermissionConfig } =
+      await this.directory.rolePermissions(actor);
+    return this.permissions.checkRolesPermissions(
+      rolePermissionConfig,
+      actor.workspace.id,
+      flag,
+    );
+  }
+
+  private async throttle(
+    config: InconnectVoiceConfig,
+    action: 'lookup' | 'manual-session',
+    seconds: number,
+  ) {
+    let accepted: string | null;
+    try {
+      accepted = await this.redis
+        .getClient()
+        .set(getIntentKey(config, action), '1', 'EX', seconds, 'NX');
+    } catch {
+      throw new ServiceUnavailableException('Voice is unavailable');
+    }
+    if (accepted !== 'OK')
+      throw new HttpException(
+        'Too many Voice requests',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+  }
+
+  async lookup(request: Request, input: string, after?: string) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    const actor = resolveActor(request, config);
+    await this.throttle(config, 'lookup', 1);
+    const phone = normalizeVoiceDialNumber(input, config);
+    const result = await this.directory.lookup(actor, config, phone, after);
+    const canCall = config.enabled && canDialVoiceNumber(phone, config);
+
+    return {
+      ...result,
+      destination: phone.number,
+      canCall,
+      canCallUnlinked:
+        !after &&
+        result.candidates.length === 0 &&
+        canCall &&
+        (await this.hasFlag(actor, PermissionFlagType.DIAL_INCONNECT_VOICE)),
+    };
+  }
+
+  private async manualAuthority(
+    actor: UserWorkspaceAuthContext,
+    config: InconnectVoiceConfig,
+    input: string,
+    recordId: string | null,
+  ) {
+    const phone = requireVoiceDialNumber(input, config);
+    if (
+      recordId === null &&
+      !(await this.hasFlag(actor, PermissionFlagType.DIAL_INCONNECT_VOICE))
+    )
+      throw forbidden();
+
+    // A zero visible match has the same outcome whether restricted Leads exist or not.
+    // Recheck the authorized exact set in both the reservation and the routing claim.
+    const scope = await this.directory.dialCondition(
+      actor,
+      config,
+      phone,
+      recordId,
+    );
+    return { destination: phone.number, scope };
+  }
+
+  async issue(request: Request, recordId: string | null, manualInput?: string) {
     const config = getInconnectVoiceConfig();
 
     if (!config?.enabled)
@@ -188,12 +290,17 @@ export class InconnectVoiceService {
 
     const actor = resolveActor(request, config);
     const credential = getCredential(request);
-    const destination = await this.destination.resolve(actor, config, recordId);
+    const manual = manualInput !== undefined;
+    if (manual) await this.throttle(config, 'manual-session', 10);
+    const { destination, scope } = manual
+      ? await this.manualAuthority(actor, config, manualInput, recordId)
+      : await this.linkedAuthority(actor, config, recordId);
     const intentId = randomUUID();
     const intentExpiresAt = Date.now() + VOICE_INTENT_TTL_SECONDS * 1_000;
     const intent = {
       intentId,
       recordId,
+      ...(manual ? { manual: true } : {}),
       actorMemberId: actor.workspaceMemberId,
       destination,
       expiresAt: intentExpiresAt,
@@ -258,7 +365,6 @@ export class InconnectVoiceService {
         .filter(Boolean)
         .join(' ')
         .trim();
-      const scope = await this.destination.getRecordCondition(actor, config);
       if (
         !(await this.calls.reserve(
           config,
@@ -295,6 +401,17 @@ export class InconnectVoiceService {
       this.logger.warn({ event: 'voice-session-unavailable', stage, reason });
       throw new ServiceUnavailableException('Outbound Voice is unavailable');
     }
+  }
+
+  private async linkedAuthority(
+    actor: UserWorkspaceAuthContext,
+    config: InconnectVoiceConfig,
+    recordId: string | null,
+  ) {
+    if (!recordId) throw forbidden();
+    const destination = await this.destination.resolve(actor, config, recordId);
+    const scope = await this.destination.getRecordCondition(actor, config);
+    return { destination, scope };
   }
 
   async renderTwiml(request: Request & { rawBody?: Buffer }) {
@@ -348,11 +465,14 @@ export class InconnectVoiceService {
       } as Request);
       const actor = resolveActor(auth, config);
       if (actor.workspaceMemberId !== intent.actorMemberId) throw forbidden();
-      const destination = await this.destination.resolve(
-        actor,
-        config,
-        intent.recordId,
-      );
+      const { destination, scope } = intent.manual
+        ? await this.manualAuthority(
+            actor,
+            config,
+            intent.destination,
+            intent.recordId,
+          )
+        : await this.linkedAuthority(actor, config, intent.recordId);
       if (destination !== intent.destination || intent.expiresAt <= Date.now())
         throw forbidden();
 
@@ -379,7 +499,6 @@ export class InconnectVoiceService {
           destination,
         );
 
-      const scope = await this.destination.getRecordCondition(actor, config);
       if (!(await this.calls.claim(config, reservation, params.CallSid, scope)))
         throw forbidden();
 
@@ -455,16 +574,60 @@ export class InconnectVoiceService {
     };
   }
 
+  async recents(request: Request, before?: string) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    const actor = resolveActor(request, config);
+    const unlinked = await this.hasFlag(
+      actor,
+      PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
+    );
+    const conditions = unlinked
+      ? ['(call."recordId" IS NULL AND call."objectMetadataId" IS NULL)']
+      : [];
+    let name = 'NULL::text';
+    let parameters: Record<string, unknown> = {};
+    try {
+      const phone = normalizeVoiceDialNumber(config.allowedDestination, config);
+      const lead = await this.directory.query(actor, config, phone);
+      lead.query.andWhere(`${lead.id} = call."recordId"`);
+      conditions.push(`(call."objectMetadataId" = :voiceObjectId AND call.destination = :voiceRecentDestination
+        AND EXISTS (${lead.query.clone().select('1').getQuery()}))`);
+      name = `CASE WHEN call."recordId" IS NOT NULL THEN (${lead.query.select(lead.name).getQuery()}) END`;
+      parameters = {
+        ...lead.query.getParameters(),
+        voiceObjectId: config.objectId,
+        voiceRecentDestination: phone.number,
+      };
+    } catch (error) {
+      if (!(error instanceof ForbiddenException) || !unlinked) throw error;
+    }
+
+    return this.calls.recents(
+      {
+        workspaceId: actor.workspace.id,
+        actorMemberId: actor.workspaceMemberId,
+      },
+      { sql: `(${conditions.join(' OR ')})`, parameters },
+      name,
+      before,
+    );
+  }
+
   async callStatus(
     request: Request,
-    recordId: string,
+    recordId: string | null,
     callId: string,
     action?: 'cancel' | 'reconcile',
+    manual = false,
   ) {
-    const { config, scope, authority } = await this.historyAuthority(
-      request,
-      recordId,
-    );
+    const getAuthority = () =>
+      recordId === null
+        ? this.unlinkedProgressAuthority(request)
+        : manual
+          ? this.linkedProgressAuthority(request, recordId)
+          : this.historyAuthority(request, recordId);
+    const { config, scope, authority } = await getAuthority();
     const read = (condition: typeof scope) =>
       this.calls.callStatus(
         config,
@@ -489,13 +652,65 @@ export class InconnectVoiceService {
         config,
         authority,
         callId,
+        scope,
       );
       if (target) await this.provider.reconcile(config, target);
     }
 
-    const refreshed = await this.historyAuthority(request, recordId);
+    const refreshed = await getAuthority();
     const updated = await read(refreshed.scope);
     if (!updated) throw forbidden();
     return { ...updated, observedAt: Date.now() };
+  }
+
+  private async linkedProgressAuthority(request: Request, recordId: string) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    const actor = resolveActor(request, config);
+    const phone = normalizeVoiceDialNumber(config.allowedDestination, config);
+    const scope = await this.directory.dialCondition(
+      actor,
+      config,
+      phone,
+      recordId,
+    );
+    return {
+      config,
+      scope: {
+        sql: `call."objectMetadataId" = :voiceProgressObject AND call."recordId" = :voiceProgressRecord
+          AND call.destination = :voiceProgressDestination AND (${scope.sql})`,
+        parameters: {
+          ...scope.parameters,
+          voiceProgressObject: config.objectId,
+          voiceProgressRecord: recordId,
+          voiceProgressDestination: phone.number,
+        },
+      },
+      authority: {
+        workspaceId: actor.workspace.id,
+        actorMemberId: actor.workspaceMemberId,
+      },
+    };
+  }
+
+  private async unlinkedProgressAuthority(request: Request) {
+    const config = getInconnectVoiceConfig();
+    if (!config) throw forbidden();
+    const actor = resolveActor(request, config);
+    if (!(await this.hasFlag(actor, PermissionFlagType.DIAL_INCONNECT_VOICE)))
+      throw forbidden();
+
+    return {
+      config,
+      scope: {
+        sql: `call."objectMetadataId" IS NULL AND call."recordId" IS NULL
+          AND call."expiresAt" > clock_timestamp() - interval '8 minutes'`,
+        parameters: {},
+      },
+      authority: {
+        workspaceId: actor.workspace.id,
+        actorMemberId: actor.workspaceMemberId,
+      },
+    };
   }
 }

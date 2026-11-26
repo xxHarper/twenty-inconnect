@@ -61,16 +61,27 @@ export const SettingsRolePermissionsSettingsTableHeader = ({
           aria-label={t`Toggle all settings permissions`}
           onChange={() => {
             const newValue = !allSettingsPermissionsEnabled;
+            const visibleKeys = new Set<string>(
+              settingsPermissionsConfig.map(({ key }) => key),
+            );
+            const current = settingsDraftRole.permissionFlags ?? [];
 
             setSettingsDraftRole({
               ...settingsDraftRole,
               permissionFlags: newValue
-                ? settingsPermissionsConfig.map((permission) => ({
-                    id: v4(),
-                    flag: permission.key,
-                    roleId,
-                  }))
-                : [],
+                ? [
+                    ...current,
+                    ...settingsPermissionsConfig
+                      .filter(
+                        ({ key }) => !current.some(({ flag }) => flag === key),
+                      )
+                      .map((permission) => ({
+                        id: v4(),
+                        flag: permission.key,
+                        roleId,
+                      })),
+                  ]
+                : current.filter(({ flag }) => !visibleKeys.has(flag)),
             });
           }}
         />

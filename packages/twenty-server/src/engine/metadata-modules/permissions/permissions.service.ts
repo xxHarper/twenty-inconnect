@@ -40,6 +40,10 @@ type CachedRolesFromPermissionConfig = {
   flatRolePermissionFlagMaps: FlatRolePermissionFlagMaps;
 } | null;
 
+const requiresExplicitRoleGrant = (flag: PermissionFlagType) =>
+  flag === PermissionFlagType.DIAL_INCONNECT_VOICE ||
+  flag === PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY;
+
 @Injectable()
 export class PermissionsService {
   constructor(
@@ -91,7 +95,7 @@ export class PermissionsService {
         return {
           ...acc,
           [feature]:
-            hasBasePermission ||
+            (hasBasePermission && !requiresExplicitRoleGrant(feature)) ||
             this.roleHasPermissionFlag(roleOfUserWorkspace, feature),
         };
       },
@@ -144,6 +148,8 @@ export class PermissionsService {
         [PermissionFlagType.SEND_INCONNECT_MESSAGING]: false,
         [PermissionFlagType.TRIAGE_INCONNECT_MESSAGING]: false,
         [PermissionFlagType.MANAGE_INCONNECT_MESSAGING]: false,
+        [PermissionFlagType.DIAL_INCONNECT_VOICE]: false,
+        [PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY]: false,
       },
       objectsPermissions: {},
     }) as const satisfies UserWorkspacePermissions;
@@ -304,7 +310,7 @@ export class PermissionsService {
       ? role.canAccessAllTools
       : role.canUpdateAllSettings;
 
-    if (hasBasePermission === true) {
+    if (hasBasePermission === true && !requiresExplicitRoleGrant(setting)) {
       return true;
     }
 
@@ -378,7 +384,7 @@ export class PermissionsService {
       : role.canUpdateAllSettings;
 
     return (
-      hasBasePermission === true ||
+      (hasBasePermission === true && !requiresExplicitRoleGrant(setting)) ||
       flatRoleHasPermissionFlag({
         flatRole: role,
         permissionFlag: setting,
@@ -436,7 +442,10 @@ export class PermissionsService {
       const { roles, useIntersection, flatRolePermissionFlagMaps } = result;
 
       const checkRoleHasPermission = (role: FlatRole) => {
-        if (role.canAccessAllTools === true) {
+        if (
+          role.canAccessAllTools === true &&
+          !requiresExplicitRoleGrant(flag)
+        ) {
           return true;
         }
 

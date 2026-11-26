@@ -11,6 +11,8 @@ import {
   IconFileImport,
   IconFileUpload,
   IconMail,
+  IconHistory,
+  IconPhone,
   IconSparkles,
   IconTable,
   IconUser,
@@ -149,6 +151,24 @@ export const useActionRolePermissionFlagConfig = ({
         isRelevantForUsers: true,
       },
       {
+        key: PermissionFlagType.DIAL_INCONNECT_VOICE,
+        name: t`Dial without a Lead`,
+        description: t`Call approved destinations without an associated Lead`,
+        Icon: IconPhone,
+        isToolPermission: true,
+        requiresExplicitGrant: true,
+        isRelevantForUsers: true,
+      },
+      {
+        key: PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
+        name: t`Read personal unlinked Voice history`,
+        description: t`See your own calls without an associated Lead`,
+        Icon: IconHistory,
+        isToolPermission: true,
+        requiresExplicitGrant: true,
+        isRelevantForUsers: true,
+      },
+      {
         key: PermissionFlagType.VIEWS,
         name: t`Manage Views`,
         description: t`Create, edit, and delete workspace views`,
@@ -171,6 +191,8 @@ export const useActionRolePermissionFlagConfig = ({
 
     return allPermissions.filter((permission) => {
       if (hasAssignmentCapabilities) {
+        if (permission.requiresExplicitGrant && !canBeAssignedToUsers)
+          return false;
         if (canBeAssignedOnlyToAgents && !permission.isRelevantForAgents) {
           return false;
         }

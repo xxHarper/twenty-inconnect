@@ -110,3 +110,65 @@ describe('INCONNECT Messaging permission flags', () => {
     }
   });
 });
+
+describe('INCONNECT Voice explicit grants', () => {
+  it.each([
+    PermissionFlagType.DIAL_INCONNECT_VOICE,
+    PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
+  ])(
+    'does not infer %s from blanket tool or settings permissions',
+    async (flag) => {
+      const id = 'role';
+      const flagId = 'role-flag';
+      const role = {
+        id,
+        canAccessAllTools: true,
+        canUpdateAllSettings: true,
+        rolePermissionFlags: [],
+        rolePermissionFlagIds: [] as string[],
+      };
+      const cache = {
+        getOrRecompute: jest.fn().mockResolvedValue({
+          flatRoleMaps: {
+            universalIdentifierById: { [id]: id },
+            byUniversalIdentifier: { [id]: role },
+          },
+          flatRolePermissionFlagMaps: {
+            universalIdentifierById: { [flagId]: flagId },
+            byUniversalIdentifier: {
+              [flagId]: {
+                permissionFlagUniversalIdentifier: SystemPermissionFlag[flag],
+              },
+            },
+          },
+        }),
+      };
+      const service = new PermissionsService(
+        {} as never,
+        cache as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      const config = { intersectionOf: [id] };
+
+      expect(
+        service.getDefaultUserWorkspacePermissions().permissionFlags[flag],
+      ).toBe(false);
+      expect(
+        service.checkRolePermissions(role as unknown as RoleEntity, flag),
+      ).toBe(false);
+      await expect(
+        service.checkRolesPermissions(config, 'workspace', flag),
+      ).resolves.toBe(false);
+      await expect(
+        service.hasToolPermission(config, 'workspace', flag),
+      ).resolves.toBe(false);
+
+      role.rolePermissionFlagIds = [flagId];
+      await expect(
+        service.checkRolesPermissions(config, 'workspace', flag),
+      ).resolves.toBe(true);
+    },
+  );
+});

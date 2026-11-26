@@ -5,8 +5,10 @@ import { currentWorkspaceMemberState } from '@/auth/states/currentWorkspaceMembe
 import { currentWorkspaceState } from '@/auth/states/currentWorkspaceState';
 import { isPendingServerSignOutState } from '@/auth/states/isPendingServerSignOutState';
 import { VoiceSoftphone } from '@/inconnect-voice/components/VoiceSoftphone';
+import { VoiceGlobalSoftphone } from '@/inconnect-voice/components/VoiceGlobalSoftphone';
 import {
   VoiceCallContext,
+  VoicePhoneContext,
   type VoiceLeadTarget,
 } from '@/inconnect-voice/contexts/VoiceCallContext';
 import { useLeadVoiceCall } from '@/inconnect-voice/hooks/useLeadVoiceCall';
@@ -22,13 +24,13 @@ const AuthenticatedVoiceCallProvider = ({
   children,
 }: AuthenticatedVoiceCallProviderProps) => {
   const [selection, setSelection] = useState<{
-    target: VoiceLeadTarget;
+    target: VoiceLeadTarget | null;
     revision: number;
   } | null>(null);
   const [minimized, setMinimized] = useState(false);
   const voice = useLeadVoiceCall(selection !== null, audioScope);
 
-  const open = (target: VoiceLeadTarget) => {
+  const open = (target: VoiceLeadTarget | null) => {
     setMinimized(false);
     if (!voice.resetCall()) return;
     setSelection((previous) => ({
@@ -40,19 +42,30 @@ const AuthenticatedVoiceCallProvider = ({
   const close = () => {
     if (voice.resetCall()) setSelection(null);
   };
+  const panel = {
+    voice,
+    minimized,
+    onToggleMinimized: () => setMinimized((previous) => !previous),
+    onClose: close,
+  };
 
   return (
     <VoiceCallContext.Provider value={open}>
-      {children}
-      {selection && (
+      <VoicePhoneContext.Provider value={() => open(null)}>
+        {children}
+      </VoicePhoneContext.Provider>
+      {selection?.target && (
         <VoiceSoftphone
           key={selection.revision}
           target={selection.target}
           voice={voice}
           minimized={minimized}
-          onToggleMinimized={() => setMinimized((previous) => !previous)}
+          onToggleMinimized={panel.onToggleMinimized}
           onClose={close}
         />
+      )}
+      {selection && !selection.target && (
+        <VoiceGlobalSoftphone key={selection.revision} panel={panel} />
       )}
     </VoiceCallContext.Provider>
   );

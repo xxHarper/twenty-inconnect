@@ -1,5 +1,5 @@
 import { isUUID } from 'class-validator';
-import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { getCountries, parsePhoneNumberFromString } from 'libphonenumber-js';
 
 export const INCONNECT_VOICE_PATH = 'auth/inconnect-voice';
 export const VOICE_INTENT_TTL_SECONDS = 45;
@@ -32,7 +32,14 @@ export const getInconnectVoiceConfig = (
     INCONNECT_VOICE_PHONE_FIELD_ID: fieldId = '',
     INCONNECT_VOICE_ENABLE_OUTBOUND: enabled,
     INCONNECT_VOICE_HISTORY_USER_WORKSPACE_IDS: historyUsers = '',
+    INCONNECT_VOICE_DEFAULT_COUNTRY: defaultCountrySetting = 'MX',
+    INCONNECT_VOICE_MANUAL_ALLOWED_COUNTRIES: allowedCountrySetting = 'MX',
   } = env;
+
+  const countries = getCountries();
+  const allowedCountryCodes = allowedCountrySetting
+    .split(',')
+    .map((code) => code.trim());
 
   if (
     !sid(accountSid, 'AC') ||
@@ -80,6 +87,12 @@ export const getInconnectVoiceConfig = (
     userWorkspaceId,
     objectId,
     fieldId,
+    defaultCountry: countries.find((code) => code === defaultCountrySetting),
+    manualAllowedCountries: allowedCountryCodes.every((code) =>
+      countries.some((country) => country === code),
+    )
+      ? allowedCountryCodes
+      : [],
     historyUserWorkspaceIds: historyUsers
       .split(',')
       .map((value) => value.trim())

@@ -56,6 +56,12 @@ export const SettingsRolePermissionsToolSection = ({
   const shouldShowAllAccessToggle =
     !settingsDraftRole.canBeAssignedToAgents ||
     settingsDraftRole.canBeAssignedToUsers;
+  const ordinaryPermissions = toolPermissionsConfig.filter(
+    ({ requiresExplicitGrant }) => !requiresExplicitGrant,
+  );
+  const explicitPermissions = toolPermissionsConfig.filter(
+    ({ requiresExplicitGrant }) => requiresExplicitGrant,
+  );
 
   return (
     <Section>
@@ -66,7 +72,7 @@ export const SettingsRolePermissionsToolSection = ({
             <SettingsOptionCardContentToggle
               Icon={IconTool}
               title={t`All Actions Access`}
-              description={t`Grants permission to perform all available actions without restriction`}
+              description={t`Grants access to actions covered by this setting. Some actions require an explicit grant.`}
               checked={settingsDraftRole.canAccessAllTools}
               disabled={!isEditable}
               onChange={() => {
@@ -94,11 +100,11 @@ export const SettingsRolePermissionsToolSection = ({
         <StyledTable>
           <SettingsRolePermissionsSettingsTableHeader
             roleId={roleId}
-            settingsPermissionsConfig={toolPermissionsConfig}
+            settingsPermissionsConfig={ordinaryPermissions}
             isEditable={isEditable}
           />
           <StyledTableRows>
-            {toolPermissionsConfig.map((permission) => (
+            {ordinaryPermissions.map((permission) => (
               <SettingsRolePermissionsSettingsTableRow
                 key={permission.key}
                 roleId={roleId}
@@ -109,6 +115,20 @@ export const SettingsRolePermissionsToolSection = ({
           </StyledTableRows>
         </StyledTable>
       </AnimatedExpandableContainer>
+      {explicitPermissions.length > 0 && (
+        <StyledTable>
+          <StyledTableRows>
+            {explicitPermissions.map((permission) => (
+              <SettingsRolePermissionsSettingsTableRow
+                key={permission.key}
+                roleId={roleId}
+                permission={permission}
+                isEditable={isEditable}
+              />
+            ))}
+          </StyledTableRows>
+        </StyledTable>
+      )}
     </Section>
   );
 };

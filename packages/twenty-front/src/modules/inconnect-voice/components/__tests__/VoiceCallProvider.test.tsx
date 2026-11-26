@@ -13,13 +13,24 @@ import {
   currentWorkspaceState,
 } from '@/auth/states/currentWorkspaceState';
 import { VoiceCallProvider } from '@/inconnect-voice/components/VoiceCallProvider';
-import { VoiceCallContext } from '@/inconnect-voice/contexts/VoiceCallContext';
+import type * as VoicePhoneNavigationItemModule from '@/inconnect-voice/components/VoicePhoneNavigationItem';
+import {
+  VoiceCallContext,
+  VoicePhoneContext,
+} from '@/inconnect-voice/contexts/VoiceCallContext';
 import { useVoiceLeadDetails } from '@/inconnect-voice/hooks/useVoiceLeadDetails';
 import {
   createVoiceSession,
+  createManualVoiceSession,
   getVoiceCallProgress,
+  getManualVoiceCallProgress,
+  getVoicePhoneAccess,
+  getVoiceRecents,
   getVoiceStatus,
+  lookupVoiceNumber,
+  type VoiceLookup,
 } from '@/inconnect-voice/utils/voiceApi';
+import { DefaultLayout } from '@/ui/layout/page/components/DefaultLayout';
 import { i18n } from '@lingui/core';
 import { I18nProvider } from '@lingui/react';
 import {
@@ -30,10 +41,11 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Device, Logger } from '@twilio/voice-sdk';
 import { EventEmitter } from 'events';
 import { createStore, Provider } from 'jotai';
-import { useContext } from 'react';
+import { type PropsWithChildren, useContext } from 'react';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 
 jest.mock('@/inconnect-voice/hooks/useVoiceLeadDetails', () => ({
@@ -47,9 +59,57 @@ jest.mock(
 );
 jest.mock('@/inconnect-voice/utils/voiceApi', () => ({
   createVoiceSession: jest.fn(),
+  createManualVoiceSession: jest.fn(),
   getVoiceCallProgress: jest.fn(),
+  getManualVoiceCallProgress: jest.fn(),
+  getVoicePhoneAccess: jest.fn(),
+  getVoiceRecents: jest.fn(),
   getVoiceStatus: jest.fn(),
+  lookupVoiceNumber: jest.fn(),
   VoiceApiError: Error,
+}));
+
+jest.mock('@/navigation/components/AppNavigationDrawer', () => ({
+  AppNavigationDrawer: () => {
+    const { VoicePhoneNavigationItem } = jest.requireActual<
+      typeof VoicePhoneNavigationItemModule
+    >('@/inconnect-voice/components/VoicePhoneNavigationItem');
+    return (
+      <nav>
+        <VoicePhoneNavigationItem />
+      </nav>
+    );
+  },
+}));
+jest.mock('@/error-handler/components/AppErrorBoundary', () => ({
+  AppErrorBoundary: ({ children }: PropsWithChildren) => children,
+}));
+jest.mock('@/error-handler/components/AppFullScreenErrorFallback', () => ({}));
+jest.mock('@/error-handler/components/AppPageErrorFallback', () => ({}));
+jest.mock('@/file-upload/components/FileUploadProvider', () => ({
+  FileUploadProvider: ({ children }: PropsWithChildren) => children,
+}));
+jest.mock(
+  '@/information-banner/components/impersonate/InformationBannerIsImpersonating',
+  () => ({ InformationBannerIsImpersonating: () => null }),
+);
+jest.mock('@/keyboard-shortcut-menu/components/KeyboardShortcutMenu', () => ({
+  KeyboardShortcutMenu: () => null,
+}));
+jest.mock('@/layout-customization/components/LayoutCustomizationBar', () => ({
+  LayoutCustomizationBar: () => null,
+}));
+jest.mock('@/navigation/components/MobileNavigationBar', () => ({
+  MobileNavigationBar: () => null,
+}));
+jest.mock(
+  '@/navigation-menu-item/display/dnd/providers/PageDragDropProvider',
+  () => ({
+    PageDragDropProvider: ({ children }: PropsWithChildren) => children,
+  }),
+);
+jest.mock('@/ui/layout/fullscreen/hooks/useShowFullscreen', () => ({
+  useShowFullscreen: () => false,
 }));
 jest.mock('@twilio/voice-sdk', () => ({
   Call: {
@@ -83,6 +143,11 @@ const Lead = ({ recordId }: { recordId: string }) => {
       Call lead
     </button>
   );
+};
+
+const GlobalPhone = () => {
+  const open = useContext(VoicePhoneContext);
+  return <button onClick={() => open?.()}>Phone</button>;
 };
 
 const makeCall = () => {
@@ -153,7 +218,7 @@ describe('VoiceCallProvider', () => {
     jest.useRealTimers();
   });
 
-  const setup = () => {
+  const setup = (useDefaultLayout = false) => {
     const first = makeCall();
     const second = makeCall();
     const device = Object.assign(new EventEmitter(), {
@@ -185,28 +250,37 @@ describe('VoiceCallProvider', () => {
       <Provider store={store}>
         <I18nProvider i18n={i18n}>
           <MemoryRouter
-            initialEntries={['/lead']}
+            initialEntries={[useDefaultLayout ? '/messages' : '/lead']}
             future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
           >
-            <VoiceCallProvider>
-              <nav>
-                <Link to="/leads">Leads</Link>
-                <Link to="/other">Other lead</Link>
-                <Link to="/messages">Messaging</Link>
-              </nav>
+            {useDefaultLayout ? (
               <Routes>
-                <Route
-                  path="/lead"
-                  element={<Lead recordId={originalLead} />}
-                />
-                <Route path="/leads" element={<h1>Lead list</h1>} />
-                <Route
-                  path="/other"
-                  element={<Lead recordId={anotherLead} />}
-                />
-                <Route path="/messages" element={<h1>Inbox</h1>} />
+                <Route element={<DefaultLayout />}>
+                  <Route path="/messages" element={<h1>Inbox</h1>} />
+                </Route>
               </Routes>
-            </VoiceCallProvider>
+            ) : (
+              <VoiceCallProvider>
+                <nav>
+                  <GlobalPhone />
+                  <Link to="/leads">Leads</Link>
+                  <Link to="/other">Other lead</Link>
+                  <Link to="/messages">Messaging</Link>
+                </nav>
+                <Routes>
+                  <Route
+                    path="/lead"
+                    element={<Lead recordId={originalLead} />}
+                  />
+                  <Route path="/leads" element={<h1>Lead list</h1>} />
+                  <Route
+                    path="/other"
+                    element={<Lead recordId={anotherLead} />}
+                  />
+                  <Route path="/messages" element={<h1>Inbox</h1>} />
+                </Routes>
+              </VoiceCallProvider>
+            )}
           </MemoryRouter>
         </I18nProvider>
       </Provider>
@@ -215,6 +289,32 @@ describe('VoiceCallProvider', () => {
     return { first, second, device, store, view };
   };
 
+  it('opens Phone from the default layout sidebar with outbound disabled and no free-dial grant', async () => {
+    jest.mocked(getVoicePhoneAccess).mockResolvedValue(true);
+    jest.mocked(getVoiceStatus).mockResolvedValue('disabled');
+    jest.mocked(getVoiceRecents).mockResolvedValue({ next: null, rows: [] });
+    setup(true);
+
+    const sidebar = screen.getByRole('navigation');
+    fireEvent.click(
+      await within(sidebar).findByRole('button', { name: 'Phone' }),
+    );
+
+    expect(screen.getByRole('heading', { name: 'Inbox' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Keypad' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: 'Phone number' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Place call' })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Keypad' }), {
+      key: 'ArrowRight',
+    });
+    expect(await screen.findByText('No calls recorded.')).toBeInTheDocument();
+    expect(getVoicePhoneAccess).toHaveBeenCalled();
+    expect(createVoiceSession).not.toHaveBeenCalled();
+    expect(createManualVoiceSession).not.toHaveBeenCalled();
+  });
+
   const openPhone = async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Call lead' }));
     const getDialButton = () =>
@@ -222,6 +322,247 @@ describe('VoiceCallProvider', () => {
     await waitFor(() => expect(getDialButton()).toBeEnabled());
     return getDialButton();
   };
+
+  it('opens the global keypad, precaches a recent number for review and starts only on confirmation', async () => {
+    const { first, device } = setup();
+    jest.mocked(getVoiceRecents).mockResolvedValue({
+      next: null,
+      rows: [
+        {
+          id: originalLead,
+          recordId: null,
+          name: null,
+          destination,
+          createdAt: '2026-11-25T18:00:00Z',
+          direction: 'outbound',
+          status: 'finished',
+          result: 'answered',
+          answeredAt: null,
+          endedAt: null,
+          durationSeconds: 30,
+        },
+      ],
+    });
+    jest.mocked(lookupVoiceNumber).mockResolvedValue({
+      candidates: [],
+      next: null,
+      destination,
+      canCall: true,
+      canCallUnlinked: true,
+    });
+    jest.mocked(createManualVoiceSession).mockResolvedValue({
+      token: 'new-token',
+      destination,
+      intentId: anotherLead,
+      intentExpiresAt: Date.now() + 45_000,
+    });
+    jest.mocked(getManualVoiceCallProgress).mockResolvedValue({
+      id: anotherLead,
+      status: 'reserved',
+      result: null,
+      answeredAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      observedAt: Date.now(),
+    });
+
+    fireEvent.click(screen.getByRole('link', { name: 'Messaging' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    const input = screen.getByRole('textbox', { name: 'Phone number' });
+    fireEvent.click(screen.getByRole('button', { name: '1' }));
+    expect(input).toHaveValue('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete last digit' }));
+    expect(input).toHaveValue('');
+    expect(first.sendDigits).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Recents' }));
+    const redial = await screen.findByRole('button', {
+      name: `Redial ${destination}`,
+    });
+    fireEvent.click(redial);
+    expect(screen.getByRole('textbox', { name: 'Phone number' })).toHaveValue(
+      destination,
+    );
+    expect(lookupVoiceNumber).not.toHaveBeenCalled();
+    expect(createManualVoiceSession).not.toHaveBeenCalled();
+    const dial = await screen.findByRole('button', { name: 'Place call' });
+    expect(dial).toBeDisabled();
+    await waitFor(() => expect(dial).toBeEnabled());
+    expect(lookupVoiceNumber).toHaveBeenCalledWith(
+      destination,
+      expect.any(AbortSignal),
+      undefined,
+    );
+    await act(async () => fireEvent.click(dial));
+
+    expect(createManualVoiceSession).toHaveBeenCalledWith(
+      destination,
+      null,
+      expect.any(AbortSignal),
+    );
+    expect(device.connect).toHaveBeenCalledWith({
+      params: { intentId: anotherLead },
+    });
+    expect(
+      screen.queryByRole('textbox', { name: 'Phone number' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('tab', { name: 'Recents' }),
+    ).not.toBeInTheDocument();
+    expect(first.sendDigits).not.toHaveBeenCalled();
+  });
+
+  it('debounces valid pasted numbers and ignores an older response after the destination changes', async () => {
+    jest.useFakeTimers();
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    const alternate = '+14155552671';
+    const result = {
+      candidates: [{ name: 'Original lead', recordId: originalLead }],
+      next: null,
+      destination,
+      canCall: true,
+      canCallUnlinked: false,
+    };
+    let resolveOld: (value: VoiceLookup) => void = () => undefined;
+    jest
+      .mocked(lookupVoiceNumber)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...result,
+        destination: alternate,
+        candidates: [{ name: 'Another lead', recordId: anotherLead }],
+      });
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    const field = screen.getByRole('textbox', { name: 'Phone number' });
+    const dial = screen.getByRole('button', { name: 'Place call' });
+    for (const value of ['2', '+1 201', '*123#', '911']) {
+      fireEvent.change(field, { target: { value } });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(500);
+      });
+    }
+    expect(lookupVoiceNumber).not.toHaveBeenCalled();
+    expect(dial).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear number' }));
+    await user.click(field);
+    await user.paste('+1 (201) 555-0123');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(499);
+    });
+    expect(lookupVoiceNumber).not.toHaveBeenCalled();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(lookupVoiceNumber).toHaveBeenCalledTimes(1);
+    const firstSignal = jest.mocked(lookupVoiceNumber).mock.calls[0][1];
+    fireEvent.change(field, { target: { value: alternate } });
+    expect(firstSignal.aborted).toBe(true);
+    expect(dial).toBeDisabled();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText('Another lead')).toBeInTheDocument();
+    expect(dial).toBeEnabled();
+    await act(async () => resolveOld(result));
+    expect(screen.queryByText('Original lead')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear number' }));
+    expect(screen.queryByText('Another lead')).not.toBeInTheDocument();
+    expect(dial).toBeDisabled();
+    expect(createManualVoiceSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps dialing blocked after a lookup error and until a matching Lead is selected explicitly', async () => {
+    jest.useFakeTimers();
+    jest
+      .mocked(lookupVoiceNumber)
+      .mockRejectedValueOnce(new Error('Unavailable'))
+      .mockResolvedValueOnce({
+        candidates: [
+          { name: 'First match', recordId: originalLead },
+          { name: 'Second match', recordId: anotherLead },
+        ],
+        next: null,
+        destination,
+        canCall: true,
+        canCallUnlinked: false,
+      })
+      .mockResolvedValueOnce({
+        candidates: [],
+        next: null,
+        destination: '+14155552671',
+        canCall: true,
+        canCallUnlinked: false,
+      });
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    const field = screen.getByRole('textbox', { name: 'Phone number' });
+    const dial = screen.getByRole('button', { name: 'Place call' });
+    fireEvent.change(field, { target: { value: destination } });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(500);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Matching Leads could not be verified.',
+    );
+    expect(dial).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry lookup' }));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    const second = screen.getByRole('radio', { name: 'Second match' });
+    expect(second).not.toBeChecked();
+    expect(dial).toBeDisabled();
+    fireEvent.click(second);
+    expect(dial).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Audio' }));
+    expect(field).toHaveValue(destination);
+    expect(second).toBeChecked();
+    fireEvent.change(field, { target: { value: '+14155552671' } });
+    expect(dial).toBeDisabled();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText('No associated Lead')).toBeInTheDocument();
+    expect(dial).toBeDisabled();
+    expect(createManualVoiceSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['workspace', 'user'])(
+    'cancels lookup and clears the global draft after a %s change',
+    async (identity) => {
+      jest.useFakeTimers();
+      jest
+        .mocked(lookupVoiceNumber)
+        .mockReturnValue(new Promise(() => undefined));
+      const { store } = setup();
+      fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), {
+        target: { value: destination },
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(500);
+      });
+      const signal = jest.mocked(lookupVoiceNumber).mock.calls[0][1];
+      act(() => {
+        if (identity === 'workspace')
+          store.set(currentWorkspaceState.atom, {
+            id: 'workspace-b',
+          } as CurrentWorkspace);
+        else store.set(currentUserState.atom, { id: 'user-b' } as CurrentUser);
+      });
+      expect(signal.aborted).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+      expect(screen.getByRole('textbox', { name: 'Phone number' })).toHaveValue(
+        '',
+      );
+      expect(createManualVoiceSession).not.toHaveBeenCalled();
+    },
+  );
 
   it('requires destination evidence for the timer, keeps it across routes and reuses the device', async () => {
     jest.useFakeTimers();
@@ -287,6 +628,12 @@ describe('VoiceCallProvider', () => {
       compactControls.getByRole('button', { name: 'Mute' }),
       compactControls.getByRole('button', { name: 'Hang up' }),
     ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    expect(screen.getByText('Original lead')).toBeVisible();
+    expect(
+      screen.queryByRole('textbox', { name: 'Phone number' }),
+    ).not.toBeInTheDocument();
+    expect(Device).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('link', { name: 'Leads' }));
     await screen.findByRole('heading', { name: 'Lead list' });
     fireEvent.click(screen.getByRole('link', { name: 'Other lead' }));

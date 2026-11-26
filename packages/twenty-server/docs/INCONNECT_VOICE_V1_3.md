@@ -131,8 +131,8 @@ Quedan pendientes la revisión de UI Polish durante una llamada real, la
 recepción remota de DTMF y la compatibilidad con el hardware y los
 navegadores que no se probaron.
 
-La siguiente fase prevista es **Voice V1.4 — Global Dialer & Recent Calls**.
-Su inicio queda pendiente del commit manual de esta entrega.
+La siguiente fase está implementada en fuente y conserva este diseño.
+[Voice V1.4 — Phone y Recents](INCONNECT_VOICE_V1_4.md)
 
 ## Validación en DEV-LOCAL-R1
 

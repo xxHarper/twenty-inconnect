@@ -9,3 +9,5 @@ export type VoiceLeadTarget = {
 export const VoiceCallContext = createContext<
   ((target: VoiceLeadTarget) => void) | null
 >(null);
+
+export const VoicePhoneContext = createContext<(() => void) | null>(null);

@@ -23,6 +23,18 @@ import { INCONNECT_VOICE_PATH } from 'src/modules/inconnect-voice/inconnect-voic
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 const requestSchema = z.object({ recordId: z.string().uuid() }).strict();
+const lookupSchema = z
+  .object({
+    number: z.string().trim().min(1).max(64),
+    after: z.string().uuid().optional(),
+  })
+  .strict();
+const manualSchema = z
+  .object({
+    number: z.string().trim().min(1).max(64),
+    recordId: z.string().uuid().nullable(),
+  })
+  .strict();
 const parseId = (value: unknown) => {
   const parsed = z.string().uuid().safeParse(value);
   if (!parsed.success) throw new BadRequestException('Expected an ID');
@@ -50,6 +62,82 @@ export class InconnectVoiceController {
     if (!input.success) throw new BadRequestException('Expected a record ID');
 
     return this.voice.issue(request, input.data.recordId);
+  }
+
+  @Get('phone-access')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @Header('Cache-Control', 'no-store')
+  phoneAccess(@Req() request: Request) {
+    return this.voice.phoneAccess(request);
+  }
+
+  @Post('lookup')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  lookup(@Req() request: Request, @Body() body: unknown) {
+    const input = lookupSchema.safeParse(body);
+    if (!input.success) throw new BadRequestException('Enter a phone number');
+    return this.voice.lookup(request, input.data.number, input.data.after);
+  }
+
+  @Post('manual-session')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  issueManual(@Req() request: Request, @Body() body: unknown) {
+    const input = manualSchema.safeParse(body);
+    if (!input.success)
+      throw new BadRequestException('Enter a phone number and association');
+    return this.voice.issue(request, input.data.recordId, input.data.number);
+  }
+
+  @Get('recents')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @Header('Cache-Control', 'no-store')
+  recents(@Req() request: Request, @Query('before') before?: string) {
+    return this.voice.recents(
+      request,
+      before === undefined ? undefined : parseId(before),
+    );
+  }
+
+  @Get('manual-call/:callId')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @Header('Cache-Control', 'no-store')
+  manualCall(
+    @Req() request: Request,
+    @Param('callId') callId: string,
+    @Query('recordId') recordId?: string,
+  ) {
+    return this.voice.callStatus(
+      request,
+      recordId === undefined ? null : parseId(recordId),
+      parseId(callId),
+      undefined,
+      true,
+    );
+  }
+
+  @Post('manual-call/:callId/:action')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  updateManualCall(
+    @Req() request: Request,
+    @Param('callId') callId: string,
+    @Param('action') action: string,
+    @Query('recordId') recordId?: string,
+  ) {
+    if (action !== 'cancel' && action !== 'reconcile')
+      throw new BadRequestException('Unknown Voice action');
+    return this.voice.callStatus(
+      request,
+      recordId === undefined ? null : parseId(recordId),
+      parseId(callId),
+      action,
+      true,
+    );
   }
 
   @Post('twiml')

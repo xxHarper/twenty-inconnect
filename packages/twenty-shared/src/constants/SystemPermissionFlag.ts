@@ -31,4 +31,6 @@ export const SystemPermissionFlag = {
   INCONNECT_MESSAGING: '0a6a4d1e-60d0-459e-bc6e-696a74da75cd',
   SEND_INCONNECT_MESSAGING: 'a2a6fbc8-115c-4a3e-b373-1add79911751',
   TRIAGE_INCONNECT_MESSAGING: 'd696f05d-5619-4e6f-96ab-f7dde85a6367',
+  DIAL_INCONNECT_VOICE: '544b42b4-259c-4b7b-9576-31cdb7025e38',
+  READ_UNLINKED_INCONNECT_VOICE_HISTORY: 'a5bc064b-740e-4d37-833e-8bb6559e20d5',
 } as const satisfies Record<PermissionFlagType, string>;

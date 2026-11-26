@@ -86,19 +86,19 @@ export const DefaultLayout = () => {
             <LayoutCustomizationBar />
             <StyledPageContainer>
               <PageDragDropProvider>
-                <KeyboardShortcutMenu />
-                {useShowFullScreen ? null : (
-                  <StyledNavigationDrawerWrapper>
-                    <AppNavigationDrawer />
-                  </StyledNavigationDrawerWrapper>
-                )}
-                <StyledMainContainer>
-                  <VoiceCallProvider>
+                <VoiceCallProvider>
+                  <KeyboardShortcutMenu />
+                  {useShowFullScreen ? null : (
+                    <StyledNavigationDrawerWrapper>
+                      <AppNavigationDrawer />
+                    </StyledNavigationDrawerWrapper>
+                  )}
+                  <StyledMainContainer>
                     <AppErrorBoundary FallbackComponent={AppPageErrorFallback}>
                       <Outlet />
                     </AppErrorBoundary>
-                  </VoiceCallProvider>
-                </StyledMainContainer>
+                  </StyledMainContainer>
+                </VoiceCallProvider>
               </PageDragDropProvider>
             </StyledPageContainer>
             {isMobile && <MobileNavigationBar />}

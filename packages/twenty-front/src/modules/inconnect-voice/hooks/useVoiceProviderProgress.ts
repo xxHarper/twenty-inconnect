@@ -1,4 +1,5 @@
 import {
+  getManualVoiceCallProgress,
   getVoiceCallProgress,
   VoiceApiError,
 } from '@/inconnect-voice/utils/voiceApi';
@@ -9,13 +10,15 @@ export const voiceHistoryRevisionState = atom<Record<string, number>>({});
 
 type VoiceTracking = {
   callId: string;
-  recordId: string;
+  recordId: string | null;
+  manual?: true;
   deadline: number;
 };
 
 export const useVoiceProviderProgress = (
   tracking: VoiceTracking | null,
   locallyBusy: boolean,
+  revokeAuthorization: () => void,
 ) => {
   const [snapshot, setSnapshot] = useState<{
     progress: Awaited<ReturnType<typeof getVoiceCallProgress>>;
@@ -33,12 +36,28 @@ export const useVoiceProviderProgress = (
     const poll = async () => {
       const timeout = AbortSignal.timeout(10_000);
       try {
-        const progress = await getVoiceCallProgress(
-          tracking.recordId,
-          tracking.callId,
-          AbortSignal.any([abort.signal, timeout]),
-          locallyBusy ? undefined : cancelReservation ? 'cancel' : 'reconcile',
-        );
+        const signal = AbortSignal.any([abort.signal, timeout]);
+        const action = locallyBusy
+          ? undefined
+          : cancelReservation
+            ? 'cancel'
+            : 'reconcile';
+        const progress = tracking.manual
+          ? await getManualVoiceCallProgress(
+              tracking.recordId,
+              tracking.callId,
+              signal,
+              action,
+            )
+          : tracking.recordId
+            ? await getVoiceCallProgress(
+                tracking.recordId,
+                tracking.callId,
+                signal,
+                action,
+              )
+            : null;
+        if (progress === null) return;
         if (abort.signal.aborted) return;
         cancelReservation = false;
 
@@ -66,10 +85,12 @@ export const useVoiceProviderProgress = (
         ]);
         if (state !== lastState) {
           lastState = state;
-          invalidate((old) => ({
-            ...old,
-            [tracking.recordId]: (old[tracking.recordId] ?? 0) + 1,
-          }));
+          const recordId = tracking.recordId;
+          if (recordId)
+            invalidate((old) => ({
+              ...old,
+              [recordId]: (old[recordId] ?? 0) + 1,
+            }));
         }
         if (
           progress.status === 'finished' &&
@@ -83,6 +104,7 @@ export const useVoiceProviderProgress = (
           (error.status === 401 || error.status === 403)
         ) {
           setSnapshot(null);
+          if (tracking.manual && locallyBusy) revokeAuthorization();
           return;
         }
       }
@@ -98,7 +120,7 @@ export const useVoiceProviderProgress = (
       abort.abort();
       window.clearTimeout(next);
     };
-  }, [invalidate, locallyBusy, tracking]);
+  }, [invalidate, locallyBusy, revokeAuthorization, tracking]);
 
   return snapshot?.progress.id === tracking?.callId ? snapshot : null;
 };

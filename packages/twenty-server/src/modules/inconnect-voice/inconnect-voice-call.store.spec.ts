@@ -110,6 +110,57 @@ describe('Voice PostgreSQL boundary without a connection', () => {
     expect(query.mock.calls[4][0]).toContain('IS DISTINCT FROM');
   });
 
+  it('binds both nullable association columns and retains the shared exclusion for manual dialing', async () => {
+    const unlinked = { ...attempt, recordId: null };
+    const noVisibleLead = {
+      sql: 'NOT EXISTS (SELECT 1 WHERE :visible)',
+      parameters: { visible: false },
+    };
+    query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id }])
+      .mockResolvedValueOnce([{ id }]);
+    await expect(
+      calls.reserve(config, unlinked, 'Operator', noVisibleLead),
+    ).resolves.toBe(true);
+    await expect(
+      calls.claim(config, unlinked, parentSid, noVisibleLead),
+    ).resolves.toBe(true);
+    expect(query.mock.calls[1][1].slice(2, 4)).toEqual([null, null]);
+    expect(query.mock.calls[2][1].slice(2, 4)).toEqual([null, null]);
+    expect(query.mock.calls[1][0]).toContain('NOT EXISTS (SELECT 1 WHERE $12)');
+    expect(query.mock.calls[2][0]).toContain(
+      '"recordId" IS NOT DISTINCT FROM $4',
+    );
+    expect(query.mock.calls[2][0]).toContain('NOT EXISTS (SELECT 1 WHERE $11)');
+  });
+
+  it('restricts both personal history rows and the pagination cursor to the same authorized relation', async () => {
+    jest.spyOn(dataSource, 'createQueryRunner').mockReturnValue({
+      query: query.mockResolvedValue({ records: [] }),
+      release: jest.fn(),
+    } as unknown as QueryRunner);
+    const visibility = {
+      sql: `(call."recordId" IS NULL OR ${scope.sql})`,
+      parameters: scope.parameters,
+    };
+    await expect(
+      calls.recents(actor, visibility, 'NULL::text', id),
+    ).resolves.toEqual({ rows: [], next: null });
+    const [sql, parameters] = query.mock.calls[0];
+
+    expect(
+      sql.match(/call\."workspaceId" = \$\d AND call\."actorMemberId" = \$\d/g),
+    ).toHaveLength(2);
+    expect(sql.match(/EXISTS \(SELECT 1 WHERE/g)).toHaveLength(2);
+    expect(sql).toContain(
+      'ORDER BY call."createdAt" DESC, call.id DESC LIMIT 21',
+    );
+    expect(parameters).toEqual(
+      expect.arrayContaining([workspaceId, actorMemberId, recordId, id]),
+    );
+  });
+
   it('cannot cancel an already claimed call or a reservation outside the current record scope', async () => {
     query.mockResolvedValueOnce([]);
     await calls.cancelReservation(actor, id, false, scope);

@@ -23,6 +23,27 @@ const progressSchema = z.object({
   durationSeconds: z.number().int().nonnegative().nullable(),
 });
 const callSchema = progressSchema.extend({ observedAt: z.number() });
+const lookupSchema = z.object({
+  destination: z.string().regex(/^\+[1-9]\d{1,14}$/),
+  candidates: z.array(
+    z.object({ recordId: z.string().uuid(), name: z.string().nullable() }),
+  ),
+  next: z.string().uuid().nullable(),
+  canCall: z.boolean(),
+  canCallUnlinked: z.boolean(),
+});
+const recentsSchema = z.object({
+  next: z.string().uuid().nullable(),
+  rows: z.array(
+    progressSchema.extend({
+      createdAt: z.string(),
+      direction: z.literal('outbound'),
+      destination: z.string().regex(/^\+[1-9]\d{1,14}$/),
+      name: z.string().nullable(),
+      recordId: z.string().uuid().nullable(),
+    }),
+  ),
+});
 const historySchema = z.object({
   attempts: z.number().int().nonnegative(),
   answered: z.number().int().nonnegative(),
@@ -40,6 +61,8 @@ const historySchema = z.object({
 
 export type VoiceProviderProgress = z.infer<typeof progressSchema>;
 export type VoiceCallHistory = z.infer<typeof historySchema>;
+export type VoiceLookup = z.infer<typeof lookupSchema>;
+export type VoiceRecents = z.infer<typeof recentsSchema>;
 
 export type VoiceAvailability =
   | z.infer<typeof statusSchema>['status']
@@ -55,7 +78,7 @@ export class VoiceApiError extends Error {
 const requestVoice = async (
   path: string,
   signal: AbortSignal,
-  options?: { method: 'POST'; recordId?: string },
+  options?: { method: 'POST'; body?: object },
 ): Promise<unknown> => {
   const token = getIsCookieAuthActive()
     ? undefined
@@ -70,11 +93,9 @@ const requestVoice = async (
       signal,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options?.recordId ? { 'Content-Type': 'application/json' } : {}),
+        ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: options?.recordId
-        ? JSON.stringify({ recordId: options.recordId })
-        : undefined,
+      body: options?.body ? JSON.stringify(options.body) : undefined,
     },
   );
 
@@ -91,7 +112,47 @@ export const createVoiceSession = async (
   signal: AbortSignal,
 ) =>
   sessionSchema.parse(
-    await requestVoice('session', signal, { method: 'POST', recordId }),
+    await requestVoice('session', signal, {
+      method: 'POST',
+      body: { recordId },
+    }),
+  );
+
+export const getVoicePhoneAccess = async (signal: AbortSignal) =>
+  z
+    .object({ available: z.literal(true) })
+    .parse(await requestVoice('phone-access', signal)).available;
+
+export const lookupVoiceNumber = async (
+  number: string,
+  signal: AbortSignal,
+  after?: string,
+) =>
+  lookupSchema.parse(
+    await requestVoice('lookup', signal, {
+      method: 'POST',
+      body: { number, after },
+    }),
+  );
+
+export const createManualVoiceSession = async (
+  number: string,
+  recordId: string | null,
+  signal: AbortSignal,
+) =>
+  sessionSchema.parse(
+    await requestVoice('manual-session', signal, {
+      method: 'POST',
+      body: { number, recordId },
+    }),
+  );
+
+export const getVoiceRecents = async (signal: AbortSignal, before?: string) =>
+  recentsSchema.parse(
+    await requestVoice(
+      `recents${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+      signal,
+    ),
   );
 
 export const getVoiceHistoryObject = async (
@@ -128,6 +189,20 @@ export const getVoiceCallProgress = async (
   callSchema.parse(
     await requestVoice(
       `history/${encodeURIComponent(recordId)}/call/${encodeURIComponent(callId)}${action ? `/${action}` : ''}`,
+      signal,
+      action ? { method: 'POST' } : undefined,
+    ),
+  );
+
+export const getManualVoiceCallProgress = async (
+  recordId: string | null,
+  callId: string,
+  signal: AbortSignal,
+  action?: 'cancel' | 'reconcile',
+) =>
+  callSchema.parse(
+    await requestVoice(
+      `manual-call/${encodeURIComponent(callId)}${action ? `/${action}` : ''}${recordId ? `?recordId=${encodeURIComponent(recordId)}` : ''}`,
       signal,
       action ? { method: 'POST' } : undefined,
     ),

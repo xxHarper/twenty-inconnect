@@ -174,6 +174,18 @@ const STANDARD_PERMISSION_FLAG_METADATA: Record<
     description: 'Work with unassigned INCONNECT conversations',
     icon: 'IconInbox',
   },
+  [PermissionFlagType.DIAL_INCONNECT_VOICE]: {
+    label: 'Dial without a Lead',
+    description:
+      'Place INCONNECT Voice calls to approved destinations without a visible Lead',
+    icon: 'IconPhone',
+  },
+  [PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY]: {
+    label: 'Read personal unlinked Voice history',
+    description:
+      'Read your own INCONNECT Voice calls without a Lead association',
+    icon: 'IconHistory',
+  },
 };
 
 export const STANDARD_PERMISSION_FLAG_DEFINITIONS: StandardPermissionFlagDefinition[] =

@@ -1,5 +1,6 @@
 import { voiceHistoryRevisionState } from '@/inconnect-voice/hooks/useVoiceProviderProgress';
 import { useVoiceResultLabel } from '@/inconnect-voice/hooks/useVoiceResultLabel';
+import { formatVoiceDuration } from '@/inconnect-voice/utils/formatVoiceDuration';
 import {
   getVoiceCallProgress,
   getVoiceHistory,
@@ -61,11 +62,6 @@ const StyledPagination = styled.div`
   display: flex;
   gap: ${themeCssVariables.spacing[2]};
 `;
-
-const formatDuration = (seconds: number) =>
-  [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-    .map((part) => String(part).padStart(2, '0'))
-    .join(':');
 
 const needsConfirmation = (row: VoiceHistory['rows'][number]) =>
   row.status !== 'finished' ||
@@ -171,7 +167,7 @@ export const VoiceCallHistory = ({ recordId }: { recordId: string }) => {
         </div>
         <div>
           <dt>{t`Confirmed connected time`}</dt>
-          <dd>{formatDuration(Number(data.durationSeconds))}</dd>
+          <dd>{formatVoiceDuration(Number(data.durationSeconds))}</dd>
         </div>
       </StyledSummary>
       {data.rows.length === 0 ? (
@@ -207,7 +203,7 @@ export const VoiceCallHistory = ({ recordId }: { recordId: string }) => {
                   </td>
                   <td>
                     {row.durationSeconds !== null
-                      ? formatDuration(row.durationSeconds)
+                      ? formatVoiceDuration(row.durationSeconds)
                       : needsConfirmation(row)
                         ? results.pending
                         : '—'}

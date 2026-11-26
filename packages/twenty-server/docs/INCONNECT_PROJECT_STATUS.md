@@ -15,6 +15,27 @@ una aceptación nunca levanta gates de ejecución. «Fuente implementada»,
 «instalado en un entorno», «activado» y «desplegado» son afirmaciones distintas.
 La evidencia física describe el entorno y el momento de su comprobación.
 
+## Checkpoint del 26 de noviembre de 2026
+
+**Voice V1.4 funcionalmente validado en DEV-LOCAL-R1.** El administrador
+registró una llamada vinculada desde Phone con 42 s y una remarcación
+desde Recents con 8 s, asociada al Lead original y visible en Calls y
+Recents. Voice Test registró una llamada sin Lead con 18 s, dos tramos,
+los dos identificadores CRM nulos y visibilidad en su Recents. El cierre
+confirmó 11 intentos, 22 tramos, 372 s y cero llamadas activas. El teléfono
+y selector originales se restauraron. Outbound persistente quedó `true`
+con el administrador y la API autenticada devolvió `ready`.
+Sigue pendiente confirmar la recepción remota de DTMF. Recents oculta
+las llamadas vinculadas cuando el teléfono visible del Lead deja de
+coincidir con el destino histórico. Calls las conserva según los permisos.
+PHYS-A0 sigue **NO-GO**. [Procedimiento y evidencia](INCONNECT_VOICE_V1_4_DEV_LOCAL_INSTALL.md#resultado-del-cierre-del-26-de-noviembre-de-2026)
+
+**Requisitos posteriores de Voice.** Llamadas entrantes, disponibilidad
+de agentes, Round Robin telefónico, transferencias entre agentes,
+grabación de llamadas entrantes y salientes, reproducción de grabaciones
+dentro de Twenty, supervisión y estadísticas. Voice V2 sigue sin iniciar.
+[Backlog de telefonía](INCONNECT_PRODUCT_BACKLOG.md#req-tel-001--inconnect-telephony--softphone)
+
 ## Checkpoint del 25 de noviembre de 2026
 
 **DEV-LOCAL-R1 recuperado tras un apagado completo.** Los cinco servicios
@@ -45,9 +66,23 @@ Quedan pendientes la recepción remota de DTMF, la compatibilidad con
 hardware y navegadores no probados y la revisión del refinamiento en una
 llamada real. La ventana cerró con HTTP 200 autenticado `disabled` a las
 11:11:05. A las 11:39:29 se reconfirmó `false` en el proceso de Nest y
-`app.env`. PHYS-A0 sigue **NO-GO**. Voice V1.4 — Global Dialer & Recent
-Calls queda pendiente del commit manual del usuario.
+`app.env`. PHYS-A0 sigue **NO-GO**.
 [Cierre de Voice V1.3 y UI Polish](INCONNECT_VOICE_V1_3.md)
+
+**Voice V1.4 instalado en DEV-LOCAL-R1.** Los comandos `1795608000000`
+y `1795608000001` completaron el DDL y el refresco. Los cursores de
+instancia y workspace avanzaron a los pasos previstos y se conservaron
+siete llamadas, catorce tramos y 274 s. Phone Access, lookup, Calls y
+Recents se confirmaron por API autenticada con Outbound `disabled`.
+El Quick Tunnel responde HTTP 200 en `/ready` y su URL ya está
+sincronizada en Nest y en la TwiML App. `Voice Pilot — DEV` tiene un
+único miembro, sus dos grants independientes y una regla Lead
+`ownRecords` en MANAGED. La ventana real confirmó un Click-to-Call
+contestado con 30 s y el cierre `disabled`. Se corrigió el proveedor de
+Phone en la barra lateral y el operador confirmó Keypad y Recents en
+navegador. El refinamiento posterior incorpora pestañas segmentadas,
+búsqueda automática y Recents compacto. El checkpoint del 26 de noviembre
+registra el cierre funcional posterior. [Voice V1.4](INCONNECT_VOICE_V1_4.md) · [Instalación y evidencia](INCONNECT_VOICE_V1_4_DEV_LOCAL_INSTALL.md)
 
 ## Checkpoint del 24 de noviembre de 2026
 
@@ -262,7 +297,7 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 | WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
 | F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | Voice V1.2 con historial persistente, ciclo del tramo destino, reconciliación y exclusión backend entre pestañas. Voice V1.3 añade teclado DTMF y controles locales de audio. UI Polish aprobado por el usuario a partir de capturas simuladas. | V1.2 validado funcionalmente en DEV-LOCAL-R1. El operador reportó una prueba satisfactoria de V1.3 en navegador. Voice Outbound permanece en `DISABLED`. | Recepción remota de DTMF, compatibilidad con hardware y navegadores no probados y revisión de UI Polish en llamada real. V1.4 pendiente del commit manual. Se conservan los límites documentados de V1.2. Producción sin autorización. [Voice V1.2](INCONNECT_VOICE_V1_2.md) · [Voice V1.3](INCONNECT_VOICE_V1_3.md). |
+| Telephony REQ-TEL-001 | Voice V1.2 con historial persistente, ciclo del tramo destino, reconciliación y exclusión backend entre pestañas. V1.3 añade DTMF, audio y UI Polish. V1.4 añade Phone, marcación global y Recents personales. | V1.4 funcionalmente validado en DEV-LOCAL-R1, incluidas marcación vinculada, marcación sin Lead, remarcación y persistencia. El administrador tiene Outbound persistente. | Recepción remota de DTMF, visibilidad de Recents ante cambios del teléfono del Lead y límites de V1.2/V1.3. Producción pendiente de autorización. [V1.2](INCONNECT_VOICE_V1_2.md) · [V1.3](INCONNECT_VOICE_V1_3.md) · [V1.4](INCONNECT_VOICE_V1_4.md). |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 

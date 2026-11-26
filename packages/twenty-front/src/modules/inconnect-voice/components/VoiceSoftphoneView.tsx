@@ -22,7 +22,7 @@ import { type VoiceAudio } from '@/inconnect-voice/utils/createVoiceAudio';
 import { type VoiceAudioSettings as AudioSettings } from '@/inconnect-voice/utils/voiceAudioPreferences';
 import { InputHint } from '@/ui/input/components/InputHint';
 import { useLingui } from '@lingui/react/macro';
-import { type ComponentProps, useId, useState } from 'react';
+import { type ComponentProps, type ReactNode, useId, useState } from 'react';
 import {
   IconChevronDown,
   IconChevronUp,
@@ -65,7 +65,12 @@ type VoiceSoftphoneViewProps = {
   onToggleMute: () => void;
   onHangUp: () => void;
   onDial?: () => void;
-  onDigit: ComponentProps<typeof VoiceKeypad>['onDigit'];
+  idleContent?: ReactNode;
+  onReturnToDialer?: () => void;
+  onDigit: Extract<
+    ComponentProps<typeof VoiceKeypad>,
+    { mode?: 'dtmf' }
+  >['onDigit'];
   onSelectAudioDevice: VoiceAudio['select'];
   onRequestMicrophoneAccess: VoiceAudio['checkMicrophone'];
 };
@@ -134,6 +139,8 @@ export const VoiceSoftphoneView = ({
   onToggleMute,
   onHangUp,
   onDial,
+  idleContent,
+  onReturnToDialer,
   onDigit,
   onSelectAudioDevice,
   onRequestMicrophoneAccess,
@@ -158,6 +165,7 @@ export const VoiceSoftphoneView = ({
   const showKeypad =
     openControl?.kind === 'keypad' && busy && openControl.callId === callId;
   const showAudio = openControl?.kind === 'audio';
+  const hasIdleContent = Boolean(idleContent);
   const initials = lead?.name
     ?.trim()
     .split(/\s+/u, 2)
@@ -176,7 +184,7 @@ export const VoiceSoftphoneView = ({
           <strong>{title}</strong>
         </StyledHeaderGroup>
         <StyledHeaderGroup>
-          {(busy || minimized) && (
+          {(busy || minimized || hasIdleContent || onReturnToDialer) && (
             <IconButton
               variant="tertiary"
               size="small"
@@ -198,7 +206,7 @@ export const VoiceSoftphoneView = ({
           )}
         </StyledHeaderGroup>
       </StyledHeader>
-      <StyledSummary>
+      <StyledSummary data-global-idle={hasIdleContent}>
         {lead && (
           <StyledIdentity>
             {!minimized && initials && (
@@ -232,7 +240,7 @@ export const VoiceSoftphoneView = ({
         )}
         {!minimized && failureLabel && <InputHint>{failureLabel}</InputHint>}
       </StyledSummary>
-      {(busy || !minimized) && (
+      {(busy || (!minimized && !hasIdleContent)) && (
         <StyledActions
           role="group"
           aria-label={t`Call controls`}
@@ -301,21 +309,31 @@ export const VoiceSoftphoneView = ({
               <HangUpIcon size={themeCssVariables.icon.size.lg} aria-hidden />
               <StyledActionLabel>{hangUpLabel}</StyledActionLabel>
             </StyledAction>
-          ) : (
+          ) : onReturnToDialer ? (
             <Button
               type="button"
-              fullWidth
-              justify="center"
-              title={dialLabel}
-              ariaLabel={dialLabel}
-              Icon={IconPhone}
-              disabled={!onDial}
-              onClick={onDial}
+              title={t`Back to keypad`}
+              ariaLabel={t`Back to keypad`}
+              onClick={onReturnToDialer}
             />
+          ) : (
+            !hasIdleContent && (
+              <Button
+                type="button"
+                fullWidth
+                justify="center"
+                title={dialLabel}
+                ariaLabel={dialLabel}
+                Icon={IconPhone}
+                disabled={!onDial}
+                onClick={onDial}
+              />
+            )
           )}
         </StyledActions>
       )}
-      {!minimized && (showKeypad || showAudio) && (
+      {!busy && !minimized && idleContent}
+      {!minimized && !hasIdleContent && (showKeypad || showAudio) && (
         <StyledDrawer id={drawerId}>
           {showKeypad && (
             <VoiceKeypad enabled={canSendDigit} onDigit={onDigit} />

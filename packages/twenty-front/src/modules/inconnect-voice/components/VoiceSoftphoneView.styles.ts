@@ -71,6 +71,12 @@ export const StyledSummary = styled.div`
   padding: ${themeCssVariables.spacing[4]} ${themeCssVariables.spacing[3]};
   text-align: center;
 
+  &[data-global-idle='true'] {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding: ${themeCssVariables.spacing[2]} ${themeCssVariables.spacing[3]};
+  }
+
   [data-minimized='true'] & {
     align-items: center;
     display: grid;

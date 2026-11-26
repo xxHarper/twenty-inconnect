@@ -1,8 +1,13 @@
-import { type INestApplication, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  type INestApplication,
+  Logger,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import { type Request } from 'express';
 import request from 'supertest';
+import { PermissionFlagType } from 'twenty-shared/constants';
 import { FieldMetadataType } from 'twenty-shared/types';
 import Twilio from 'twilio';
 
@@ -16,11 +21,13 @@ import { GraphqlQuerySelectedFieldsParser } from 'src/engine/api/graphql/graphql
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
+import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import { RedisClientService } from 'src/engine/core-modules/redis-client/redis-client.service';
 import { SecretEncryptionService } from 'src/engine/core-modules/secret-encryption/secret-encryption.service';
 import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage/workspace-cache-storage.service';
 import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 import { InconnectVoiceDestinationService } from 'src/modules/inconnect-voice/inconnect-voice-destination.service';
+import { InconnectVoiceDirectoryService } from 'src/modules/inconnect-voice/inconnect-voice-directory.service';
 import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceController } from 'src/modules/inconnect-voice/inconnect-voice.controller';
 import { InconnectVoiceProviderService } from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
@@ -56,12 +63,18 @@ describe('INCONNECT Voice REST boundary', () => {
   const claim = jest.fn();
   const recordProgress = jest.fn();
   const history = jest.fn();
+  const lookup = jest.fn();
+  const dialCondition = jest.fn();
+  const checkRolesPermissions = jest.fn();
+  const recents = jest.fn();
   const intents = new Map<string, string>();
   const envelopes = new Map<string, string>();
-  const storeIntent = jest.fn(async (key: string, value: string) => {
-    intents.set(key, value);
-    return 'OK';
-  });
+  const storeIntent = jest.fn(
+    async (key: string, value: string): Promise<string | null> => {
+      intents.set(key, value);
+      return 'OK';
+    },
+  );
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -70,6 +83,18 @@ describe('INCONNECT Voice REST boundary', () => {
         InconnectVoiceService,
         InconnectVoiceDestinationService,
         InconnectVoiceProviderService,
+        { provide: PermissionsService, useValue: { checkRolesPermissions } },
+        {
+          provide: InconnectVoiceDirectoryService,
+          useValue: {
+            rolePermissions: jest.fn().mockResolvedValue({
+              rolePermissionConfig: { intersectionOf: ['role'] },
+            }),
+            lookup,
+            dialCondition,
+            query: jest.fn().mockRejectedValue(new ForbiddenException()),
+          },
+        },
         {
           provide: InconnectVoiceCallStore,
           useValue: {
@@ -77,6 +102,7 @@ describe('INCONNECT Voice REST boundary', () => {
             claim,
             recordProgress,
             history,
+            recents,
             denyRouting: jest.fn().mockResolvedValue(undefined),
             leaseReconciliation: jest.fn().mockResolvedValue(null),
           },
@@ -174,6 +200,8 @@ describe('INCONNECT Voice REST boundary', () => {
       INCONNECT_VOICE_URL: url,
       INCONNECT_VOICE_CALLER_ID: callerId,
       INCONNECT_VOICE_ALLOWED_DESTINATION: destination,
+      INCONNECT_VOICE_DEFAULT_COUNTRY: 'US',
+      INCONNECT_VOICE_MANUAL_ALLOWED_COUNTRIES: 'US',
     });
     intents.clear();
     storeIntent.mockClear();
@@ -185,6 +213,12 @@ describe('INCONNECT Voice REST boundary', () => {
     });
     reserve.mockReset().mockResolvedValue(true);
     claim.mockReset().mockResolvedValue(true);
+    checkRolesPermissions.mockReset().mockResolvedValue(false);
+    lookup.mockReset().mockResolvedValue({ candidates: [], next: null });
+    dialCondition
+      .mockReset()
+      .mockResolvedValue({ sql: 'NOT EXISTS (SELECT 1)', parameters: {} });
+    recents.mockReset().mockResolvedValue({ rows: [], next: null });
     recordProgress.mockReset().mockResolvedValue(undefined);
     history.mockReset().mockResolvedValue({
       attempts: 0,
@@ -253,6 +287,18 @@ describe('INCONNECT Voice REST boundary', () => {
       .set('Authorization', bearer)
       .send(body as object);
 
+  const manual = (body: unknown) =>
+    request(app.getHttpServer())
+      .post(`${base}/manual-session`)
+      .set('Authorization', bearer)
+      .send(body as object);
+
+  const find = (number: string) =>
+    request(app.getHttpServer())
+      .post(`${base}/lookup`)
+      .set('Authorization', bearer)
+      .send({ number });
+
   const callback = (intentId: string, validSignature = true) => {
     const form = {
       intentId,
@@ -288,6 +334,156 @@ describe('INCONNECT Voice REST boundary', () => {
       .expect(200, { status: 'not-configured' });
     await issue({ recordId }).expect(503);
     expect(readLead).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit independent grant for an approved number with no visible match', async () => {
+    await find('(201) 555-0123').expect(200, {
+      candidates: [],
+      next: null,
+      destination,
+      canCall: true,
+      canCallUnlinked: false,
+    });
+    await manual({ number: destination, recordId: null }).expect(403);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(checkRolesPermissions).toHaveBeenCalledWith(
+      { intersectionOf: ['role'] },
+      workspaceId,
+      PermissionFlagType.DIAL_INCONNECT_VOICE,
+    );
+    checkRolesPermissions.mockResolvedValue(true);
+    const { body } = await manual({
+      number: destination,
+      recordId: null,
+    }).expect(200);
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId }),
+      expect.objectContaining({
+        recordId: null,
+        destination,
+        actorMemberId: memberId,
+      }),
+      expect.any(String),
+      expect.objectContaining({ sql: 'NOT EXISTS (SELECT 1)' }),
+    );
+    const routed = await callback(body.intentId).expect(200);
+    expect(routed.text).toContain(`>${destination}</Number>`);
+    expect(routed.text).not.toContain('+12015550198');
+    expect(claim).toHaveBeenCalledTimes(1);
+    await callback(body.intentId).expect(403);
+  });
+
+  it('denies an unlinked intent when the free dial grant is revoked before TwiML', async () => {
+    checkRolesPermissions.mockResolvedValue(true);
+    const { body } = await manual({
+      number: destination,
+      recordId: null,
+    }).expect(200);
+    checkRolesPermissions.mockResolvedValue(false);
+    await callback(body.intentId).expect(403);
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it('returns only the authorized directory candidates and never falls back on lookup failure', async () => {
+    const candidates = [
+      { recordId, name: 'Lead one' },
+      { recordId: fieldId, name: null },
+    ];
+    lookup.mockResolvedValueOnce({
+      candidates: candidates.slice(0, 1),
+      next: null,
+    });
+    await find(destination).expect(200, {
+      candidates: candidates.slice(0, 1),
+      next: null,
+      destination,
+      canCall: true,
+      canCallUnlinked: false,
+    });
+    lookup.mockResolvedValueOnce({ candidates, next: null });
+    await find(destination).expect(200, {
+      candidates,
+      next: null,
+      destination,
+      canCall: true,
+      canCallUnlinked: false,
+    });
+    lookup.mockRejectedValueOnce(new ForbiddenException());
+    await find(destination).expect(403);
+    expect(checkRolesPermissions).not.toHaveBeenCalled();
+  });
+
+  it('shares the reservation gate with click-to-call and binds an explicit selection', async () => {
+    reserve.mockResolvedValueOnce(false);
+    await manual({ number: destination, recordId }).expect(409);
+    expect(reserve).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ recordId, destination }),
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(dialCondition).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceMemberId: memberId }),
+      expect.objectContaining({ objectId }),
+      expect.objectContaining({ number: destination }),
+      recordId,
+    );
+  });
+
+  it.each([
+    '911',
+    '*123#',
+    '#21#',
+    '123',
+    'whatsapp:+12015550123',
+    '2015550123 ext 3',
+  ])(
+    'rejects special or invalid input %s before reservation',
+    async (number) => {
+      await manual({ number, recordId: null }).expect(400);
+      expect(reserve).not.toHaveBeenCalled();
+    },
+  );
+
+  it('normalizes the historical +521 format and preserves explicit international numbers', async () => {
+    process.env.INCONNECT_VOICE_DEFAULT_COUNTRY = 'MX';
+    for (const number of ['55 1234 5678', '+5215512345678', '+525512345678']) {
+      const { body } = await find(number).expect(200);
+      expect(body.destination).toBe('+525512345678');
+    }
+    const { body } = await find(destination).expect(200);
+    expect(body.destination).toBe(destination);
+    await manual({ number: '+525512345678', recordId: null }).expect(403);
+  });
+
+  it('throttles requests before persisting or issuing a second intent', async () => {
+    storeIntent.mockResolvedValueOnce(null);
+    await manual({ number: destination, recordId }).expect(429);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(dialCondition).not.toHaveBeenCalled();
+  });
+
+  it('authorizes personal unlinked recents separately and binds the authenticated owner', async () => {
+    const recent = () =>
+      request(app.getHttpServer())
+        .get(`${base}/recents`)
+        .set('Authorization', bearer);
+    await recent().expect(403);
+    checkRolesPermissions.mockResolvedValue(true);
+    await recent().expect(200, { rows: [], next: null });
+    expect(checkRolesPermissions).toHaveBeenCalledWith(
+      expect.anything(),
+      workspaceId,
+      PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
+    );
+    expect(recents).toHaveBeenCalledWith(
+      { workspaceId, actorMemberId: memberId },
+      expect.objectContaining({
+        sql: expect.stringContaining('call."recordId" IS NULL'),
+      }),
+      'NULL::text',
+      undefined,
+    );
   });
 
   it('rejects an application token, an unapproved operator and browser-supplied routing', async () => {

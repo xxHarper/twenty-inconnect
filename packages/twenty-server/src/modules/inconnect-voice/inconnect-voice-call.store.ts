@@ -22,14 +22,14 @@ type VoiceActor = {
   workspaceId: string;
   actorMemberId: string;
 };
-type VoiceRecordCondition = {
+export type VoiceRecordCondition = {
   sql: string;
   parameters: Record<string, unknown>;
 };
 
 type VoiceReservation = VoiceActor & {
   id: string;
-  recordId: string;
+  recordId: string | null;
   destination: string;
   expiresAt: number;
 };
@@ -84,7 +84,7 @@ export class InconnectVoiceCallStore {
           [
             attempt.id,
             attempt.workspaceId,
-            config.objectId,
+            attempt.recordId === null ? null : config.objectId,
             attempt.recordId,
             attempt.actorMemberId,
             actorLabel,
@@ -113,8 +113,8 @@ export class InconnectVoiceCallStore {
           `WITH claimed AS (
            UPDATE ${CALL} AS call SET status = 'connecting', "startedAt" = clock_timestamp(),
              "nextReconcileAt" = clock_timestamp() + interval '20 seconds'
-           WHERE id = $1 AND "workspaceId" = $2 AND "objectMetadataId" = $3
-             AND "recordId" = $4 AND "actorMemberId" = $5 AND "accountSid" = $6
+           WHERE id = $1 AND "workspaceId" = $2 AND "objectMetadataId" IS NOT DISTINCT FROM $3
+             AND "recordId" IS NOT DISTINCT FROM $4 AND "actorMemberId" = $5 AND "accountSid" = $6
              AND "applicationSid" = $7 AND "callerId" = $8 AND destination = $9
              AND status = 'reserved' AND "expiresAt" > clock_timestamp() AND (${scope.sql})
            RETURNING id, "accountSid"
@@ -126,7 +126,7 @@ export class InconnectVoiceCallStore {
           [
             attempt.id,
             attempt.workspaceId,
-            config.objectId,
+            attempt.recordId === null ? null : config.objectId,
             attempt.recordId,
             attempt.actorMemberId,
             config.accountSid,
@@ -164,16 +164,18 @@ export class InconnectVoiceCallStore {
     await this.dataSource.query(
       `UPDATE ${CALL} SET status = 'finished', result = 'failed',
       "technicalError" = 'routing-denied'
-      WHERE id = $1 AND "workspaceId" = $2 AND "actorMemberId" = $3 AND "objectMetadataId" = $4
-        AND "recordId" = $5 AND "accountSid" = $6 AND "applicationSid" = $7 AND status = 'reserved'`,
+      WHERE id = $1 AND "workspaceId" = $2 AND "actorMemberId" = $3 AND "objectMetadataId" IS NOT DISTINCT FROM $4
+        AND "recordId" IS NOT DISTINCT FROM $5 AND "accountSid" = $6 AND "applicationSid" = $7
+        AND destination = $8 AND status = 'reserved'`,
       [
         attempt.id,
         attempt.workspaceId,
         attempt.actorMemberId,
-        config.objectId,
+        attempt.recordId === null ? null : config.objectId,
         attempt.recordId,
         config.accountSid,
         config.applicationSid,
+        attempt.destination,
       ],
     );
   }
@@ -251,28 +253,32 @@ export class InconnectVoiceCallStore {
     config: InconnectVoiceConfig,
     actor: VoiceActor,
     callId?: string,
+    scope?: VoiceRecordCondition,
   ) {
     const [target]: VoiceProviderTarget[] = await this.dataSource.query(
-      `WITH leased AS (
-         UPDATE ${CALL} SET "reconcileAttempts" = "reconcileAttempts" + 1,
+      ...this.withRecordCondition(
+        `WITH leased AS (
+         UPDATE ${CALL} AS call SET "reconcileAttempts" = "reconcileAttempts" + 1,
            "nextReconcileAt" = clock_timestamp() + make_interval(secs => CASE
              WHEN "reconcileAttempts" < 2 THEN 20 WHEN "reconcileAttempts" < 5 THEN 45 ELSE 300 END)
          WHERE "workspaceId" = $1 AND "actorMemberId" = $2 AND "accountSid" = $3 AND "applicationSid" = $4
            AND (($5::uuid IS NULL AND status <> 'finished') OR id = $5)
            AND (status <> 'finished' OR "endedAt" IS NULL OR (result = 'answered' AND "durationSeconds" IS NULL))
-           AND "nextReconcileAt" <= clock_timestamp()
+           AND "nextReconcileAt" <= clock_timestamp() AND (${scope?.sql ?? 'TRUE'})
          RETURNING id
        )
        SELECT leased.id, browser."providerCallSid" AS "parentSid", child."providerCallSid" AS "childSid"
        FROM leased JOIN ${LEG} browser ON browser."callId" = leased.id AND browser.kind = 'browser'
        LEFT JOIN ${LEG} child ON child."callId" = leased.id AND child.kind = 'destination'`,
-      [
-        actor.workspaceId,
-        actor.actorMemberId,
-        config.accountSid,
-        config.applicationSid,
-        callId ?? null,
-      ],
+        scope ?? { sql: 'TRUE', parameters: {} },
+        [
+          actor.workspaceId,
+          actor.actorMemberId,
+          config.accountSid,
+          config.applicationSid,
+          callId ?? null,
+        ],
+      ),
     );
 
     return target ?? null;
@@ -280,14 +286,18 @@ export class InconnectVoiceCallStore {
 
   private authorizedCalls(
     config: InconnectVoiceConfig,
-    recordId: string,
+    recordId: string | null,
     scope: VoiceRecordCondition,
   ) {
     return this.dataSource
       .createQueryBuilder()
       .from('core.inconnectVoiceCall', 'call')
       .where(
-        'call."workspaceId" = :voiceWorkspaceId AND call."objectMetadataId" = :voiceObjectId AND call."recordId" = :voiceRecordId',
+        `call."workspaceId" = :voiceWorkspaceId AND ${
+          recordId === null
+            ? 'call."objectMetadataId" IS NULL AND call."recordId" IS NULL'
+            : 'call."objectMetadataId" = :voiceObjectId AND call."recordId" = :voiceRecordId'
+        }`,
         {
           voiceWorkspaceId: config.workspaceId,
           voiceObjectId: config.objectId,
@@ -299,7 +309,7 @@ export class InconnectVoiceCallStore {
 
   callStatus(
     config: InconnectVoiceConfig,
-    recordId: string,
+    recordId: string | null,
     scope: VoiceRecordCondition,
     callId: string,
     actorMemberId: string,
@@ -314,6 +324,59 @@ export class InconnectVoiceCallStore {
         },
       )
       .getRawOne<VoiceProgress & { id: string }>();
+  }
+
+  async recents(
+    actor: VoiceActor,
+    visibility: VoiceRecordCondition,
+    name: string,
+    before?: string,
+  ) {
+    const authorized = this.dataSource
+      .createQueryBuilder()
+      .from('core.inconnectVoiceCall', 'call')
+      .where(
+        'call."workspaceId" = :workspaceId AND call."actorMemberId" = :actorMemberId',
+        actor,
+      )
+      .andWhere(visibility.sql, visibility.parameters);
+
+    const cursor = authorized
+      .clone()
+      .select('call."createdAt", call.id')
+      .andWhere('call.id = :before');
+
+    const page = authorized
+      .select(PUBLIC_PROJECTION)
+      .addSelect('call."createdAt"::text', 'createdAt')
+      .addSelect('call.direction', 'direction')
+      .addSelect('call.destination', 'destination')
+      .addSelect(name, 'name')
+      .addSelect('call."recordId"', 'recordId')
+      .orderBy('call."createdAt"', 'DESC')
+      .addOrderBy('call.id', 'DESC')
+      .limit(21);
+
+    if (before)
+      page.andWhere(`(call."createdAt", call.id) < (${cursor.getQuery()})`, {
+        before,
+      });
+
+    const rows = await page.getRawMany<
+      VoiceProgress & {
+        id: string;
+        createdAt: string;
+        direction: 'outbound';
+        destination: string;
+        name: string | null;
+        recordId: string | null;
+      }
+    >();
+
+    return {
+      rows: rows.slice(0, 20),
+      next: rows.length > 20 ? rows[19].id : null,
+    };
   }
 
   async history(

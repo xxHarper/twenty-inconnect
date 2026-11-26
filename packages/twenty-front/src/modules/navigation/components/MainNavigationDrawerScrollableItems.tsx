@@ -1,6 +1,7 @@
 import { LeadManagementNavigationItem } from '@/inconnect-lead-management/components/LeadManagementNavigationItem';
 import { NavigationDrawerOpenedSection } from '@/navigation-menu-item/display/sections/components/NavigationDrawerOpenedSection';
 import { InconnectMessagingNavigationItem } from '@/inconnect-messaging/components/InconnectMessagingNavigationItem';
+import { VoicePhoneNavigationItem } from '@/inconnect-voice/components/VoicePhoneNavigationItem';
 import { NavigationDrawerWorkspaceSectionSkeletonLoader } from '@/object-metadata/components/NavigationDrawerWorkspaceSectionSkeletonLoader';
 
 import { styled } from '@linaria/react';
@@ -35,6 +36,7 @@ export const MainNavigationDrawerScrollableItems = () => {
     <StyledScrollableItemsContainer>
       <NavigationDrawerOpenedSection />
       <InconnectMessagingNavigationItem />
+      <VoicePhoneNavigationItem />
       <LeadManagementNavigationItem />
       <Suspense fallback={<NavigationDrawerWorkspaceSectionSkeletonLoader />}>
         <FavoritesSectionDispatcher />

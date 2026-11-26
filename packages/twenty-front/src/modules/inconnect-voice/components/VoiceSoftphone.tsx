@@ -14,26 +14,37 @@ import { type EnrichedObjectMetadataItem } from '@/object-metadata/types/Enriche
 import { useIsMobile } from '@/ui/utilities/responsive/hooks/useIsMobile';
 import { useAtomFamilySelectorValue } from '@/ui/utilities/state/jotai/hooks/useAtomFamilySelectorValue';
 import { useLingui } from '@lingui/react/macro';
-import { useLayoutEffect } from 'react';
+import { type ReactNode, useLayoutEffect } from 'react';
 
-type VoiceSoftphoneProps = {
+export type VoiceSoftphonePanelProps = {
   voice: ReturnType<typeof useLeadVoiceCall>;
-  target: VoiceLeadTarget;
   minimized: boolean;
   onToggleMinimized: () => void;
   onClose: () => void;
 };
 
-type VoiceSoftphoneControlsProps = {
-  panel: VoiceSoftphoneProps;
-  details?: VoiceLeadDetails;
+type VoiceSoftphoneProps = VoiceSoftphonePanelProps & {
+  target: VoiceLeadTarget;
 };
 
-const VoiceSoftphoneControls = ({
+type VoiceSoftphoneControlsProps = {
+  panel: VoiceSoftphonePanelProps;
+  details?: VoiceLeadDetails;
+  recordId?: string;
+  manual?: {
+    identity: { name: string | null; number: string } | null;
+    idleContent?: ReactNode;
+    onReturnToDialer?: () => void;
+  };
+};
+
+export const VoiceSoftphoneControls = ({
   panel,
   details,
+  recordId,
+  manual,
 }: VoiceSoftphoneControlsProps) => {
-  const { voice, target, minimized, onToggleMinimized, onClose } = panel;
+  const { voice, minimized, onToggleMinimized, onClose } = panel;
   const { t } = useLingui();
   const isMobile = useIsMobile();
   const { availability, snapshot, hangUp, toggleMute, placeCall } = voice;
@@ -45,7 +56,7 @@ const VoiceSoftphoneControls = ({
   const connectedAt = evidence?.connectedAt ?? null;
   const availabilityLabels = {
     loading: t`Checking Voice availability…`,
-    ready: t`Available`,
+    ready: manual ? t`Outbound Voice is ready.` : t`Available`,
     disabled: t`Outbound Voice is disabled.`,
     'not-configured': t`Twilio Voice is not configured.`,
     unavailable: t`Voice availability could not be verified for this session.`,
@@ -66,7 +77,9 @@ const VoiceSoftphoneControls = ({
     'microphone-missing': t`No microphone is available.`,
     'microphone-failed': t`The microphone could not be opened.`,
     expired: t`The Voice session expired. Start a new call to get a new session.`,
-    unauthorized: t`Voice authorization could not be verified for this lead.`,
+    unauthorized: manual
+      ? t`Voice authorization could not be verified for this call.`
+      : t`Voice authorization could not be verified for this lead.`,
     'destination-changed': t`The authorized phone number changed. Reopen the softphone to review it.`,
     conflict: t`Another call is active or pending confirmation. Try again after it ends.`,
     timeout: t`Voice did not respond in time. The attempt was stopped.`,
@@ -95,7 +108,12 @@ const VoiceSoftphoneControls = ({
     (!destination || details.number === destination)
       ? details
       : null;
-  const canSendDigit = voice.canSendDigit && authorizedDetails !== null;
+  const manualIdentity =
+    state === 'unauthorized' || state === 'destination-changed'
+      ? null
+      : manual?.identity;
+  const canSendDigit =
+    voice.canSendDigit && Boolean(authorizedDetails || manualIdentity);
   const providerStatus =
     provider?.status === 'finished' && provider.result
       ? voiceLabels[
@@ -157,7 +175,7 @@ const VoiceSoftphoneControls = ({
       canSendDigit={canSendDigit}
       canSwitchAudio={state === 'active'}
       callId={provider?.id}
-      lead={authorizedDetails}
+      lead={authorizedDetails ?? manualIdentity}
       status={status}
       tone={tone}
       detailHint={
@@ -194,10 +212,12 @@ const VoiceSoftphoneControls = ({
       onToggleMute={toggleMute}
       onHangUp={hangUp}
       onDial={
-        authorizedDetails
-          ? () => void placeCall(target.recordId, authorizedDetails.number)
+        authorizedDetails && recordId
+          ? () => void placeCall(recordId, authorizedDetails.number)
           : undefined
       }
+      idleContent={manual?.idleContent}
+      onReturnToDialer={manual?.onReturnToDialer}
       onDigit={voice.sendDigit}
       onSelectAudioDevice={voice.selectAudioDevice}
       onRequestMicrophoneAccess={voice.requestMicrophoneAccess}
@@ -229,7 +249,13 @@ const VoiceLeadSoftphone = ({
     if (snapshot.busy && lostAccess) revokeAuthorization();
   }, [lostAccess, revokeAuthorization, snapshot.busy]);
 
-  return <VoiceSoftphoneControls panel={panel} details={details} />;
+  return (
+    <VoiceSoftphoneControls
+      panel={panel}
+      details={details}
+      recordId={panel.target.recordId}
+    />
+  );
 };
 
 export const VoiceSoftphone = (props: VoiceSoftphoneProps) => {
