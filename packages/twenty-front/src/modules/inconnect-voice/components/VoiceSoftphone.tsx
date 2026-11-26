@@ -16,11 +16,14 @@ import { useAtomFamilySelectorValue } from '@/ui/utilities/state/jotai/hooks/use
 import { useLingui } from '@lingui/react/macro';
 import { type ReactNode, useLayoutEffect } from 'react';
 
+export type VoicePhoneTab = 'keypad' | 'recents';
+
 export type VoiceSoftphonePanelProps = {
   voice: ReturnType<typeof useLeadVoiceCall>;
   minimized: boolean;
   onToggleMinimized: () => void;
   onClose: () => void;
+  onOpenPhoneTab?: (tab: VoicePhoneTab) => void;
 };
 
 type VoiceSoftphoneProps = VoiceSoftphonePanelProps & {
@@ -35,6 +38,7 @@ type VoiceSoftphoneControlsProps = {
     identity: { name: string | null; number: string } | null;
     idleContent?: ReactNode;
     onReturnToDialer?: () => void;
+    onReturnToRecents?: () => void;
   };
 };
 
@@ -44,7 +48,8 @@ export const VoiceSoftphoneControls = ({
   recordId,
   manual,
 }: VoiceSoftphoneControlsProps) => {
-  const { voice, minimized, onToggleMinimized, onClose } = panel;
+  const { voice, minimized, onToggleMinimized, onClose, onOpenPhoneTab } =
+    panel;
   const { t } = useLingui();
   const isMobile = useIsMobile();
   const { availability, snapshot, hangUp, toggleMute, placeCall } = voice;
@@ -53,7 +58,19 @@ export const VoiceSoftphoneControls = ({
   const voiceLabels = useVoiceResultLabel();
   const evidence = state === 'unauthorized' ? null : voice.providerProgress;
   const provider = evidence?.progress;
-  const connectedAt = evidence?.connectedAt ?? null;
+  const isInbound = Boolean(voice.inboundOffer);
+  const completed =
+    !busy && provider?.status === 'finished' && provider.result === 'answered';
+  const terminal =
+    !busy &&
+    (provider?.status === 'finished' ||
+      (state === 'disconnected' && voice.hasProviderAttempt));
+  const providerConnectedAt = evidence?.connectedAt ?? null;
+  const connectedAt = isInbound
+    ? snapshot.connectedAt === null || providerConnectedAt === null
+      ? null
+      : Math.max(snapshot.connectedAt, providerConnectedAt)
+    : providerConnectedAt;
   const availabilityLabels = {
     loading: t`Checking Voice availability…`,
     ready: manual ? t`Outbound Voice is ready.` : t`Available`,
@@ -68,6 +85,7 @@ export const VoiceSoftphoneControls = ({
     preparing: t`Authorizing call…`,
     connecting: t`Connecting to Twilio…`,
     ringing: t`Waiting for destination…`,
+    incoming: t`Incoming call`,
     active: t`Browser connected to Twilio`,
     reconnecting: t`Reconnecting…`,
     ending: t`Ending call…`,
@@ -111,7 +129,12 @@ export const VoiceSoftphoneControls = ({
   const manualIdentity =
     state === 'unauthorized' || state === 'destination-changed'
       ? null
-      : manual?.identity;
+      : voice.inboundOffer
+        ? {
+            number: voice.inboundOffer.number,
+            name: voice.inboundOffer.name ?? t`Lead`,
+          }
+        : manual?.identity;
   const canSendDigit =
     voice.canSendDigit && Boolean(authorizedDetails || manualIdentity);
   const providerStatus =
@@ -119,8 +142,12 @@ export const VoiceSoftphoneControls = ({
       ? voiceLabels[
           provider.result === 'answered' ? 'completed' : provider.result
         ]
-      : busy && provider?.status === 'answered'
-        ? voiceLabels.answered
+      : busy &&
+          provider?.status === 'answered' &&
+          (!isInbound || snapshot.connectedAt !== null)
+        ? isInbound
+          ? t`Connected`
+          : voiceLabels.answered
         : busy && provider?.status === 'ringing'
           ? voiceLabels.ringing
           : busy && provider?.status === 'connecting'
@@ -128,10 +155,12 @@ export const VoiceSoftphoneControls = ({
             : !busy && voice.hasProviderAttempt
               ? voiceLabels.pending
               : null;
-  const status =
-    availability !== 'ready' && !busy
+  const status = completed
+    ? t`Call completed`
+    : !isInbound && availability !== 'ready' && !busy
       ? availabilityLabels[availability]
-      : state === 'ending' ||
+      : state === 'incoming' ||
+          state === 'ending' ||
           state === 'reconnecting' ||
           state === 'unauthorized'
         ? callLabels[state]
@@ -174,7 +203,17 @@ export const VoiceSoftphoneControls = ({
       canMute={canMute}
       canSendDigit={canSendDigit}
       canSwitchAudio={state === 'active'}
-      callId={provider?.id}
+      callId={provider?.id ?? voice.inboundOffer?.id}
+      inboundActions={
+        state === 'incoming'
+          ? {
+              onAccept: () => void voice.decideInbound('accept'),
+              onDecline: () => void voice.decideInbound('decline'),
+            }
+          : undefined
+      }
+      inbound={isInbound}
+      terminal={completed ? 'completed' : terminal ? 'ended' : undefined}
       lead={authorizedDetails ?? manualIdentity}
       status={status}
       tone={tone}
@@ -217,7 +256,18 @@ export const VoiceSoftphoneControls = ({
           : undefined
       }
       idleContent={manual?.idleContent}
-      onReturnToDialer={manual?.onReturnToDialer}
+      onReturnToDialer={
+        manual?.onReturnToDialer ??
+        (terminal && onOpenPhoneTab
+          ? () => onOpenPhoneTab('keypad')
+          : undefined)
+      }
+      onReturnToRecents={
+        manual?.onReturnToRecents ??
+        (terminal && onOpenPhoneTab
+          ? () => onOpenPhoneTab('recents')
+          : undefined)
+      }
       onDigit={voice.sendDigit}
       onSelectAudioDevice={voice.selectAudioDevice}
       onRequestMicrophoneAccess={voice.requestMicrophoneAccess}

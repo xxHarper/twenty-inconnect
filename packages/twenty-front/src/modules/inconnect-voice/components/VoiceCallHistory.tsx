@@ -192,14 +192,16 @@ export const VoiceCallHistory = ({ recordId }: { recordId: string }) => {
                       {dateFormat.format(new Date(row.createdAt))}
                     </time>
                   </td>
-                  <td>{t`Outbound`}</td>
+                  <td>
+                    {row.direction === 'inbound' ? t`Inbound` : t`Outbound`}
+                  </td>
                   <td>{row.actorLabel || t`Workspace member`}</td>
                   <td>
-                    {row.result
-                      ? results[row.result]
-                      : row.status === 'answered'
-                        ? results.answered
-                        : results.pending}
+                    {row.result === 'answered' || row.status === 'answered'
+                      ? row.direction === 'inbound'
+                        ? results.inboundAnswered
+                        : results.answered
+                      : results[row.result ?? 'pending']}
                   </td>
                   <td>
                     {row.durationSeconds !== null

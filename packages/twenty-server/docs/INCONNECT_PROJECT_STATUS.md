@@ -30,10 +30,25 @@ las llamadas vinculadas cuando el teléfono visible del Lead deja de
 coincidir con el destino histórico. Calls las conserva según los permisos.
 PHYS-A0 sigue **NO-GO**. [Procedimiento y evidencia](INCONNECT_VOICE_V1_4_DEV_LOCAL_INSTALL.md#resultado-del-cierre-del-26-de-noviembre-de-2026)
 
-**Requisitos posteriores de Voice.** Llamadas entrantes, disponibilidad
-de agentes, Round Robin telefónico, transferencias entre agentes,
-grabación de llamadas entrantes y salientes, reproducción de grabaciones
-dentro de Twenty, supervisión y estadísticas. Voice V2 sigue sin iniciar.
+**Voice V2 instalado y habilitado en DEV-LOCAL-R1.** Piloto entrante por
+Twilio con un operador explícito y un único Lead propio que coincida por
+teléfono. Usa el Device global, el índice de exclusión existente y
+persistencia de llamada lógica y tramos. El Slow `1795694400000` preservó 11
+llamadas, 22 tramos y 372 s y quedó como cursor de instancia y de workspace.
+Redis, Nginx, el Quick Tunnel y Twilio quedaron verificados. El mismo Caller ID
+contratado recibe por Voice V2. Ambos flags quedan habilitados de forma
+persistente para el administrador original. La primera llamada real
+identificó el Lead y conectó. R1 corrigió su finalización y recuperó sus
+16 s confirmados, con cero llamadas activas después del despliegue.
+El operador validó llamadas consecutivas, rechazo, cancelación y cierre.
+El cierre del piloto confirmó 27 llamadas, 46 tramos, 443 s y cero activas.
+El refinamiento visual de entrada y finalización quedó en DEV-LOCAL-R1.
+[Voice V2](INCONNECT_VOICE_V2.md)
+· [Instalación, operación y primera llamada](INCONNECT_VOICE_V2_DEV_LOCAL_INSTALL.md)
+
+**Requisitos posteriores de Voice.** Distribución telefónica multiagente
+en V2.1, Hold y transferencias en V3, grabaciones y reproducción
+autorizada en V3.1, y supervisión y estadísticas en V4.
 [Backlog de telefonía](INCONNECT_PRODUCT_BACKLOG.md#req-tel-001--inconnect-telephony--softphone)
 
 ## Checkpoint del 25 de noviembre de 2026
@@ -297,7 +312,7 @@ del Store y el arranque funcional del CRM completo. [Guía](../../twenty-front/.
 | WhatsApp Attention | Dominio/C1/C2 y capas I-A/I-B/II/III-A/B1/R1–R4 implementadas en fuente. R4 **ACCEPTED SOURCE-ONLY** según commit `0c5936907b` del 2026-10-26. | Gate B registró el Fast del ledger en DEV-LOCAL-R1 con Attention `DISABLED`. Sigue pendiente la aceptación física del comportamiento del ledger/R4. | Worker tracked sin registro/cutover/activación; B1 no completada operacionalmente, B2/C no iniciadas. |
 | F13A/B, F13C.2B | Implementado; resolución exacta y create/link normalmente autorizado. | F13B.3 smoke local `default` reportado 2026-09-29. F13C.2B aceptado en PostgreSQL descartable el 2026-10-12. Gate B registró 5698/5700 en DEV-LOCAL-R1 con auto-create desactivado. | F13C.3 conserva sus gates operativos. La ejecución de 5698/5700 en `default` o producción queda sin acreditar. |
 | PG0/PG1, Stage C5, exact-upgrade | Tooling PG0 y lifecycle inerte committed; aceptación de fuente lifecycle reconciliada el 2026-10-14/15. | Probes inocuos de namespaces no equivalen a aceptación física PostgreSQL/lifecycle. | **BLOCKED**: ejecución física PG0/PG1, Stage C5 y executor operativo. Sin adaptador live ni aceptación kernel de lifecycle. |
-| Telephony REQ-TEL-001 | Voice V1.2 con historial persistente, ciclo del tramo destino, reconciliación y exclusión backend entre pestañas. V1.3 añade DTMF, audio y UI Polish. V1.4 añade Phone, marcación global y Recents personales. | V1.4 funcionalmente validado en DEV-LOCAL-R1, incluidas marcación vinculada, marcación sin Lead, remarcación y persistencia. El administrador tiene Outbound persistente. | Recepción remota de DTMF, visibilidad de Recents ante cambios del teléfono del Lead y límites de V1.2/V1.3. Producción pendiente de autorización. [V1.2](INCONNECT_VOICE_V1_2.md) · [V1.3](INCONNECT_VOICE_V1_3.md) · [V1.4](INCONNECT_VOICE_V1_4.md). |
+| Telephony REQ-TEL-001 | Voice V1.4 conserva marcador global, DTMF, Audio, Calls y Recents. Voice V2 añade piloto de recepción, registro del Device y persistencia entrante. | V1.4 validado en DEV-LOCAL-R1 con Outbound persistente. V2 cerrado en DEV-LOCAL-R1 con R1 y refinamiento visual. | Distribución multiagente. Siguen pendientes recepción remota de DTMF y autorización de producción. [V1.4](INCONNECT_VOICE_V1_4.md) · [V2](INCONNECT_VOICE_V2.md). |backend entre pestañas. V1.3 añade DTMF, audio y UI Polish. V1.4 añade Phone, marcación global y Recents personales. | V1.4 funcionalmente validado en DEV-LOCAL-R1, incluidas marcación vinculada, marcación sin Lead, remarcación y persistencia. El administrador tiene Outbound persistente. | Recepción remota de DTMF, visibilidad de Recents ante cambios del teléfono del Lead y límites de V1.2/V1.3. Producción pendiente de autorización. [V1.2](INCONNECT_VOICE_V1_2.md) · [V1.3](INCONNECT_VOICE_V1_3.md) · [V1.4](INCONNECT_VOICE_V1_4.md). |
 
 ## Lead Management integrado — aceptación del 27 de octubre
 

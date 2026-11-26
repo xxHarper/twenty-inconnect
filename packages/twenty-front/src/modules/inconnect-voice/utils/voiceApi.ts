@@ -16,7 +16,7 @@ const progressSchema = z.object({
   id: z.string().uuid(),
   status: z.enum(['reserved', 'connecting', 'ringing', 'answered', 'finished']),
   result: z
-    .enum(['answered', 'no-answer', 'busy', 'canceled', 'failed'])
+    .enum(['answered', 'no-answer', 'busy', 'canceled', 'failed', 'declined'])
     .nullable(),
   answeredAt: z.string().nullable(),
   endedAt: z.string().nullable(),
@@ -37,7 +37,7 @@ const recentsSchema = z.object({
   rows: z.array(
     progressSchema.extend({
       createdAt: z.string(),
-      direction: z.literal('outbound'),
+      direction: z.enum(['outbound', 'inbound']),
       destination: z.string().regex(/^\+[1-9]\d{1,14}$/),
       name: z.string().nullable(),
       recordId: z.string().uuid().nullable(),
@@ -53,11 +53,18 @@ const historySchema = z.object({
     progressSchema.extend({
       createdAt: z.string(),
       actorLabel: z.string(),
-      direction: z.literal('outbound'),
+      direction: z.enum(['outbound', 'inbound']),
       canReconcile: z.boolean(),
     }),
   ),
 });
+
+const inboundOfferSchema = callSchema.extend({
+  recordId: z.string().uuid(),
+  number: z.string().regex(/^\+[1-9]\d{1,14}$/),
+  name: z.string().nullable(),
+});
+export type VoiceInboundOffer = z.infer<typeof inboundOfferSchema>;
 
 export type VoiceProviderProgress = z.infer<typeof progressSchema>;
 export type VoiceCallHistory = z.infer<typeof historySchema>;
@@ -110,11 +117,12 @@ export const getVoiceStatus = async (signal: AbortSignal) =>
 export const createVoiceSession = async (
   recordId: string,
   signal: AbortSignal,
+  inboundSessionId?: string,
 ) =>
   sessionSchema.parse(
     await requestVoice('session', signal, {
       method: 'POST',
-      body: { recordId },
+      body: { recordId, inboundSessionId },
     }),
   );
 
@@ -139,11 +147,12 @@ export const createManualVoiceSession = async (
   number: string,
   recordId: string | null,
   signal: AbortSignal,
+  inboundSessionId?: string,
 ) =>
   sessionSchema.parse(
     await requestVoice('manual-session', signal, {
       method: 'POST',
-      body: { number, recordId },
+      body: { number, recordId, inboundSessionId },
     }),
   );
 
@@ -153,6 +162,42 @@ export const getVoiceRecents = async (signal: AbortSignal, before?: string) =>
       `recents${before ? `?before=${encodeURIComponent(before)}` : ''}`,
       signal,
     ),
+  );
+
+export const getVoiceInboundAccess = async (signal: AbortSignal) =>
+  z
+    .object({ available: z.literal(true) })
+    .parse(await requestVoice('inbound-access', signal));
+
+export const startVoiceInboundSession = async (signal: AbortSignal) =>
+  z
+    .object({ id: z.string().uuid(), token: z.string().min(1) })
+    .parse(await requestVoice('inbound-session', signal, { method: 'POST' }));
+
+export const updateVoiceInboundSession = async (
+  id: string,
+  state: 'registered' | 'offline' | 'stop',
+  refresh: boolean,
+  signal: AbortSignal,
+) =>
+  z.object({ token: z.string().min(1).optional() }).parse(
+    await requestVoice('inbound-session/update', signal, {
+      method: 'POST',
+      body: { id, state, refresh },
+    }),
+  );
+
+export const getVoiceInboundOffer = async (
+  id: string,
+  sessionId: string,
+  signal: AbortSignal,
+  action?: 'accept' | 'decline' | 'reconcile',
+) =>
+  inboundOfferSchema.parse(
+    await requestVoice(`inbound-offer/${encodeURIComponent(id)}`, signal, {
+      method: 'POST',
+      body: { sessionId, action },
+    }),
   );
 
 export const getVoiceHistoryObject = async (

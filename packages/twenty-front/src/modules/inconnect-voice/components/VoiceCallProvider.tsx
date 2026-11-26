@@ -4,7 +4,10 @@ import { currentUserWorkspaceState } from '@/auth/states/currentUserWorkspaceSta
 import { currentWorkspaceMemberState } from '@/auth/states/currentWorkspaceMemberState';
 import { currentWorkspaceState } from '@/auth/states/currentWorkspaceState';
 import { isPendingServerSignOutState } from '@/auth/states/isPendingServerSignOutState';
-import { VoiceSoftphone } from '@/inconnect-voice/components/VoiceSoftphone';
+import {
+  VoiceSoftphone,
+  type VoicePhoneTab,
+} from '@/inconnect-voice/components/VoiceSoftphone';
 import { VoiceGlobalSoftphone } from '@/inconnect-voice/components/VoiceGlobalSoftphone';
 import {
   VoiceCallContext,
@@ -26,15 +29,23 @@ const AuthenticatedVoiceCallProvider = ({
   const [selection, setSelection] = useState<{
     target: VoiceLeadTarget | null;
     revision: number;
+    phoneTab?: VoicePhoneTab;
   } | null>(null);
   const [minimized, setMinimized] = useState(false);
-  const voice = useLeadVoiceCall(selection !== null, audioScope);
+  const voice = useLeadVoiceCall(selection !== null, audioScope, () => {
+    setMinimized(false);
+    setSelection((previous) => ({
+      target: null,
+      revision: (previous?.revision ?? 0) + 1,
+    }));
+  });
 
-  const open = (target: VoiceLeadTarget | null) => {
+  const open = (target: VoiceLeadTarget | null, phoneTab?: VoicePhoneTab) => {
     setMinimized(false);
     if (!voice.resetCall()) return;
     setSelection((previous) => ({
       target,
+      phoneTab,
       revision: (previous?.revision ?? 0) + 1,
     }));
   };
@@ -62,10 +73,15 @@ const AuthenticatedVoiceCallProvider = ({
           minimized={minimized}
           onToggleMinimized={panel.onToggleMinimized}
           onClose={close}
+          onOpenPhoneTab={(tab) => open(null, tab)}
         />
       )}
       {selection && !selection.target && (
-        <VoiceGlobalSoftphone key={selection.revision} panel={panel} />
+        <VoiceGlobalSoftphone
+          key={selection.revision}
+          panel={panel}
+          initialTab={selection.phoneTab}
+        />
       )}
     </VoiceCallContext.Provider>
   );

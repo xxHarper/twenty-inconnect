@@ -31,6 +31,7 @@ import { InconnectVoiceDirectoryService } from 'src/modules/inconnect-voice/inco
 import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceController } from 'src/modules/inconnect-voice/inconnect-voice.controller';
 import { InconnectVoiceProviderService } from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
+import { InconnectVoiceInboundSessionService } from 'src/modules/inconnect-voice/inconnect-voice-inbound-session.service';
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
@@ -67,6 +68,7 @@ describe('INCONNECT Voice REST boundary', () => {
   const dialCondition = jest.fn();
   const checkRolesPermissions = jest.fn();
   const recents = jest.fn();
+  const inboundCurrent = jest.fn();
   const intents = new Map<string, string>();
   const envelopes = new Map<string, string>();
   const storeIntent = jest.fn(
@@ -83,6 +85,10 @@ describe('INCONNECT Voice REST boundary', () => {
         InconnectVoiceService,
         InconnectVoiceDestinationService,
         InconnectVoiceProviderService,
+        {
+          provide: InconnectVoiceInboundSessionService,
+          useValue: { current: inboundCurrent },
+        },
         { provide: PermissionsService, useValue: { checkRolesPermissions } },
         {
           provide: InconnectVoiceDirectoryService,
@@ -299,10 +305,14 @@ describe('INCONNECT Voice REST boundary', () => {
       .set('Authorization', bearer)
       .send({ number });
 
-  const callback = (intentId: string, validSignature = true) => {
+  const callback = (
+    intentId: string,
+    validSignature = true,
+    browserIdentity = identity,
+  ) => {
     const form = {
       intentId,
-      From: `client:${identity}`,
+      From: `client:${browserIdentity}`,
       AccountSid: accountSid,
       CallSid: `CA${'d'.repeat(32)}`,
       CallerId: '+12015550199',
@@ -553,6 +563,46 @@ describe('INCONNECT Voice REST boundary', () => {
     expect(text).not.toContain('+12015550198');
     await callback(body.intentId).expect(403);
     expect(claim).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a receiving identity for outbound only with a valid lease and exact signed identity', async () => {
+    Object.assign(process.env, {
+      INCONNECT_VOICE_ENABLE_INBOUND: 'true',
+      INCONNECT_VOICE_INBOUND_USER_WORKSPACE_ID: operatorId,
+      INCONNECT_VOICE_INBOUND_URL:
+        'https://voice.example.test/auth/inconnect-voice/inbound',
+      INCONNECT_VOICE_INBOUND_NUMBER: '+12015550125',
+      INCONNECT_VOICE_INBOUND_TEST_SOURCE: destination,
+    });
+    const sessionId = '00000000-0000-4000-8000-000000000009';
+    const browserIdentity = `${identity}_${sessionId.replace(/-/g, '')}`;
+    inboundCurrent.mockResolvedValueOnce(false).mockResolvedValue(true);
+    await issue({ recordId, inboundSessionId: sessionId }).expect(403);
+    const { body } = await issue({
+      recordId,
+      inboundSessionId: sessionId,
+    }).expect(200);
+    expect(inboundCurrent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ inboundEnabled: true }),
+      sessionId,
+      memberId,
+      false,
+    );
+    const [_, payload] = (body.token as string).split('.');
+    const token = JSON.parse(
+      Buffer.from(payload, 'base64url').toString('utf8'),
+    ) as {
+      grants: { identity: string; voice: { incoming: { allow: boolean } } };
+    };
+    expect(token.grants.identity).toBe(browserIdentity);
+    expect(token.grants.voice.incoming.allow).toBe(true);
+    await callback(body.intentId, true, browserIdentity).expect(200);
+
+    const mismatched = await issue({
+      recordId,
+      inboundSessionId: sessionId,
+    }).expect(200);
+    await callback(mismatched.body.intentId, true, identity).expect(403);
   });
 
   it('revalidates the original authorization and persisted phone before returning TwiML', async () => {

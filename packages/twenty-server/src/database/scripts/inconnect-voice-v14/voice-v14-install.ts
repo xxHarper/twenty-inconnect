@@ -31,7 +31,7 @@ const permissionKeys = [
   PermissionFlagType.DIAL_INCONNECT_VOICE,
   PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
 ];
-const trackingColumns =
+export const trackingColumns =
   'name, status, attempt, "executedByVersion", "workspaceId", "errorMessage", "isInitial"';
 
 export function voiceV14Command() {
@@ -88,7 +88,7 @@ type TrackingRow = {
   isInitial: boolean;
 };
 
-async function readTracking(
+export async function readTracking(
   runner: QueryRunner,
   name: string,
 ): Promise<TrackingRow[]> {
@@ -109,7 +109,7 @@ function instanceRows(name: string, workspaceId: string) {
   });
 }
 
-function verifyInstanceRows(
+export function verifyInstanceRows(
   name: string,
   workspaceId: string,
   rows: TrackingRow[],
@@ -137,14 +137,17 @@ async function verifyCursors(
 ) {
   const cursors: TrackingRow[] = await runner.query(
     `WITH candidates AS (
-       SELECT DISTINCT ON ("workspaceId",name) ${trackingColumns}, "createdAt", id
+       SELECT DISTINCT ON ("workspaceId",name) ${trackingColumns}, "createdAt"
        FROM core."upgradeMigration" candidate
        WHERE ("workspaceId"=$1::uuid OR ("workspaceId" IS NULL AND NOT "isInitial"))
          AND ${VOICE_HISTORY_WORKSPACE_CURSOR_CONDITION}
        ORDER BY "workspaceId", name, attempt DESC
+     ), ranked AS (
+       SELECT *, dense_rank() OVER (PARTITION BY "workspaceId" ORDER BY "createdAt" DESC) AS cursor_rank
+       FROM candidates
      )
-     SELECT DISTINCT ON ("workspaceId") ${trackingColumns}
-     FROM candidates ORDER BY "workspaceId" NULLS FIRST, "createdAt" DESC, id DESC`,
+     SELECT ${trackingColumns}
+     FROM ranked WHERE cursor_rank=1 ORDER BY "workspaceId" NULLS FIRST`,
     [
       workspaceId,
       VOICE_HISTORY_UPGRADE_NAME,
@@ -215,6 +218,7 @@ async function readShape(runner: QueryRunner, workspaceId: string) {
 export async function readVoiceV14State(
   runner: QueryRunner,
   workspaceId: string,
+  successorName?: string,
 ) {
   await verifySinglePilotWorkspace(runner, workspaceId);
   const [tracking]: { aliasConflict: boolean }[] = await runner.query(
@@ -291,9 +295,9 @@ export async function readVoiceV14State(
   await verifyCursors(
     runner,
     workspaceId,
-    VOICE_V14_INSTANCE,
-    VOICE_V14_REFRESH,
-    last.status,
+    successorName ?? VOICE_V14_INSTANCE,
+    successorName ?? VOICE_V14_REFRESH,
+    successorName ? 'completed' : last.status,
   );
   return last.status === 'completed'
     ? ('installed' as const)

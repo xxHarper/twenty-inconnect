@@ -23,11 +23,15 @@ import {
   createVoiceSession,
   createManualVoiceSession,
   getVoiceCallProgress,
+  getVoiceInboundAccess,
+  getVoiceInboundOffer,
   getManualVoiceCallProgress,
   getVoicePhoneAccess,
   getVoiceRecents,
   getVoiceStatus,
   lookupVoiceNumber,
+  startVoiceInboundSession,
+  updateVoiceInboundSession,
   type VoiceLookup,
 } from '@/inconnect-voice/utils/voiceApi';
 import { DefaultLayout } from '@/ui/layout/page/components/DefaultLayout';
@@ -62,10 +66,14 @@ jest.mock('@/inconnect-voice/utils/voiceApi', () => ({
   createManualVoiceSession: jest.fn(),
   getVoiceCallProgress: jest.fn(),
   getManualVoiceCallProgress: jest.fn(),
+  getVoiceInboundAccess: jest.fn(),
+  getVoiceInboundOffer: jest.fn(),
   getVoicePhoneAccess: jest.fn(),
   getVoiceRecents: jest.fn(),
   getVoiceStatus: jest.fn(),
   lookupVoiceNumber: jest.fn(),
+  startVoiceInboundSession: jest.fn(),
+  updateVoiceInboundSession: jest.fn(),
   VoiceApiError: Error,
 }));
 
@@ -184,6 +192,9 @@ describe('VoiceCallProvider', () => {
       },
     });
     jest.mocked(getVoiceStatus).mockResolvedValue('ready');
+    jest
+      .mocked(getVoiceInboundAccess)
+      .mockRejectedValue(new Error('Inbound disabled'));
     jest
       .mocked(getVoiceCallProgress)
       .mockImplementation(async (_recordId, id) => ({
@@ -540,7 +551,9 @@ describe('VoiceCallProvider', () => {
         .mocked(lookupVoiceNumber)
         .mockReturnValue(new Promise(() => undefined));
       const { store } = setup();
-      fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+      });
       fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), {
         target: { value: destination },
       });
@@ -548,7 +561,7 @@ describe('VoiceCallProvider', () => {
         await jest.advanceTimersByTimeAsync(500);
       });
       const signal = jest.mocked(lookupVoiceNumber).mock.calls[0][1];
-      act(() => {
+      await act(async () => {
         if (identity === 'workspace')
           store.set(currentWorkspaceState.atom, {
             id: 'workspace-b',
@@ -556,7 +569,9 @@ describe('VoiceCallProvider', () => {
         else store.set(currentUserState.atom, { id: 'user-b' } as CurrentUser);
       });
       expect(signal.aborted).toBe(true);
-      fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+      });
       expect(screen.getByRole('textbox', { name: 'Phone number' })).toHaveValue(
         '',
       );
@@ -679,9 +694,19 @@ describe('VoiceCallProvider', () => {
     });
     expect(first.disconnect).toHaveBeenCalledTimes(1);
     expect(first.eventNames()).toEqual([]);
-    expect(screen.getByText('Completed')).toBeVisible();
+    expect(screen.getByText('Call completed')).toBeVisible();
     await act(async () => jest.advanceTimersByTime(3_000));
     expect(screen.getByRole('timer')).toHaveTextContent('00:04');
+    expect(screen.getByText('Connected time')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Audio' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Back to keypad' }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Back to recents' }),
+    ).toBeVisible();
     expect(device.destroy).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('link', { name: 'Other lead' }));
@@ -715,6 +740,97 @@ describe('VoiceCallProvider', () => {
     expect(second.eventNames()).toEqual([]);
     expect(device.listenerCount('error')).toBe(0);
     expect(device.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows symmetric incoming controls and opens Recents after completion without retiring the registered device', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000003';
+    jest.mocked(getVoiceInboundAccess).mockResolvedValue({ available: true });
+    jest
+      .mocked(startVoiceInboundSession)
+      .mockResolvedValue({ id: sessionId, token: 'inbound-token' });
+    jest.mocked(updateVoiceInboundSession).mockResolvedValue({});
+    jest.mocked(getVoiceRecents).mockResolvedValue({ rows: [], next: null });
+    let finished = false;
+    jest.mocked(getVoiceInboundOffer).mockImplementation(async (id) => ({
+      id,
+      recordId: originalLead,
+      name: 'Incoming Lead',
+      number: destination,
+      status: finished ? 'finished' : 'ringing',
+      result: finished ? 'answered' : null,
+      answeredAt: null,
+      endedAt: finished ? new Date().toISOString() : null,
+      durationSeconds: finished ? 21 : null,
+      observedAt: Date.now(),
+    }));
+    const { first, device } = setup();
+    const receiver = Object.assign(device, {
+      state: 'unregistered',
+      register: jest.fn(async () => {
+        receiver.state = 'registered';
+        receiver.emit('registered');
+      }),
+    });
+    first.setStatus('pending');
+    const incoming = Object.assign(first, {
+      customParameters: new Map([['inconnectVoiceCallId', anotherLead]]),
+      accept: jest.fn(),
+      reject: jest.fn(),
+    });
+
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Phone' })),
+    );
+    const receive = await screen.findByRole('button', {
+      name: 'Receive calls',
+    });
+    await act(async () => fireEvent.click(receive));
+    expect(await screen.findByText('Ready to receive calls')).toBeVisible();
+    await act(async () => {
+      receiver.emit('incoming', incoming);
+    });
+    expect(screen.getByText('Incoming call')).toBeVisible();
+    expect(screen.getByText('+1 201 555 0123')).toBeVisible();
+    const [decline, accept] = within(
+      screen.getByRole('group', { name: 'Incoming call controls' }),
+    ).getAllByRole('button');
+    expect(decline).toHaveAccessibleName('Decline');
+    expect(accept).toHaveAccessibleName('Accept');
+    await act(async () => fireEvent.click(accept));
+    expect(incoming.accept).toHaveBeenCalledTimes(1);
+    act(() => {
+      first.setStatus('open');
+      first.emit('accept');
+    });
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Audio' })),
+    );
+    expect(screen.getByRole('combobox', { name: 'Microphone' })).toBeVisible();
+
+    finished = true;
+    await act(async () => {
+      first.setStatus('closed');
+      first.emit('disconnect');
+    });
+    expect(await screen.findByText('Call completed')).toBeVisible();
+    expect(screen.getByText('Connected time')).toBeVisible();
+    expect(screen.getByRole('timer')).toHaveTextContent('00:21');
+    expect(
+      screen.queryByRole('button', { name: 'Audio' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Microphone' }),
+    ).not.toBeInTheDocument();
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Back to recents' })),
+    );
+    expect(
+      await screen.findByRole('tabpanel', { name: 'Recents' }),
+    ).toBeVisible();
+    expect(screen.getByText('Ready to receive calls')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Phone' })).toBeVisible();
+    expect(receiver.register).toHaveBeenCalledTimes(1);
+    expect(receiver.destroy).not.toHaveBeenCalled();
   });
 
   it('sends only clicked tones to the authorized open call and keeps the keypad across routes', async () => {
@@ -876,7 +992,16 @@ describe('VoiceCallProvider', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Hang up' })),
     );
     expect(sdkAudio.unsetInputDevice).toHaveBeenCalledTimes(1);
-    expect(input).toHaveValue(microphone.deviceId);
+    expect(
+      screen.queryByRole('combobox', { name: 'Microphone' }),
+    ).not.toBeInTheDocument();
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Back to keypad' })),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Audio' }));
+    expect(
+      await screen.findByRole('combobox', { name: 'Microphone' }),
+    ).toHaveValue(microphone.deviceId);
   });
 
   const openPhoneDuringCall = async () => {

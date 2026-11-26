@@ -3,6 +3,7 @@ import { VoiceKeypad } from '@/inconnect-voice/components/VoiceKeypad';
 import { VoiceRecents } from '@/inconnect-voice/components/VoiceRecents';
 import {
   VoiceSoftphoneControls,
+  type VoicePhoneTab,
   type VoiceSoftphonePanelProps,
 } from '@/inconnect-voice/components/VoiceSoftphone';
 import { useVoiceDialLookup } from '@/inconnect-voice/hooks/useVoiceDialLookup';
@@ -157,12 +158,18 @@ const StyledControl = styled.button`
   }
 `;
 
-type VoiceGlobalSoftphoneProps = { panel: VoiceSoftphonePanelProps };
+type VoiceGlobalSoftphoneProps = {
+  panel: VoiceSoftphonePanelProps;
+  initialTab?: VoicePhoneTab;
+};
 
-export const VoiceGlobalSoftphone = ({ panel }: VoiceGlobalSoftphoneProps) => {
+export const VoiceGlobalSoftphone = ({
+  panel,
+  initialTab = 'keypad',
+}: VoiceGlobalSoftphoneProps) => {
   const { t } = useLingui();
   const { voice } = panel;
-  const [tab, setTab] = useState<'keypad' | 'recents'>('keypad');
+  const [tab, setTab] = useState(initialTab);
   const [audioOpen, setAudioOpen] = useState(false);
   const [identity, setIdentity] = useState<{
     name: string | null;
@@ -179,12 +186,12 @@ export const VoiceGlobalSoftphone = ({ panel }: VoiceGlobalSoftphoneProps) => {
     if (redialRevision) numberFieldRef.current?.focus();
   }, [redialRevision]);
 
-  const returnToDialer = () => {
+  const returnToDialer = (nextTab: VoicePhoneTab) => {
     if (!voice.resetCall()) return;
     setIdentity(null);
     setAudioOpen(false);
     editNumber('');
-    setTab('keypad');
+    setTab(nextTab);
   };
 
   const result = lookup.status === 'found' ? lookup : null;
@@ -202,6 +209,12 @@ export const VoiceGlobalSoftphone = ({ panel }: VoiceGlobalSoftphoneProps) => {
         result.data.canCallUnlinked),
   );
   const finishedOrCalling = voice.snapshot.state !== 'idle';
+  const inboundState = voice.inbound.state;
+  const inboundOnline = inboundState === 'online';
+  const receiving = inboundOnline || inboundState === 'connecting';
+  const receiveCallsLabel = receiving
+    ? t`Stop receiving calls`
+    : t`Receive calls`;
   const keypadLabel = t`Keypad`;
   const recentsLabel = t`Recents`;
   const callLabel = t`Place call`;
@@ -255,7 +268,12 @@ export const VoiceGlobalSoftphone = ({ panel }: VoiceGlobalSoftphoneProps) => {
       panel={panel}
       manual={{
         identity: finishedOrCalling ? identity : null,
-        onReturnToDialer: finishedOrCalling ? returnToDialer : undefined,
+        onReturnToDialer: finishedOrCalling
+          ? () => returnToDialer('keypad')
+          : undefined,
+        onReturnToRecents: finishedOrCalling
+          ? () => returnToDialer('recents')
+          : undefined,
         idleContent: !finishedOrCalling && (
           <StyledDialer>
             <StyledTabs>
@@ -435,6 +453,29 @@ export const VoiceGlobalSoftphone = ({ panel }: VoiceGlobalSoftphoneProps) => {
                   </StyledControl>
                 </span>
               </StyledControls>
+              {voice.inbound.available && (
+                <>
+                  <Button
+                    title={receiveCallsLabel}
+                    ariaLabel={receiveCallsLabel}
+                    onClick={
+                      receiving
+                        ? voice.inbound.stop
+                        : () => void voice.inbound.start()
+                    }
+                    size="small"
+                  />
+                  <InputHint>
+                    {inboundOnline
+                      ? t`Ready to receive calls`
+                      : inboundState === 'connecting'
+                        ? t`Connecting incoming calls…`
+                        : inboundState === 'unavailable'
+                          ? t`Incoming calls unavailable. Try again.`
+                          : t`Incoming calls offline`}
+                  </InputHint>
+                </>
+              )}
             </StyledFooter>
           </StyledDialer>
         ),

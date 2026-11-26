@@ -10,6 +10,8 @@ import {
   StyledHeader,
   StyledHeaderGroup,
   StyledIdentity,
+  StyledIncomingAction,
+  StyledIncomingActionIcon,
   StyledName,
   StyledNumber,
   StyledPanel,
@@ -17,11 +19,13 @@ import {
   StyledStatusDot,
   StyledSummary,
   StyledTimer,
+  StyledTimerLabel,
 } from '@/inconnect-voice/components/VoiceSoftphoneView.styles';
 import { type VoiceAudio } from '@/inconnect-voice/utils/createVoiceAudio';
 import { type VoiceAudioSettings as AudioSettings } from '@/inconnect-voice/utils/voiceAudioPreferences';
 import { InputHint } from '@/ui/input/components/InputHint';
 import { useLingui } from '@lingui/react/macro';
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { type ComponentProps, type ReactNode, useId, useState } from 'react';
 import {
   IconChevronDown,
@@ -65,8 +69,12 @@ type VoiceSoftphoneViewProps = {
   onToggleMute: () => void;
   onHangUp: () => void;
   onDial?: () => void;
+  inboundActions?: { onAccept: () => void; onDecline: () => void };
+  inbound?: boolean;
+  terminal?: 'ended' | 'completed';
   idleContent?: ReactNode;
   onReturnToDialer?: () => void;
+  onReturnToRecents?: () => void;
   onDigit: Extract<
     ComponentProps<typeof VoiceKeypad>,
     { mode?: 'dtmf' }
@@ -139,8 +147,12 @@ export const VoiceSoftphoneView = ({
   onToggleMute,
   onHangUp,
   onDial,
+  inboundActions,
+  inbound,
+  terminal,
   idleContent,
   onReturnToDialer,
+  onReturnToRecents,
   onDigit,
   onSelectAudioDevice,
   onRequestMicrophoneAccess,
@@ -152,6 +164,9 @@ export const VoiceSoftphoneView = ({
   );
   const KeypadIcon = getIcon('IconDialpad');
   const HangUpIcon = getIcon('IconPhoneOff', 'IconPhone');
+  const IncomingIcon = getIcon('IconPhoneIncoming', 'IconPhone');
+  const CompletedIcon = getIcon('IconCircleCheck', 'IconCheck');
+  const RecentsIcon = getIcon('IconHistory');
   const [openControl, setOpenControl] = useState<
     { kind: 'audio' } | { kind: 'keypad'; callId: string } | null
   >(null);
@@ -164,7 +179,14 @@ export const VoiceSoftphoneView = ({
   const dialLabel = t`Place call`;
   const showKeypad =
     openControl?.kind === 'keypad' && busy && openControl.callId === callId;
-  const showAudio = openControl?.kind === 'audio';
+  const showAudio = !terminal && openControl?.kind === 'audio';
+  const completed = terminal === 'completed';
+  const displayNumber =
+    lead && inbound
+      ? (parsePhoneNumberFromString(lead.number, {
+          extract: false,
+        })?.formatInternational() ?? lead.number)
+      : lead?.number;
   const hasIdleContent = Boolean(idleContent);
   const initials = lead?.name
     ?.trim()
@@ -214,16 +236,27 @@ export const VoiceSoftphoneView = ({
             )}
             {lead.name && <VoiceLeadName name={lead.name} />}
             {(!minimized || !lead.name) && (
-              <StyledNumber>{lead.number}</StyledNumber>
+              <StyledNumber dir="ltr" data-inbound={inbound}>
+                {displayNumber}
+              </StyledNumber>
             )}
           </StyledIdentity>
         )}
-        <StyledStatus role="status">
-          <StyledStatusDot aria-hidden data-tone={tone} />
+        <StyledStatus role="status" data-completed={completed}>
+          {inboundActions ? (
+            <IncomingIcon size={themeCssVariables.icon.size.md} aria-hidden />
+          ) : completed ? (
+            <CompletedIcon size={themeCssVariables.icon.size.md} aria-hidden />
+          ) : (
+            <StyledStatusDot aria-hidden data-tone={tone} />
+          )}
           <span>{status}</span>
         </StyledStatus>
         {timer && (
-          <StyledTimer>
+          <StyledTimer data-completed={completed}>
+            {completed && (
+              <StyledTimerLabel>{t`Connected time`}</StyledTimerLabel>
+            )}
             <VoiceCallTimer
               key={callId}
               connectedAt={timer.connectedAt}
@@ -240,98 +273,135 @@ export const VoiceSoftphoneView = ({
         )}
         {!minimized && failureLabel && <InputHint>{failureLabel}</InputHint>}
       </StyledSummary>
-      {(busy || (!minimized && !hasIdleContent)) && (
-        <StyledActions
-          role="group"
-          aria-label={t`Call controls`}
-          data-expanded-call={busy && !minimized}
-        >
-          {busy && (
-            <StyledAction
-              type="button"
-              title={muteLabel}
-              aria-label={muteLabel}
-              disabled={!canMute}
-              onClick={onToggleMute}
-            >
-              <MicrophoneIcon
-                size={themeCssVariables.icon.size.lg}
-                aria-hidden
-              />
-              <StyledActionLabel>{muteLabel}</StyledActionLabel>
-            </StyledAction>
-          )}
-          {busy && !minimized && (
-            <StyledAction
-              type="button"
-              title={keypadLabel}
-              aria-label={keypadLabel}
-              aria-pressed={showKeypad}
-              aria-controls={showKeypad ? drawerId : undefined}
-              disabled={!showKeypad && !canSendDigit}
-              onClick={() =>
-                setOpenControl(
-                  !showKeypad && callId ? { kind: 'keypad', callId } : null,
-                )
-              }
-            >
-              <KeypadIcon size={themeCssVariables.icon.size.lg} aria-hidden />
-              <StyledActionLabel>{keypadLabel}</StyledActionLabel>
-            </StyledAction>
-          )}
-          {!minimized && (
-            <StyledAction
-              type="button"
-              title={audioLabel}
-              aria-label={audioLabel}
-              aria-pressed={showAudio}
-              aria-controls={showAudio ? drawerId : undefined}
-              onClick={() =>
-                setOpenControl(showAudio ? null : { kind: 'audio' })
-              }
-            >
-              <IconHeadphones
-                size={themeCssVariables.icon.size.lg}
-                aria-hidden
-              />
-              <StyledActionLabel>{audioLabel}</StyledActionLabel>
-            </StyledAction>
-          )}
-          {busy ? (
-            <StyledAction
-              className="hang-up"
-              type="button"
-              title={hangUpLabel}
-              aria-label={hangUpLabel}
-              disabled={ending}
-              onClick={onHangUp}
-            >
+      {inboundActions && (
+        <StyledActions role="group" aria-label={t`Incoming call controls`}>
+          <StyledIncomingAction
+            type="button"
+            onClick={inboundActions.onDecline}
+          >
+            <StyledIncomingActionIcon data-intent="decline">
               <HangUpIcon size={themeCssVariables.icon.size.lg} aria-hidden />
-              <StyledActionLabel>{hangUpLabel}</StyledActionLabel>
+            </StyledIncomingActionIcon>
+            <span>{t`Decline`}</span>
+          </StyledIncomingAction>
+          <StyledIncomingAction type="button" onClick={inboundActions.onAccept}>
+            <StyledIncomingActionIcon data-intent="accept">
+              <IconPhone size={themeCssVariables.icon.size.lg} aria-hidden />
+            </StyledIncomingActionIcon>
+            <span>{t`Accept`}</span>
+          </StyledIncomingAction>
+        </StyledActions>
+      )}
+      {terminal && !minimized && (onReturnToDialer || onReturnToRecents) && (
+        <StyledActions role="group" aria-label={t`Phone views`}>
+          {onReturnToDialer && (
+            <StyledAction type="button" onClick={onReturnToDialer}>
+              <KeypadIcon size={themeCssVariables.icon.size.md} aria-hidden />
+              <span>{t`Back to keypad`}</span>
             </StyledAction>
-          ) : onReturnToDialer ? (
-            <Button
-              type="button"
-              title={t`Back to keypad`}
-              ariaLabel={t`Back to keypad`}
-              onClick={onReturnToDialer}
-            />
-          ) : (
-            !hasIdleContent && (
-              <Button
-                type="button"
-                fullWidth
-                justify="center"
-                title={dialLabel}
-                ariaLabel={dialLabel}
-                Icon={IconPhone}
-                disabled={!onDial}
-                onClick={onDial}
-              />
-            )
+          )}
+          {onReturnToRecents && (
+            <StyledAction type="button" onClick={onReturnToRecents}>
+              <RecentsIcon size={themeCssVariables.icon.size.md} aria-hidden />
+              <span>{t`Back to recents`}</span>
+            </StyledAction>
           )}
         </StyledActions>
       )}
+      {!inboundActions &&
+        !terminal &&
+        (busy || (!minimized && !hasIdleContent)) && (
+          <StyledActions
+            role="group"
+            aria-label={t`Call controls`}
+            data-expanded-call={busy && !minimized}
+          >
+            {busy && (
+              <StyledAction
+                type="button"
+                title={muteLabel}
+                aria-label={muteLabel}
+                disabled={!canMute}
+                onClick={onToggleMute}
+              >
+                <MicrophoneIcon
+                  size={themeCssVariables.icon.size.lg}
+                  aria-hidden
+                />
+                <StyledActionLabel>{muteLabel}</StyledActionLabel>
+              </StyledAction>
+            )}
+            {busy && !minimized && (
+              <StyledAction
+                type="button"
+                title={keypadLabel}
+                aria-label={keypadLabel}
+                aria-pressed={showKeypad}
+                aria-controls={showKeypad ? drawerId : undefined}
+                disabled={!showKeypad && !canSendDigit}
+                onClick={() =>
+                  setOpenControl(
+                    !showKeypad && callId ? { kind: 'keypad', callId } : null,
+                  )
+                }
+              >
+                <KeypadIcon size={themeCssVariables.icon.size.lg} aria-hidden />
+                <StyledActionLabel>{keypadLabel}</StyledActionLabel>
+              </StyledAction>
+            )}
+            {!minimized && (
+              <StyledAction
+                type="button"
+                title={audioLabel}
+                aria-label={audioLabel}
+                aria-pressed={showAudio}
+                aria-controls={showAudio ? drawerId : undefined}
+                onClick={() =>
+                  setOpenControl(showAudio ? null : { kind: 'audio' })
+                }
+              >
+                <IconHeadphones
+                  size={themeCssVariables.icon.size.lg}
+                  aria-hidden
+                />
+                <StyledActionLabel>{audioLabel}</StyledActionLabel>
+              </StyledAction>
+            )}
+            {busy ? (
+              <StyledAction
+                className="hang-up"
+                type="button"
+                title={hangUpLabel}
+                aria-label={hangUpLabel}
+                disabled={ending}
+                onClick={onHangUp}
+              >
+                <HangUpIcon size={themeCssVariables.icon.size.lg} aria-hidden />
+                <StyledActionLabel>{hangUpLabel}</StyledActionLabel>
+              </StyledAction>
+            ) : onReturnToDialer ? (
+              <Button
+                type="button"
+                title={t`Back to keypad`}
+                ariaLabel={t`Back to keypad`}
+                onClick={onReturnToDialer}
+              />
+            ) : (
+              !hasIdleContent && (
+                <Button
+                  type="button"
+                  fullWidth
+                  justify="center"
+                  title={dialLabel}
+                  ariaLabel={dialLabel}
+                  Icon={IconPhone}
+                  disabled={!onDial}
+                  onClick={onDial}
+                />
+              )
+            )}
+          </StyledActions>
+        )}
       {!busy && !minimized && idleContent}
       {!minimized && !hasIdleContent && (showKeypad || showAudio) && (
         <StyledDrawer id={drawerId}>

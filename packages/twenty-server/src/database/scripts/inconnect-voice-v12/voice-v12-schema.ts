@@ -4,6 +4,15 @@ const CALL = 'inconnectVoiceCall';
 const LEG = 'inconnectVoiceCallLeg';
 const ACTIVE = 'IDX_inconnectVoiceCall_activeActor';
 const HISTORY = 'IDX_inconnectVoiceCall_recordHistory';
+const ACTOR_HISTORY = 'IDX_inconnectVoiceCall_actorHistory';
+
+export const inboundColumns = [
+  'inboundSessionId',
+  'inboundDecision',
+  'inboundScreenedAt',
+  'inboundDialSettled',
+  'answeredMemberId',
+] as const;
 
 export function requireVoiceInstall(
   condition: unknown,
@@ -155,7 +164,10 @@ const constraintsByTable = {
   ],
 };
 
-export async function verifyInstalledVoiceSchema(runner: QueryRunner) {
+export async function verifyInstalledVoiceSchema(
+  runner: QueryRunner,
+  version: '1.2' | '1.4' | '2' = '1.2',
+) {
   const columns: { name: string; column: string; valid: boolean }[] =
     await runner.query(
       `SELECT c.relname AS name, a.attname || ':' || t.typname ||
@@ -182,10 +194,48 @@ export async function verifyInstalledVoiceSchema(runner: QueryRunner) {
   for (const table of [CALL, LEG] as const) {
     const fields = columns.filter(({ name }) => name === table);
     const constraints = keys.filter(({ name }) => name === table);
+    const expectedFields: string[] = [...columnsByTable[table]];
+    const expectedChecks: string[] = [...constraintsByTable[table]];
+    if (table === CALL && version !== '1.2') {
+      for (const field of ['objectMetadataId', 'recordId']) {
+        expectedFields[expectedFields.indexOf(`${field}:uuid!`)] =
+          `${field}:uuid`;
+      }
+      expectedChecks.push(
+        'CHECK (("objectMetadataId" IS NULL) = ("recordId" IS NULL))',
+      );
+    }
+    if (version === '2' && table === CALL) {
+      expectedFields[expectedFields.indexOf('actorMemberId:uuid!')] =
+        'actorMemberId:uuid';
+      expectedFields.push(
+        'inboundSessionId:uuid',
+        'inboundDecision:text',
+        'inboundScreenedAt:timestamptz',
+        'inboundDialSettled:bool!=false',
+        'answeredMemberId:uuid',
+      );
+      expectedChecks[4] =
+        "CHECK (direction = ANY (ARRAY['outbound', 'inbound']))";
+      expectedChecks[7] =
+        "CHECK (result = ANY (ARRAY['answered', 'no-answer', 'busy', 'canceled', 'failed', 'declined']))";
+      expectedChecks.push(
+        "CHECK (\"inboundDecision\" = ANY (ARRAY['accept', 'decline']))",
+        "CHECK (\"actorMemberId\" IS NOT NULL OR direction = 'inbound' AND status = 'finished')",
+        'CHECK ("inboundSessionId" IS NULL OR direction = \'inbound\' AND "actorMemberId" IS NOT NULL AND "recordId" IS NOT NULL)',
+        'CHECK ("answeredMemberId" IS NULL OR direction = \'inbound\' AND result IS NOT DISTINCT FROM \'answered\' AND NOT "answeredMemberId" IS DISTINCT FROM "actorMemberId" AND "inboundScreenedAt" IS NOT NULL)',
+      );
+    }
+    if (version === '2' && table === LEG) {
+      expectedChecks[5] =
+        "CHECK (kind = ANY (ARRAY['browser', 'destination', 'caller', 'browser-inbound']))";
+      expectedChecks[6] =
+        "CHECK ((kind = ANY (ARRAY['browser', 'caller'])) = (\"parentCallSid\" IS NULL))";
+    }
     requireVoiceInstall(
       fields.every(({ valid }) => valid) &&
         fields.map(({ column }) => column).join('\n') ===
-          columnsByTable[table].join('\n'),
+          expectedFields.join('\n'),
       `Unexpected columns or owner for ${table}`,
     );
     requireVoiceInstall(
@@ -193,8 +243,7 @@ export async function verifyInstalledVoiceSchema(runner: QueryRunner) {
         constraints
           .map(({ definition }) => canonical(definition))
           .sort()
-          .join('\n') ===
-          constraintsByTable[table].map(canonical).sort().join('\n'),
+          .join('\n') === expectedChecks.map(canonical).sort().join('\n'),
       `Unexpected constraints for ${table}`,
     );
   }
@@ -210,12 +259,15 @@ export async function verifyInstalledVoiceSchema(runner: QueryRunner) {
     indexes.map((index) => [index.name, index.definition]),
   );
   requireVoiceInstall(
-    indexes.length === 7 &&
+    indexes.length === (version === '1.2' ? 7 : 8) &&
       indexes.every(({ valid }) => valid) &&
       definitions.get(ACTIVE) ===
         `CREATE UNIQUE INDEX "${ACTIVE}" ON core."inconnectVoiceCall" USING btree ("workspaceId", "actorMemberId") WHERE (status <> 'finished'::text)` &&
       definitions.get(HISTORY) ===
-        `CREATE INDEX "${HISTORY}" ON core."inconnectVoiceCall" USING btree ("workspaceId", "objectMetadataId", "recordId", "createdAt" DESC, id DESC)`,
+        `CREATE INDEX "${HISTORY}" ON core."inconnectVoiceCall" USING btree ("workspaceId", "objectMetadataId", "recordId", "createdAt" DESC, id DESC)` &&
+      (version === '1.2' ||
+        definitions.get(ACTOR_HISTORY) ===
+          `CREATE INDEX "${ACTOR_HISTORY}" ON core."inconnectVoiceCall" USING btree ("workspaceId", "actorMemberId", "createdAt" DESC, id DESC)`),
     'Unexpected or invalid Voice indexes',
   );
 }

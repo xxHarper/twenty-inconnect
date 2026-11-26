@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 
 import { type Request } from 'express';
 import Twilio from 'twilio';
@@ -8,13 +13,17 @@ import {
   type VoiceProviderTarget,
 } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import {
+  getVoiceInboundConfig,
   INCONNECT_VOICE_PATH,
   type InconnectVoiceConfig,
 } from 'src/modules/inconnect-voice/inconnect-voice-config';
+import { normalizeVoiceDialNumber } from 'src/modules/inconnect-voice/inconnect-voice-dial-number';
 import {
   isTwilioCallSid,
   readTwilioProgress,
 } from 'src/modules/inconnect-voice/inconnect-voice-lifecycle';
+
+import { InconnectVoiceInboundStore } from 'src/modules/inconnect-voice/inconnect-voice-inbound.store';
 
 const callbackPath = `/${INCONNECT_VOICE_PATH}/call-progress`;
 const forbidden = () => new ForbiddenException('Voice callback is unavailable');
@@ -66,7 +75,10 @@ export const readSignedVoiceWebhook = (
 export class InconnectVoiceProviderService {
   private readonly logger = new Logger(InconnectVoiceProviderService.name);
 
-  constructor(private readonly calls: InconnectVoiceCallStore) {}
+  constructor(
+    private readonly calls: InconnectVoiceCallStore,
+    @Optional() private readonly inbound?: InconnectVoiceInboundStore,
+  ) {}
 
   async callback(request: WebhookRequest, config: InconnectVoiceConfig) {
     const match =
@@ -121,6 +133,72 @@ export class InconnectVoiceProviderService {
         autoRetry: false,
         timeout: 5_000,
       });
+      if (target.direction === 'inbound') {
+        const inboundConfig = getVoiceInboundConfig();
+        if (
+          !this.inbound ||
+          !inboundConfig ||
+          inboundConfig.workspaceId !== config.workspaceId ||
+          inboundConfig.accountSid !== config.accountSid
+        )
+          return;
+        const parent = await client.calls(target.parentSid).fetch();
+        if (
+          parent.sid !== target.parentSid ||
+          parent.accountSid !== config.accountSid ||
+          parent.direction !== 'inbound' ||
+          parent.parentCallSid ||
+          parent.to !== inboundConfig.receiver ||
+          normalizeVoiceDialNumber(parent.from, inboundConfig).number !==
+            inboundConfig.source
+        )
+          return;
+        const progress = readTwilioProgress({
+          status: parent.status,
+          eventTime: parent.endTime,
+        });
+        if (progress?.status !== 'finished') return;
+
+        let childSid: string | null = null;
+        if (target.childSid) {
+          try {
+            const child = await client.calls(target.childSid).fetch();
+            if (
+              child.sid === target.childSid &&
+              child.accountSid === config.accountSid &&
+              child.parentCallSid === parent.sid &&
+              child.direction === 'outbound-dial'
+            ) {
+              const terminal = readTwilioProgress({
+                status: child.status,
+                duration: child.duration,
+              });
+              if (terminal?.status === 'finished') {
+                childSid = child.sid;
+                if (
+                  progress.result === 'answered' &&
+                  terminal.result === 'answered'
+                )
+                  progress.durationSeconds = terminal.durationSeconds;
+                if (
+                  progress.result === 'no-answer' &&
+                  terminal.result === 'canceled'
+                )
+                  progress.result = 'canceled';
+              }
+            }
+          } catch {
+            // Parent termination remains evidence even if the child cannot be read.
+          }
+        }
+        await this.inbound.settle(
+          inboundConfig,
+          { ...target, childSid },
+          progress,
+          false,
+        );
+        return;
+      }
       const candidates = target.childSid
         ? [await client.calls(target.childSid).fetch()]
         : await client.calls.list({

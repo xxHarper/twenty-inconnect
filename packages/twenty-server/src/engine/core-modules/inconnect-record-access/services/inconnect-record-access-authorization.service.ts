@@ -240,6 +240,39 @@ export class InconnectRecordAccessAuthorizationService {
     return authorization.scope;
   }
 
+  async applyOwnedReadScopeToQueryBuilder({
+    queryBuilder,
+    tableAlias,
+    authContext,
+    ...args
+  }: ResolveReadAuthorizationArgs & {
+    queryBuilder: ReadScopeQueryBuilder;
+    tableAlias: string;
+  }): Promise<InconnectRecordAccessReadScope> {
+    const authorization = await this.resolveReadAuthorization({
+      ...args,
+      authContext,
+    });
+    const decision = authorization?.decision;
+
+    if (
+      !isUserAuthContext(authContext) ||
+      (decision?.kind !== 'all-records' &&
+        decision?.kind !== 'owner-workspace-member-ids')
+    ) {
+      queryBuilder.andWhere('1 = 0');
+      return DENIED_SCOPE;
+    }
+
+    this.applyDecisionToQueryBuilder({ queryBuilder, tableAlias, decision });
+    queryBuilder.andWhere(
+      `${escapeIdentifier(tableAlias)}.${escapeIdentifier(decision.ownerJoinColumnName)} = :requiredOwnerMemberId`,
+      { requiredOwnerMemberId: authContext.workspaceMemberId },
+    );
+
+    return this.toPublicReadScope(decision);
+  }
+
   async isRecordReadable({
     recordId,
     ...args

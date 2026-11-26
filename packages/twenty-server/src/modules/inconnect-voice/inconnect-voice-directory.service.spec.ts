@@ -73,6 +73,12 @@ describe('Voice exact directory SQL without infrastructure', () => {
   };
   const recordAccess = {
     isAuthenticatedWorkspaceMemberValid: jest.fn().mockResolvedValue(true),
+    applyOwnedReadScopeToQueryBuilder: jest.fn(({ queryBuilder }) => {
+      queryBuilder.andWhere('"voiceLead"."liveOwner" = :requiredOwner', {
+        requiredOwner: 'member',
+      });
+      return { kind: 'owner-scoped' };
+    }),
     applyReadScopeToQueryBuilder: jest.fn(({ queryBuilder }) => {
       queryBuilder.andWhere('"voiceLead"."liveOwner" = :testPermittedOwner', {
         testPermittedOwner: 'member',
@@ -117,6 +123,22 @@ describe('Voice exact directory SQL without infrastructure', () => {
       ]),
     );
     expect(sql).not.toContain('5512345678');
+  });
+
+  it('counts at most two exact matches before requiring the pilot to own the authorized Lead', async () => {
+    const lead = await directory.query(actor, config, phone, true);
+    const [sql, parameters] = lead.query
+      .select(lead.id)
+      .getQueryAndParameters();
+
+    expect(sql).toMatch(
+      /SELECT COUNT\(\*\) FROM \(SELECT [\s\S]* LIMIT 2\) AS exact_phone\) = 1/,
+    );
+    expect(sql).toMatch(
+      /exact_phone\) = 1 AND "voiceLead"."liveOwner" = \$\d+/,
+    );
+    expect(parameters).toContain('member');
+    expect(recordAccess.applyReadScopeToQueryBuilder).not.toHaveBeenCalled();
   });
 
   it('omits a restricted label and treats a restricted phone or row policy failure as a denial', async () => {

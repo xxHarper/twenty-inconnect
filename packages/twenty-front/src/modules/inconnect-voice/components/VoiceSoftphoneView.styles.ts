@@ -148,15 +148,29 @@ export const StyledName = styled.strong`
 export const StyledNumber = styled.span`
   color: ${themeCssVariables.font.color.secondary};
   font-size: ${themeCssVariables.font.size.sm};
+
+  &[data-inbound='true'] {
+    font-size: ${themeCssVariables.font.size.md};
+    font-variant-numeric: tabular-nums;
+  }
 `;
 
 export const StyledStatus = styled.div`
-  align-items: baseline;
+  align-items: center;
   color: ${themeCssVariables.font.color.secondary};
   display: flex;
   font-size: ${themeCssVariables.font.size.sm};
   gap: ${themeCssVariables.spacing[2]};
   justify-content: center;
+
+  &[data-completed='true'] {
+    color: ${themeCssVariables.color.green11};
+    font-weight: ${themeCssVariables.font.weight.medium};
+  }
+
+  > svg {
+    flex: 0 0 auto;
+  }
 
   [data-minimized='true'] & {
     grid-column: 1;
@@ -193,6 +207,11 @@ export const StyledTimer = styled.div`
   font-variant-numeric: tabular-nums;
   font-weight: ${themeCssVariables.font.weight.semiBold};
 
+  &[data-completed='true'] {
+    font-size: ${themeCssVariables.font.size.xxl};
+    line-height: 1.2;
+  }
+
   [data-minimized='true'] & {
     font-size: ${themeCssVariables.font.size.lg};
     grid-column: 2;
@@ -202,6 +221,14 @@ export const StyledTimer = styled.div`
   @media (max-height: 400px) {
     font-size: ${themeCssVariables.font.size.lg};
   }
+`;
+
+export const StyledTimerLabel = styled.span`
+  color: ${themeCssVariables.font.color.secondary};
+  display: block;
+  font-size: ${themeCssVariables.font.size.xs};
+  font-weight: ${themeCssVariables.font.weight.medium};
+  margin-bottom: ${themeCssVariables.spacing[1]};
 `;
 
 export const StyledDrawer = styled.div`
@@ -293,4 +320,47 @@ export const StyledActionLabel = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`;
+
+export const StyledIncomingActionIcon = styled.span`
+  align-items: center;
+  background: ${themeCssVariables.color.red11};
+  border-radius: 50%;
+  color: ${themeCssVariables.background.primary};
+  display: inline-flex;
+  height: ${themeCssVariables.spacing[12]};
+  justify-content: center;
+  width: ${themeCssVariables.spacing[12]};
+
+  &[data-intent='accept'] {
+    background: ${themeCssVariables.color.green11};
+  }
+`;
+
+export const StyledIncomingAction = styled.button`
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: ${themeCssVariables.border.radius.md};
+  color: ${themeCssVariables.font.color.primary};
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  font-size: ${themeCssVariables.font.size.sm};
+  font-weight: ${themeCssVariables.font.weight.medium};
+  gap: ${themeCssVariables.spacing[1]};
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: ${themeCssVariables.spacing[1]};
+  text-align: center;
+
+  &:hover {
+    background: ${themeCssVariables.background.secondary};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${themeCssVariables.border.color.blue};
+    outline-offset: -2px;
+  }
 `;

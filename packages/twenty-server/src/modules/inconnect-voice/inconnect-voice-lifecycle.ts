@@ -3,6 +3,7 @@ export const VOICE_RESULTS = [
   'no-answer',
   'busy',
   'canceled',
+  'declined',
   'failed',
 ] as const;
 
@@ -52,7 +53,8 @@ export const readTwilioProgress = ({
     status === 'completed'
       ? 'answered'
       : (VOICE_RESULTS.find(
-          (value) => value !== 'answered' && value === status,
+          (value) =>
+            value !== 'answered' && value !== 'declined' && value === status,
         ) ?? null);
   const state = result
     ? 'finished'

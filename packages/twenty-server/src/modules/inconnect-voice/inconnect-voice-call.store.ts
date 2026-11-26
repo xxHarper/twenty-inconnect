@@ -38,6 +38,7 @@ export type VoiceProviderTarget = {
   id: string;
   parentSid: string;
   childSid: string | null;
+  direction?: 'outbound' | 'inbound';
 };
 
 @Injectable()
@@ -191,7 +192,7 @@ export class InconnectVoiceCallStore {
          FROM ${CALL} call
          INNER JOIN ${LEG} browser ON browser."callId" = call.id AND browser.kind = 'browser'
          WHERE call.id = $1 AND call."workspaceId" = $2 AND call."accountSid" = $3
-           AND call."applicationSid" = $4 AND browser."providerCallSid" = $5
+           AND call.direction = 'outbound' AND call."applicationSid" = $4 AND browser."providerCallSid" = $5
          FOR UPDATE OF call`,
         [
           target.id,
@@ -265,11 +266,11 @@ export class InconnectVoiceCallStore {
            AND (($5::uuid IS NULL AND status <> 'finished') OR id = $5)
            AND (status <> 'finished' OR "endedAt" IS NULL OR (result = 'answered' AND "durationSeconds" IS NULL))
            AND "nextReconcileAt" <= clock_timestamp() AND (${scope?.sql ?? 'TRUE'})
-         RETURNING id
+         RETURNING id, direction
        )
-       SELECT leased.id, browser."providerCallSid" AS "parentSid", child."providerCallSid" AS "childSid"
-       FROM leased JOIN ${LEG} browser ON browser."callId" = leased.id AND browser.kind = 'browser'
-       LEFT JOIN ${LEG} child ON child."callId" = leased.id AND child.kind = 'destination'`,
+       SELECT leased.id, leased.direction, browser."providerCallSid" AS "parentSid", child."providerCallSid" AS "childSid"
+       FROM leased JOIN ${LEG} browser ON browser."callId" = leased.id AND browser.kind = CASE WHEN leased.direction = 'inbound' THEN 'caller' ELSE 'browser' END
+       LEFT JOIN ${LEG} child ON child."callId" = leased.id AND child.kind = CASE WHEN leased.direction = 'inbound' THEN 'browser-inbound' ELSE 'destination' END`,
         scope ?? { sql: 'TRUE', parameters: {} },
         [
           actor.workspaceId,
@@ -350,7 +351,10 @@ export class InconnectVoiceCallStore {
       .select(PUBLIC_PROJECTION)
       .addSelect('call."createdAt"::text', 'createdAt')
       .addSelect('call.direction', 'direction')
-      .addSelect('call.destination', 'destination')
+      .addSelect(
+        `CASE WHEN call.direction = 'inbound' THEN call."callerId" ELSE call.destination END`,
+        'destination',
+      )
       .addSelect(name, 'name')
       .addSelect('call."recordId"', 'recordId')
       .orderBy('call."createdAt"', 'DESC')
@@ -366,7 +370,7 @@ export class InconnectVoiceCallStore {
       VoiceProgress & {
         id: string;
         createdAt: string;
-        direction: 'outbound';
+        direction: 'outbound' | 'inbound';
         destination: string;
         name: string | null;
         recordId: string | null;
@@ -389,7 +393,7 @@ export class InconnectVoiceCallStore {
     const authorized = this.authorizedCalls(config, recordId, scope)
       .select(
         `${PUBLIC_PROJECTION}, call.direction, call."actorLabel", call."createdAt",
-        call."actorMemberId" = :voiceMemberId AS "canReconcile"`,
+        call.direction = 'outbound' AND call."actorMemberId" = :voiceMemberId AS "canReconcile"`,
       )
       .setParameter('voiceMemberId', actorMemberId);
 
@@ -424,7 +428,7 @@ export class InconnectVoiceCallStore {
           id: string;
           createdAt: string;
           actorLabel: string;
-          direction: 'outbound';
+          direction: 'outbound' | 'inbound';
           canReconcile: boolean;
         })[];
       }>();

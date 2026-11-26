@@ -22,7 +22,12 @@ import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
 import { INCONNECT_VOICE_PATH } from 'src/modules/inconnect-voice/inconnect-voice-config';
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
-const requestSchema = z.object({ recordId: z.string().uuid() }).strict();
+const requestSchema = z
+  .object({
+    recordId: z.string().uuid(),
+    inboundSessionId: z.string().uuid().optional(),
+  })
+  .strict();
 const lookupSchema = z
   .object({
     number: z.string().trim().min(1).max(64),
@@ -33,6 +38,7 @@ const manualSchema = z
   .object({
     number: z.string().trim().min(1).max(64),
     recordId: z.string().uuid().nullable(),
+    inboundSessionId: z.string().uuid().optional(),
   })
   .strict();
 const parseId = (value: unknown) => {
@@ -61,7 +67,12 @@ export class InconnectVoiceController {
 
     if (!input.success) throw new BadRequestException('Expected a record ID');
 
-    return this.voice.issue(request, input.data.recordId);
+    return this.voice.issue(
+      request,
+      input.data.recordId,
+      undefined,
+      input.data.inboundSessionId,
+    );
   }
 
   @Get('phone-access')
@@ -89,7 +100,12 @@ export class InconnectVoiceController {
     const input = manualSchema.safeParse(body);
     if (!input.success)
       throw new BadRequestException('Enter a phone number and association');
-    return this.voice.issue(request, input.data.recordId, input.data.number);
+    return this.voice.issue(
+      request,
+      input.data.recordId,
+      input.data.number,
+      input.data.inboundSessionId,
+    );
   }
 
   @Get('recents')

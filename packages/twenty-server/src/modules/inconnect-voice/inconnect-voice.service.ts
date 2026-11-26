@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   ConflictException,
   Injectable,
+  Optional,
   Logger,
   ServiceUnavailableException,
   HttpException,
@@ -15,19 +16,15 @@ import { PermissionFlagType } from 'twenty-shared/constants';
 import { z } from 'zod';
 
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
-import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
-import { type RawAuthContext } from 'src/engine/core-modules/auth/types/raw-auth-context.type';
-import { buildUserAuthContext } from 'src/engine/core-modules/auth/utils/build-user-auth-context.util';
 import { RedisClientService } from 'src/engine/core-modules/redis-client/redis-client.service';
 import { type EncryptedString } from 'src/engine/core-modules/secret-encryption/branded-strings/encrypted-string.type';
 import { plaintextStringSchema } from 'src/engine/core-modules/secret-encryption/branded-strings/plaintext-string.type';
 import { SecretEncryptionService } from 'src/engine/core-modules/secret-encryption/secret-encryption.service';
-import { USER_SESSION_COOKIE_NAME } from 'src/engine/core-modules/user-session/constants/user-session-cookie-name.constant';
-import { USER_SESSION_SECURE_COOKIE_NAME } from 'src/engine/core-modules/user-session/constants/user-session-secure-cookie-name.constant';
 import { type UserWorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import {
   getInconnectVoiceConfig,
+  getVoiceInboundConfig,
   type InconnectVoiceConfig,
   VOICE_INTENT_TTL_SECONDS,
   VOICE_TOKEN_TTL_SECONDS,
@@ -47,23 +44,28 @@ import {
   voiceProgressUrl,
 } from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
 
-const credentialSchema = z.union([
-  z
-    .object({
-      authorization: z
-        .string()
-        .max(8192)
-        .regex(/^Bearer [\w.\-]+$/i),
-    })
-    .strict(),
-  z.object({ cookie: z.string().min(1).max(8192) }).strict(),
-]);
+import {
+  credentialSchema,
+  getVoiceCredential,
+  getVoiceIdentity,
+  resolveVoiceActor,
+  type VoiceAuthContext,
+} from 'src/modules/inconnect-voice/inconnect-voice-actor';
+
+import {
+  getVoiceInboundIdentity,
+  InconnectVoiceInboundSessionService,
+} from 'src/modules/inconnect-voice/inconnect-voice-inbound-session.service';
 
 const intentSchema = z
   .object({
     intentId: z.string().uuid(),
     recordId: z.string().uuid().nullable(),
     manual: z.literal(true).optional(),
+    browserIdentity: z
+      .string()
+      .regex(/^inc_[a-f0-9_]+$/i)
+      .optional(),
     actorMemberId: z.string().uuid(),
     destination: z.string(),
     callerId: z.string(),
@@ -75,92 +77,8 @@ const intentSchema = z
 
 const forbidden = () => new ForbiddenException('Voice call is unavailable');
 
-type VoiceAuthContext = Pick<
-  RawAuthContext,
-  | 'user'
-  | 'workspace'
-  | 'workspaceMember'
-  | 'workspaceMemberId'
-  | 'userWorkspaceId'
-  | 'tokenType'
-  | 'application'
-  | 'apiKey'
-  | 'impersonationContext'
->;
-
-const resolveActor = (
-  context: VoiceAuthContext,
-  config: InconnectVoiceConfig,
-  allowHistory = false,
-) => {
-  const {
-    user,
-    workspace,
-    workspaceMember,
-    workspaceMemberId,
-    userWorkspaceId,
-  } = context;
-
-  if (
-    context.tokenType !== JwtTokenTypeEnum.ACCESS ||
-    context.application ||
-    context.apiKey ||
-    context.impersonationContext?.impersonatorUserWorkspaceId ||
-    context.impersonationContext?.impersonatedUserWorkspaceId ||
-    !user ||
-    !workspace ||
-    !workspaceMember ||
-    !workspaceMemberId ||
-    !userWorkspaceId ||
-    workspace.id !== config.workspaceId ||
-    (userWorkspaceId !== config.userWorkspaceId &&
-      !(
-        allowHistory && config.historyUserWorkspaceIds.includes(userWorkspaceId)
-      )) ||
-    workspaceMember.id !== workspaceMemberId ||
-    workspaceMember.userId !== user.id
-  ) {
-    throw forbidden();
-  }
-
-  return buildUserAuthContext({
-    user,
-    workspace,
-    workspaceMember,
-    workspaceMemberId,
-    userWorkspaceId,
-  });
-};
-
-const getCredential = (request: Request) => {
-  const { authorization, cookie } = request.headers;
-  const sessionNames = [
-    USER_SESSION_COOKIE_NAME,
-    USER_SESSION_SECURE_COOKIE_NAME,
-  ];
-  const sessionCookies = cookie
-    ?.split(';')
-    .map((entry) => entry.trim())
-    .filter((entry) =>
-      sessionNames.some((name) => entry.startsWith(`${name}=`)),
-    )
-    .join('; ');
-  const parsed = credentialSchema.safeParse(
-    authorization === undefined
-      ? { cookie: sessionCookies }
-      : { authorization },
-  );
-
-  if (!parsed.success) throw forbidden();
-
-  return parsed.data;
-};
-
-const getIdentity = ({ workspaceId, userWorkspaceId }: InconnectVoiceConfig) =>
-  `inc_${workspaceId.replace(/-/g, '')}_${userWorkspaceId.replace(/-/g, '')}`;
-
 const getIntentKey = (config: InconnectVoiceConfig, intentId: string) =>
-  `inconnectVoice:intent:${config.accountSid}:${config.applicationSid}:${getIdentity(config)}:${intentId}`;
+  `inconnectVoice:intent:${config.accountSid}:${config.applicationSid}:${getVoiceIdentity(config)}:${intentId}`;
 
 const consumeIntentScript = `
   local intent = redis.call('GET', KEYS[1])
@@ -182,6 +100,8 @@ export class InconnectVoiceService {
     private readonly provider: InconnectVoiceProviderService,
     private readonly directory: InconnectVoiceDirectoryService,
     private readonly permissions: PermissionsService,
+    @Optional()
+    private readonly inboundSessions?: InconnectVoiceInboundSessionService,
   ) {}
 
   status(context: VoiceAuthContext): {
@@ -190,7 +110,7 @@ export class InconnectVoiceService {
     const config = getInconnectVoiceConfig();
 
     if (!config) return { status: 'not-configured' };
-    resolveActor(context, config);
+    resolveVoiceActor(context, config);
 
     return { status: config.enabled ? 'ready' : 'disabled' };
   }
@@ -198,7 +118,13 @@ export class InconnectVoiceService {
   async phoneAccess(request: Request) {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
-    const actor = resolveActor(request, config);
+    const inbound = getVoiceInboundConfig();
+    const actor = resolveVoiceActor(
+      request,
+      inbound && request.userWorkspaceId === inbound.userWorkspaceId
+        ? inbound
+        : config,
+    );
     await this.directory.rolePermissions(actor);
 
     return { available: true };
@@ -240,7 +166,7 @@ export class InconnectVoiceService {
   async lookup(request: Request, input: string, after?: string) {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
-    const actor = resolveActor(request, config);
+    const actor = resolveVoiceActor(request, config);
     await this.throttle(config, 'lookup', 1);
     const phone = normalizeVoiceDialNumber(input, config);
     const result = await this.directory.lookup(actor, config, phone, after);
@@ -282,25 +208,48 @@ export class InconnectVoiceService {
     return { destination: phone.number, scope };
   }
 
-  async issue(request: Request, recordId: string | null, manualInput?: string) {
+  async issue(
+    request: Request,
+    recordId: string | null,
+    manualInput?: string,
+    inboundSessionId?: string,
+  ) {
     const config = getInconnectVoiceConfig();
 
     if (!config?.enabled)
       throw new ServiceUnavailableException('Outbound Voice is unavailable');
 
-    const actor = resolveActor(request, config);
-    const credential = getCredential(request);
+    const actor = resolveVoiceActor(request, config);
+    const credential = getVoiceCredential(request);
     const manual = manualInput !== undefined;
     if (manual) await this.throttle(config, 'manual-session', 10);
     const { destination, scope } = manual
       ? await this.manualAuthority(actor, config, manualInput, recordId)
       : await this.linkedAuthority(actor, config, recordId);
+    const inbound = getVoiceInboundConfig();
+    const useRegisteredDevice = Boolean(
+      inboundSessionId &&
+      inbound &&
+      inbound.userWorkspaceId === actor.userWorkspaceId &&
+      (await this.inboundSessions?.current(
+        inbound,
+        inboundSessionId,
+        actor.workspaceMemberId,
+        false,
+      )),
+    );
+    if (inboundSessionId && !useRegisteredDevice) throw forbidden();
+    const browserIdentity =
+      inboundSessionId && inbound
+        ? getVoiceInboundIdentity(inbound, inboundSessionId)
+        : getVoiceIdentity(config);
     const intentId = randomUUID();
     const intentExpiresAt = Date.now() + VOICE_INTENT_TTL_SECONDS * 1_000;
     const intent = {
       intentId,
       recordId,
       ...(manual ? { manual: true } : {}),
+      ...(useRegisteredDevice ? { browserIdentity } : {}),
       actorMemberId: actor.workspaceMemberId,
       destination,
       expiresAt: intentExpiresAt,
@@ -327,14 +276,14 @@ export class InconnectVoiceService {
         config.apiKeySid,
         config.apiKeySecret,
         {
-          identity: getIdentity(config),
+          identity: browserIdentity,
           ttl: VOICE_TOKEN_TTL_SECONDS,
         },
       );
       token.addGrant(
         new Twilio.jwt.AccessToken.VoiceGrant({
           outgoingApplicationSid: config.applicationSid,
-          incomingAllow: false,
+          incomingAllow: useRegisteredDevice,
         }),
       );
       const jwt = token.toJwt();
@@ -424,7 +373,8 @@ export class InconnectVoiceService {
     try {
       const params = readSignedVoiceWebhook(request, config, config.voiceUrl);
       if (
-        params.From !== `client:${getIdentity(config)}` ||
+        (params.From !== `client:${getVoiceIdentity(config)}` &&
+          !params.From?.startsWith(`client:${getVoiceIdentity(config)}_`)) ||
         !isTwilioCallSid(params.CallSid) ||
         !z.string().uuid().safeParse(params.intentId).success
       ) {
@@ -445,6 +395,8 @@ export class InconnectVoiceService {
       );
       if (
         intent.intentId !== params.intentId ||
+        params.From !==
+          `client:${intent.browserIdentity ?? getVoiceIdentity(config)}` ||
         intent.expiresAt <= Date.now() ||
         intent.callerId !== config.callerId
       )
@@ -463,7 +415,7 @@ export class InconnectVoiceService {
       const auth = await this.accessTokens.validateTokenByRequest({
         headers: intent.credential,
       } as Request);
-      const actor = resolveActor(auth, config);
+      const actor = resolveVoiceActor(auth, config);
       if (actor.workspaceMemberId !== intent.actorMemberId) throw forbidden();
       const { destination, scope } = intent.manual
         ? await this.manualAuthority(
@@ -530,7 +482,16 @@ export class InconnectVoiceService {
   private async historyAuthority(request: Request, recordId: string) {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
-    const actor = resolveActor(request, config, true);
+    const inbound = getVoiceInboundConfig();
+    const baseHistory =
+      request.userWorkspaceId === config.userWorkspaceId ||
+      (request.userWorkspaceId &&
+        config.historyUserWorkspaceIds.includes(request.userWorkspaceId));
+    const actor = resolveVoiceActor(
+      request,
+      baseHistory ? config : (inbound ?? config),
+      true,
+    );
     const scope = await this.destination.authorizeHistory(
       actor,
       config,
@@ -539,7 +500,16 @@ export class InconnectVoiceService {
 
     return {
       config,
-      scope,
+      scope: baseHistory
+        ? scope
+        : {
+            ...scope,
+            sql: `call.direction = 'inbound' AND call."actorMemberId" = :inboundHistoryMember AND (${scope.sql})`,
+            parameters: {
+              ...scope.parameters,
+              inboundHistoryMember: actor.workspaceMemberId,
+            },
+          },
       authority: {
         workspaceId: actor.workspace.id,
         actorMemberId: actor.workspaceMemberId,
@@ -577,30 +547,78 @@ export class InconnectVoiceService {
   async recents(request: Request, before?: string) {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
-    const actor = resolveActor(request, config);
+    const inbound = getVoiceInboundConfig();
+    const canReadOutbound = request.userWorkspaceId === config.userWorkspaceId;
+    const actor = resolveVoiceActor(
+      request,
+      canReadOutbound ? config : (inbound ?? config),
+    );
     const unlinked = await this.hasFlag(
       actor,
       PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
     );
-    const conditions = unlinked
-      ? ['(call."recordId" IS NULL AND call."objectMetadataId" IS NULL)']
-      : [];
+    const conditions =
+      canReadOutbound && unlinked
+        ? [
+            `(call.direction = 'outbound' AND call."recordId" IS NULL AND call."objectMetadataId" IS NULL)`,
+          ]
+        : [];
     let name = 'NULL::text';
     let parameters: Record<string, unknown> = {};
     try {
       const phone = normalizeVoiceDialNumber(config.allowedDestination, config);
-      const lead = await this.directory.query(actor, config, phone);
-      lead.query.andWhere(`${lead.id} = call."recordId"`);
-      conditions.push(`(call."objectMetadataId" = :voiceObjectId AND call.destination = :voiceRecentDestination
+      const lead = canReadOutbound
+        ? await this.directory.query(actor, config, phone)
+        : null;
+      if (lead) {
+        lead.query.andWhere(`${lead.id} = call."recordId"`);
+        conditions.push(`(call.direction = 'outbound' AND call."objectMetadataId" = :voiceObjectId AND call.destination = :voiceRecentDestination
         AND EXISTS (${lead.query.clone().select('1').getQuery()}))`);
-      name = `CASE WHEN call."recordId" IS NOT NULL THEN (${lead.query.select(lead.name).getQuery()}) END`;
-      parameters = {
-        ...lead.query.getParameters(),
-        voiceObjectId: config.objectId,
-        voiceRecentDestination: phone.number,
-      };
+        name = `CASE WHEN call."recordId" IS NOT NULL THEN (${lead.query.select(lead.name).getQuery()}) END`;
+        parameters = {
+          ...lead.query.getParameters(),
+          voiceObjectId: config.objectId,
+          voiceRecentDestination: phone.number,
+        };
+      }
     } catch (error) {
       if (!(error instanceof ForbiddenException) || !unlinked) throw error;
+    }
+
+    if (inbound && request.userWorkspaceId === inbound.userWorkspaceId) {
+      try {
+        const phone = normalizeVoiceDialNumber(inbound.source, inbound);
+        const lead = await this.directory.query(actor, inbound, phone);
+        lead.query.andWhere(`${lead.id} = call."recordId"`);
+        const ownParams = lead.query.getParameters();
+        const namespace = (sql: string) =>
+          sql.replace(
+            /(?<!:):(\.\.\.)?([A-Za-z_][A-Za-z0-9_]*)/g,
+            (original: string, spread: string | undefined, key: string) =>
+              Object.prototype.hasOwnProperty.call(ownParams, key)
+                ? `:${spread ?? ''}inbound_${key}`
+                : original,
+          );
+        conditions.push(`(call.direction = 'inbound' AND call."objectMetadataId" = :inboundObject
+          AND call."callerId" = :inboundSource AND call.destination = :inboundReceiver
+          AND EXISTS (${namespace(lead.query.clone().select('1').getQuery())}))`);
+        name = `CASE WHEN call.direction = 'inbound' THEN (${namespace(lead.query.select(lead.name).getQuery())}) ELSE ${name} END`;
+        parameters = {
+          ...parameters,
+          ...Object.fromEntries(
+            Object.entries(ownParams).map(([key, value]) => [
+              `inbound_${key}`,
+              value,
+            ]),
+          ),
+          inboundObject: inbound.objectId,
+          inboundSource: phone.number,
+          inboundReceiver: inbound.receiver,
+        };
+      } catch (error) {
+        if (!(error instanceof ForbiddenException) || !conditions.length)
+          throw error;
+      }
     }
 
     return this.calls.recents(
@@ -608,7 +626,7 @@ export class InconnectVoiceService {
         workspaceId: actor.workspace.id,
         actorMemberId: actor.workspaceMemberId,
       },
-      { sql: `(${conditions.join(' OR ')})`, parameters },
+      { sql: `(${conditions.join(' OR ') || 'FALSE'})`, parameters },
       name,
       before,
     );
@@ -652,7 +670,7 @@ export class InconnectVoiceService {
         config,
         authority,
         callId,
-        scope,
+        { ...scope, sql: `call.direction = 'outbound' AND (${scope.sql})` },
       );
       if (target) await this.provider.reconcile(config, target);
     }
@@ -666,7 +684,7 @@ export class InconnectVoiceService {
   private async linkedProgressAuthority(request: Request, recordId: string) {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
-    const actor = resolveActor(request, config);
+    const actor = resolveVoiceActor(request, config);
     const phone = normalizeVoiceDialNumber(config.allowedDestination, config);
     const scope = await this.directory.dialCondition(
       actor,
@@ -696,7 +714,7 @@ export class InconnectVoiceService {
   private async unlinkedProgressAuthority(request: Request) {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
-    const actor = resolveActor(request, config);
+    const actor = resolveVoiceActor(request, config);
     if (!(await this.hasFlag(actor, PermissionFlagType.DIAL_INCONNECT_VOICE)))
       throw forbidden();
 

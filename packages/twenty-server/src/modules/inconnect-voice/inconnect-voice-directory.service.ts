@@ -82,6 +82,7 @@ export class InconnectVoiceDirectoryService {
     authContext: UserWorkspaceAuthContext,
     config: InconnectVoiceConfig,
     phone: ReturnType<typeof normalizeVoiceDialNumber>,
+    inbound = false,
   ) {
     const workspaceId = authContext.workspace.id;
     const schema = authContext.workspace.databaseSchema;
@@ -170,13 +171,24 @@ export class InconnectVoiceDirectoryService {
         },
       );
 
-    const scope = await this.recordAccess.applyReadScopeToQueryBuilder({
+    // Count exact matches across the workspace without returning a restricted record.
+    if (inbound) {
+      const exactSet = query.clone().select(id).limit(2);
+      query.andWhere(
+        `(SELECT COUNT(*) FROM (${exactSet.getQuery()}) AS exact_phone) = 1`,
+      );
+    }
+
+    const scopeArgs = {
       queryBuilder: query,
       tableAlias: alias,
       authContext,
       workspaceId,
       objectMetadataId: object.id,
-    });
+    };
+    const scope = inbound
+      ? await this.recordAccess.applyOwnedReadScopeToQueryBuilder(scopeArgs)
+      : await this.recordAccess.applyReadScopeToQueryBuilder(scopeArgs);
     if (scope.kind !== 'all-records' && scope.kind !== 'owner-scoped')
       throw unavailable();
 

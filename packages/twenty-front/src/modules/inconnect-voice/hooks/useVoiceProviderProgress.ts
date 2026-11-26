@@ -1,7 +1,9 @@
 import {
   getManualVoiceCallProgress,
+  getVoiceInboundOffer,
   getVoiceCallProgress,
   VoiceApiError,
+  type VoiceInboundOffer,
 } from '@/inconnect-voice/utils/voiceApi';
 import { atom, useSetAtom } from 'jotai';
 import { useEffect, useState } from 'react';
@@ -12,6 +14,7 @@ type VoiceTracking = {
   callId: string;
   recordId: string | null;
   manual?: true;
+  inboundSessionId?: string;
   deadline: number;
 };
 
@@ -22,6 +25,7 @@ export const useVoiceProviderProgress = (
 ) => {
   const [snapshot, setSnapshot] = useState<{
     progress: Awaited<ReturnType<typeof getVoiceCallProgress>>;
+    offer: VoiceInboundOffer | null;
     connectedAt: number | null;
   } | null>(null);
   const invalidate = useSetAtom(voiceHistoryRevisionState);
@@ -42,21 +46,31 @@ export const useVoiceProviderProgress = (
           : cancelReservation
             ? 'cancel'
             : 'reconcile';
-        const progress = tracking.manual
-          ? await getManualVoiceCallProgress(
-              tracking.recordId,
+        const offer = tracking.inboundSessionId
+          ? await getVoiceInboundOffer(
               tracking.callId,
+              tracking.inboundSessionId,
               signal,
-              action,
+              locallyBusy ? undefined : 'reconcile',
             )
-          : tracking.recordId
-            ? await getVoiceCallProgress(
+          : null;
+        const progress =
+          offer ??
+          (tracking.manual
+            ? await getManualVoiceCallProgress(
                 tracking.recordId,
                 tracking.callId,
                 signal,
                 action,
               )
-            : null;
+            : tracking.recordId
+              ? await getVoiceCallProgress(
+                  tracking.recordId,
+                  tracking.callId,
+                  signal,
+                  action,
+                )
+              : null);
         if (progress === null) return;
         if (abort.signal.aborted) return;
         cancelReservation = false;
@@ -69,6 +83,7 @@ export const useVoiceProviderProgress = (
           : null;
         setSnapshot((previous) => ({
           progress,
+          offer,
           connectedAt:
             previous?.progress.id === progress.id &&
             previous.progress.answeredAt === progress.answeredAt
@@ -104,7 +119,8 @@ export const useVoiceProviderProgress = (
           (error.status === 401 || error.status === 403)
         ) {
           setSnapshot(null);
-          if (tracking.manual && locallyBusy) revokeAuthorization();
+          if ((tracking.manual || tracking.inboundSessionId) && locallyBusy)
+            revokeAuthorization();
           return;
         }
       }

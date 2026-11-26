@@ -101,6 +101,55 @@ export const getInconnectVoiceConfig = (
   };
 };
 
+export const getVoiceInboundConfig = (env: NodeJS.ProcessEnv = process.env) => {
+  const base = getInconnectVoiceConfig(env);
+  const {
+    INCONNECT_VOICE_ENABLE_INBOUND: enabled,
+    INCONNECT_VOICE_INBOUND_USER_WORKSPACE_ID: userWorkspaceId = '',
+    INCONNECT_VOICE_INBOUND_NUMBER: receiver = '',
+    INCONNECT_VOICE_INBOUND_TEST_SOURCE: source = '',
+    INCONNECT_VOICE_INBOUND_URL: url = '',
+  } = env;
+
+  if (
+    !base?.defaultCountry ||
+    !isUUID(userWorkspaceId) ||
+    !isCanonicalPhone(receiver) ||
+    !isCanonicalPhone(source) ||
+    receiver === source
+  )
+    return null;
+
+  try {
+    const publicUrl = new URL(url);
+    if (
+      publicUrl.protocol !== 'https:' ||
+      publicUrl.href !== url ||
+      publicUrl.username ||
+      publicUrl.password ||
+      publicUrl.search ||
+      publicUrl.hash ||
+      publicUrl.pathname !== `/${INCONNECT_VOICE_PATH}/inbound`
+    )
+      return null;
+  } catch {
+    return null;
+  }
+
+  return {
+    ...base,
+    userWorkspaceId,
+    receiver,
+    source,
+    inboundUrl: url,
+    inboundEnabled: enabled === 'true',
+  };
+};
+
+export type VoiceInboundConfig = NonNullable<
+  ReturnType<typeof getVoiceInboundConfig>
+>;
+
 export type InconnectVoiceConfig = NonNullable<
   ReturnType<typeof getInconnectVoiceConfig>
 >;

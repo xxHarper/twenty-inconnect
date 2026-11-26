@@ -52,6 +52,17 @@ describe('Voice call history', () => {
 
   beforeEach(() => jest.resetAllMocks());
 
+  it('labels an answered inbound call and shows the confirmed duration', async () => {
+    jest.mocked(getVoiceHistory).mockResolvedValue({
+      ...history,
+      rows: [{ ...history.rows[0], direction: 'inbound', durationSeconds: 16 }],
+    });
+    renderHistory();
+    expect(await screen.findByText('Incoming call answered')).toBeVisible();
+    expect(screen.getByText('00:00:16')).toBeVisible();
+    expect(screen.queryByText('Destination answered')).not.toBeInTheDocument();
+  });
+
   it('keeps full-history totals during pagination and refreshes when the softphone confirms a call', async () => {
     jest
       .mocked(getVoiceHistory)

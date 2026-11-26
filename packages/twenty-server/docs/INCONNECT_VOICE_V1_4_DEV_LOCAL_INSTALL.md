@@ -1,5 +1,9 @@
 # Voice V1.4 en DEV-LOCAL-R1 — instalación y piloto
 
+La operación vigente de Inbound y Outbound utiliza los
+[controles persistentes de Voice V2](INCONNECT_VOICE_V2_DEV_LOCAL_INSTALL.md#controles-persistentes).
+Los comandos de este documento registran la operación de V1.4.
+
 ## Modo persistente de desarrollo
 
 El 26 de noviembre de 2026 el operador autorizó mantener Voice Outbound

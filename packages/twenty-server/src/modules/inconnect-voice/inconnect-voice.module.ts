@@ -13,6 +13,10 @@ import { InconnectVoiceDirectoryService } from 'src/modules/inconnect-voice/inco
 import { InconnectVoiceCallStore } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { InconnectVoiceController } from 'src/modules/inconnect-voice/inconnect-voice.controller';
 import { InconnectVoiceProviderService } from 'src/modules/inconnect-voice/inconnect-voice-provider.service';
+import { InconnectVoiceInboundController } from 'src/modules/inconnect-voice/inconnect-voice-inbound.controller';
+import { InconnectVoiceInboundService } from 'src/modules/inconnect-voice/inconnect-voice-inbound.service';
+import { InconnectVoiceInboundSessionService } from 'src/modules/inconnect-voice/inconnect-voice-inbound-session.service';
+import { InconnectVoiceInboundStore } from 'src/modules/inconnect-voice/inconnect-voice-inbound.store';
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 @Module({
@@ -26,13 +30,16 @@ import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voi
     WorkspaceCacheModule,
     WorkspaceCacheStorageModule,
   ],
-  controllers: [InconnectVoiceController],
+  controllers: [InconnectVoiceController, InconnectVoiceInboundController],
   providers: [
     InconnectVoiceDestinationService,
     InconnectVoiceDirectoryService,
     InconnectVoiceService,
     InconnectVoiceCallStore,
     InconnectVoiceProviderService,
+    InconnectVoiceInboundService,
+    InconnectVoiceInboundSessionService,
+    InconnectVoiceInboundStore,
   ],
 })
 export class InconnectVoiceModule {}

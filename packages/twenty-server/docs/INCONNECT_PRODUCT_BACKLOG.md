@@ -79,12 +79,21 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
   comercial, preservando el resultado telefónico y su evidencia. La adopción
   requiere evaluar exactitud, latencia, coste y autorización por entorno.
   [AMD de Twilio](https://www.twilio.com/docs/voice/answering-machine-detection)
-- **Voice V2.** Llamadas entrantes, identificación automática del Lead,
-  disponibilidad de agentes, distribución por Owner y Round Robin telefónico
-  por Commercial Team y general. La etapa sigue sin iniciar.
-- **Voice V3.** Transferencias directas o asistidas entre agentes, incluidos
-  ejecutivos y coordinadores, y espera. Grabación de llamadas entrantes y
-  salientes y reproducción de grabaciones dentro de Twenty.
+- **Voice V2.** Piloto de recepción y salida validado en DEV-LOCAL-R1 con
+  un operador explícito, coincidencia exacta de Lead propio, Device global
+  y persistencia. R1 y el refinamiento del softphone cierran el piloto
+  de desarrollo. [Voice V2](INCONNECT_VOICE_V2.md)
+- **Voice V2.1.** Distribución telefónica multiagente. Propietario
+  disponible, Round Robin del Commercial Team si está ocupado y Round
+  Robin general para números sin coincidencia. El cursor es independiente de
+  la asignación comercial. Offline, ambigüedad, rechazo, timeout y falta de
+  candidatos requieren reglas explícitas.
+- **Voice V3.** Transferencia directa y asistida entre agentes elegibles,
+  incluidos ejecutivos y coordinadores, Hold, recuperación ante fallo e
+  historial de participantes.
+- **Voice V3.1.** Grabaciones entrantes y salientes asociadas a la llamada
+  lógica, callbacks de disponibilidad, reproducción y descarga autorizadas.
+  Definir consentimiento, aviso, retención y costos antes de su activación.
 - **Voice V4.** Supervisión, productividad y estadísticas.
 - **Pendiente operativo.** Validación y autorización para producción,
   consentimiento, retención y políticas operativas.

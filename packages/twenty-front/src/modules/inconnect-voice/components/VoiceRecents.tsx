@@ -5,6 +5,7 @@ import { useLingui } from '@lingui/react/macro';
 import { useEffect, useState } from 'react';
 import {
   IconArrowUpRight,
+  IconArrowDown,
   IconCheck,
   IconClock,
   IconMinus,
@@ -177,6 +178,7 @@ export const VoiceRecents = ({
                 failed: IconX,
                 busy: IconMinus,
                 canceled: IconMinus,
+                declined: IconMinus,
                 completed: IconCheck,
                 pending: IconClock,
                 ringing: IconClock,
@@ -189,9 +191,15 @@ export const VoiceRecents = ({
                   <StyledOutcome
                     data-tone={result}
                     role="img"
-                    aria-label={t`Outbound`}
+                    aria-label={
+                      row.direction === 'inbound' ? t`Inbound` : t`Outbound`
+                    }
                   >
-                    <IconArrowUpRight size={12} aria-hidden />
+                    {row.direction === 'inbound' ? (
+                      <IconArrowDown size={12} aria-hidden />
+                    ) : (
+                      <IconArrowUpRight size={12} aria-hidden />
+                    )}
                     <OutcomeIcon size={14} aria-hidden />
                   </StyledOutcome>
                   <StyledDetails>
@@ -205,20 +213,24 @@ export const VoiceRecents = ({
                         {timeFormat.format(new Date(row.createdAt))}
                       </time>
                       {' · '}
-                      {labels[result]}
+                      {result === 'answered' && row.direction === 'inbound'
+                        ? labels.inboundAnswered
+                        : labels[result]}
                       {row.durationSeconds !== null &&
                         ` · ${formatVoiceDuration(row.durationSeconds)}`}
                     </small>
                   </StyledDetails>
-                  <span title={redialDestinationLabel}>
-                    <IconButton
-                      Icon={IconPhone}
-                      ariaLabel={redialDestinationLabel}
-                      size="small"
-                      variant="tertiary"
-                      onClick={() => onRedial(row.destination)}
-                    />
-                  </span>
+                  {row.direction === 'outbound' && (
+                    <span title={redialDestinationLabel}>
+                      <IconButton
+                        Icon={IconPhone}
+                        ariaLabel={redialDestinationLabel}
+                        size="small"
+                        variant="tertiary"
+                        onClick={() => onRedial(row.destination)}
+                      />
+                    </span>
+                  )}
                 </StyledCall>
               );
             })}
