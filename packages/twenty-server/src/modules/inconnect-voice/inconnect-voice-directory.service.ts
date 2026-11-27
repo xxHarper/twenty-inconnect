@@ -1,9 +1,12 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 
 import { FieldMetadataType } from 'twenty-shared/types';
-import { DataSource } from 'typeorm';
+import { WorkspaceActivationStatus } from 'twenty-shared/workspace';
+import { DataSource, IsNull } from 'typeorm';
 
+import { InconnectRecordAccessPolicySourceService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-policy-source.service';
+import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
 import { type UserWorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { InconnectRecordAccessAuthorizationService } from 'src/engine/core-modules/inconnect-record-access/services/inconnect-record-access-authorization.service';
 import { computeCompositeColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-column-name.util';
@@ -40,6 +43,8 @@ export class InconnectVoiceDirectoryService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly cache: WorkspaceCacheService,
     private readonly recordAccess: InconnectRecordAccessAuthorizationService,
+    @Optional()
+    private readonly policySource?: InconnectRecordAccessPolicySourceService,
   ) {}
 
   async rolePermissions(authContext: UserWorkspaceAuthContext) {
@@ -125,6 +130,58 @@ export class InconnectVoiceDirectoryService {
     )
       throw unavailable();
 
+    const { query, id } = this.exactQuery(schema, object, field, config, phone);
+
+    // Count exact matches across the workspace without returning a restricted record.
+    if (inbound) {
+      const exactSet = query.clone().select(id).limit(2);
+      query.andWhere(
+        `(SELECT COUNT(*) FROM (${exactSet.getQuery()}) AS exact_phone) = 1`,
+      );
+    }
+
+    const scopeArgs = {
+      queryBuilder: query,
+      tableAlias: alias,
+      authContext,
+      workspaceId,
+      objectMetadataId: object.id,
+    };
+    const scope = inbound
+      ? await this.recordAccess.applyOwnedReadScopeToQueryBuilder(scopeArgs)
+      : await this.recordAccess.applyReadScopeToQueryBuilder(scopeArgs);
+    if (scope.kind !== 'all-records' && scope.kind !== 'owner-scoped')
+      throw unavailable();
+
+    const labelField = object.labelIdentifierFieldMetadataId
+      ? findFlatEntityByIdInFlatEntityMaps({
+          flatEntityId: object.labelIdentifierFieldMetadataId,
+          flatEntityMaps: flatFieldMetadataMaps,
+        })
+      : undefined;
+    let name = 'NULL::text';
+    if (
+      labelField?.isActive &&
+      labelField.workspaceId === workspaceId &&
+      labelField.objectMetadataId === object.id &&
+      permission.restrictedFields?.[labelField.id]?.canRead !== false
+    ) {
+      if (labelField.type === FieldMetadataType.TEXT)
+        name = column(labelField.name);
+      if (labelField.type === FieldMetadataType.FULL_NAME)
+        name = `NULLIF(CONCAT_WS(' ', ${compositeColumn(labelField, 'firstName')}, ${compositeColumn(labelField, 'lastName')}), '')`;
+    }
+
+    return { query, id, name };
+  }
+
+  private exactQuery(
+    schema: string,
+    object: Parameters<typeof computeObjectTargetTable>[0],
+    field: { name: string; type: FieldMetadataType },
+    config: InconnectVoiceConfig,
+    phone: ReturnType<typeof normalizeVoiceDialNumber>,
+  ) {
     const table = computeObjectTargetTable(object);
     if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(table)) throw unavailable();
 
@@ -171,47 +228,116 @@ export class InconnectVoiceDirectoryService {
         },
       );
 
-    // Count exact matches across the workspace without returning a restricted record.
-    if (inbound) {
-      const exactSet = query.clone().select(id).limit(2);
-      query.andWhere(
-        `(SELECT COUNT(*) FROM (${exactSet.getQuery()}) AS exact_phone) = 1`,
-      );
-    }
+    return { query, id };
+  }
 
-    const scopeArgs = {
-      queryBuilder: query,
-      tableAlias: alias,
-      authContext,
-      workspaceId,
-      objectMetadataId: object.id,
-    };
-    const scope = inbound
-      ? await this.recordAccess.applyOwnedReadScopeToQueryBuilder(scopeArgs)
-      : await this.recordAccess.applyReadScopeToQueryBuilder(scopeArgs);
-    if (scope.kind !== 'all-records' && scope.kind !== 'owner-scoped')
-      throw unavailable();
-
-    const labelField = object.labelIdentifierFieldMetadataId
-      ? findFlatEntityByIdInFlatEntityMaps({
-          flatEntityId: object.labelIdentifierFieldMetadataId,
-          flatEntityMaps: flatFieldMetadataMaps,
-        })
-      : undefined;
-    let name = 'NULL::text';
+  // This fixed, private-to-Voice projection authorizes routing only. Human
+  // callers use query(), which applies their own current Twenty and Record Access scopes.
+  async classifyInbound(
+    config: InconnectVoiceConfig,
+    phone: ReturnType<typeof normalizeVoiceDialNumber>,
+  ) {
+    const workspaceId = config.workspaceId;
+    const [workspace, maps] = await Promise.all([
+      this.dataSource.getRepository(WorkspaceEntity).findOne({
+        where: {
+          id: workspaceId,
+          deletedAt: IsNull(),
+          activationStatus: WorkspaceActivationStatus.ACTIVE,
+        },
+        select: { id: true, databaseSchema: true },
+      }),
+      this.cache.getOrRecompute(workspaceId, [
+        'flatObjectMetadataMaps',
+        'flatFieldMetadataMaps',
+        'flatRoleMaps',
+      ]),
+    ]);
+    const schema = workspace?.databaseSchema;
+    const object = findFlatEntityByIdInFlatEntityMaps({
+      flatEntityId: config.objectId,
+      flatEntityMaps: maps.flatObjectMetadataMaps,
+    });
+    const field = findFlatEntityByIdInFlatEntityMaps({
+      flatEntityId: config.fieldId,
+      flatEntityMaps: maps.flatFieldMetadataMaps,
+    });
     if (
-      labelField?.isActive &&
-      labelField.workspaceId === workspaceId &&
-      labelField.objectMetadataId === object.id &&
-      permission.restrictedFields?.[labelField.id]?.canRead !== false
-    ) {
-      if (labelField.type === FieldMetadataType.TEXT)
-        name = column(labelField.name);
-      if (labelField.type === FieldMetadataType.FULL_NAME)
-        name = `NULLIF(CONCAT_WS(' ', ${compositeColumn(labelField, 'firstName')}, ${compositeColumn(labelField, 'lastName')}), '')`;
-    }
+      !schema ||
+      !/^[A-Za-z_][A-Za-z_0-9]*$/.test(schema) ||
+      !object?.isActive ||
+      object.workspaceId !== workspaceId ||
+      object.isSystem ||
+      object.isRemote ||
+      !field?.isActive ||
+      field.workspaceId !== workspaceId ||
+      field.objectMetadataId !== object.id ||
+      field.type !== FieldMetadataType.PHONES ||
+      !this.policySource
+    )
+      return { kind: 'configuration-incomplete' } as const;
 
-    return { query, id, name };
+    const policy = await this.policySource.resolveWorkspacePolicy({
+      workspaceId,
+      ...maps,
+    });
+    if (policy.status !== 'configured')
+      return { kind: 'configuration-incomplete' } as const;
+    const rules = policy.rules.filter(
+      (rule) => rule.objectMetadataId === object.id,
+    );
+    const owner = rules[0];
+    if (
+      !owner ||
+      !/^[A-Za-z_][A-Za-z_0-9]*$/.test(owner.ownerJoinColumnName) ||
+      rules.some(
+        (rule) =>
+          rule.ownerFieldMetadataId !== owner.ownerFieldMetadataId ||
+          rule.ownerJoinColumnName !== owner.ownerJoinColumnName,
+      )
+    )
+      return { kind: 'configuration-incomplete' } as const;
+
+    const { query, id } = this.exactQuery(schema, object, field, config, phone);
+    const ownerColumn = column(owner.ownerJoinColumnName);
+    const rows = await query
+      .clone()
+      .select(id, 'recordId')
+      .addSelect(ownerColumn, 'ownerId')
+      .limit(2)
+      .getRawMany<{ recordId: string; ownerId: string | null }>();
+    if (rows.length > 1) return { kind: 'ambiguous' } as const;
+    const [record] = rows;
+    if (!record)
+      return {
+        kind: 'no-match',
+        routeScope: {
+          sql: `NOT EXISTS (${query.select('1').getQuery()})`,
+          parameters: query.getParameters(),
+        },
+      } as const;
+    if (!record.ownerId) return { kind: 'configuration-incomplete' } as const;
+
+    const exactSet = query.clone().select(id).limit(2);
+    const match = query
+      .clone()
+      .select('1')
+      .andWhere(
+        `${id} = :voiceRoutingRecord AND ${ownerColumn} = :voiceRoutingOwner`,
+        {
+          voiceRoutingRecord: record.recordId,
+          voiceRoutingOwner: record.ownerId,
+        },
+      );
+    return {
+      kind: 'match',
+      recordId: record.recordId,
+      ownerId: record.ownerId,
+      routeScope: {
+        sql: `(SELECT COUNT(*) FROM (${exactSet.getQuery()}) AS voice_matches) = 1 AND EXISTS (${match.getQuery()})`,
+        parameters: match.getParameters(),
+      },
+    } as const;
   }
 
   async lookup(

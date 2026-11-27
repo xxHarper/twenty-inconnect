@@ -565,6 +565,25 @@ describe('INCONNECT Voice REST boundary', () => {
     expect(claim).toHaveBeenCalledTimes(1);
   });
 
+  it('does not let another authorized dialing identity consume the original agent intent', async () => {
+    const other = 'cfc4e4fd-781d-469c-a5ab-78520489c663';
+    const original = process.env.INCONNECT_VOICE_DIAL_USER_WORKSPACE_IDS;
+    process.env.INCONNECT_VOICE_DIAL_USER_WORKSPACE_IDS = other;
+    try {
+      const { body } = await issue({ recordId }).expect(200);
+      const otherIdentity =
+        identity.slice(0, identity.lastIndexOf('_') + 1) +
+        other.replace(/-/g, '');
+      await callback(body.intentId, true, otherIdentity).expect(403);
+      await callback(body.intentId).expect(200);
+      expect(claim).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original === undefined)
+        delete process.env.INCONNECT_VOICE_DIAL_USER_WORKSPACE_IDS;
+      else process.env.INCONNECT_VOICE_DIAL_USER_WORKSPACE_IDS = original;
+    }
+  });
+
   it('reuses a receiving identity for outbound only with a valid lease and exact signed identity', async () => {
     Object.assign(process.env, {
       INCONNECT_VOICE_ENABLE_INBOUND: 'true',

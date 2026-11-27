@@ -14,6 +14,7 @@ import {
 } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import {
   getVoiceInboundConfig,
+  type VoiceInboundConfig,
   INCONNECT_VOICE_PATH,
   type InconnectVoiceConfig,
 } from 'src/modules/inconnect-voice/inconnect-voice-config';
@@ -126,6 +127,28 @@ export class InconnectVoiceProviderService {
     return new Twilio.twiml.VoiceResponse().toString();
   }
 
+  async hasActiveInboundCaller(config: VoiceInboundConfig, sid: string) {
+    try {
+      const client = Twilio(config.apiKeySid, config.apiKeySecret, {
+        accountSid: config.accountSid,
+        autoRetry: false,
+        timeout: 5_000,
+      });
+      const call = await client.calls(sid).fetch();
+      return (
+        call.sid === sid &&
+        call.accountSid === config.accountSid &&
+        call.direction === 'inbound' &&
+        !call.parentCallSid &&
+        call.to === config.receiver &&
+        normalizeVoiceDialNumber(call.from, config).number === config.source &&
+        (call.status === 'in-progress' || call.status === 'ringing')
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async reconcile(config: InconnectVoiceConfig, target: VoiceProviderTarget) {
     try {
       const client = Twilio(config.apiKeySid, config.apiKeySecret, {
@@ -159,6 +182,7 @@ export class InconnectVoiceProviderService {
         });
         if (progress?.status !== 'finished') return;
 
+        const parentEvidence = { ...progress };
         let childSid: string | null = null;
         if (target.childSid) {
           try {
@@ -193,10 +217,19 @@ export class InconnectVoiceProviderService {
         }
         await this.inbound.settle(
           inboundConfig,
-          { ...target, childSid },
+          { ...target, id: target.offerId ?? target.id, childSid },
           progress,
           false,
         );
+        if (target.offerId) {
+          // Parent termination still applies if the fetched child belonged to an older offer.
+          await this.inbound.settle(
+            inboundConfig,
+            { id: null, parentSid: parent.sid, childSid: null },
+            parentEvidence,
+            false,
+          );
+        }
         return;
       }
       const candidates = target.childSid

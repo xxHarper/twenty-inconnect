@@ -1,37 +1,54 @@
 import {
   getVoiceInboundAccess,
+  setVoiceInboundPreference,
+  type VoiceInboundPreference,
   startVoiceInboundSession,
   updateVoiceInboundSession,
   VoiceApiError,
 } from '@/inconnect-voice/utils/voiceApi';
 import { type Call, type Device } from '@twilio/voice-sdk';
-import { atom, useStore } from 'jotai';
-import { useEffect, useState } from 'react';
+import { atom, useAtomValue, useStore } from 'jotai';
+import { useCallback, useEffect, useState } from 'react';
 
-type RegistrationState = 'offline' | 'connecting' | 'online' | 'unavailable';
+type RegistrationState =
+  | 'offline'
+  | 'connecting'
+  | 'online'
+  | 'unavailable'
+  | 'disconnecting';
 type ActiveRegistration = {
   abort: AbortController;
   sessionId?: string;
   device?: Device;
   detach?: () => void;
-  stop?: () => void;
+  stop?: (state?: RegistrationState, revoke?: boolean) => Promise<void>;
 };
 
 type Options = {
   isOpen: boolean;
+  canRegister: boolean;
   attachDevice: (token: string, sessionId: string) => Promise<Device | null>;
   onIncoming: (call: Call, sessionId: string) => void;
   onRetire: (device: Device) => void;
 };
 
 export const useVoiceInboundRegistration = (options: Options) => {
-  const [available, setAvailable] = useState(false);
+  const [access, setAccess] = useState<Awaited<
+    ReturnType<typeof getVoiceInboundAccess>
+  > | null>(null);
+  const [preferenceError, setPreferenceError] = useState(false);
+  const available = access !== null;
   const [state, setState] = useState<RegistrationState>('offline');
   const store = useStore();
+  const [preferenceWriteAtom] = useState(() =>
+    atom({ revision: 0, target: null as VoiceInboundPreference | null }),
+  );
+  const { target: changingPreference } = useAtomValue(preferenceWriteAtom);
   const [registrationAtom] = useState(() =>
     atom<ActiveRegistration | null>(null),
   );
   const [optionsAtom] = useState(() => atom(options));
+  const [pendingStartAtom] = useState(() => atom(false));
 
   useEffect(() => {
     store.set(optionsAtom, options);
@@ -40,29 +57,61 @@ export const useVoiceInboundRegistration = (options: Options) => {
   useEffect(() => {
     if (!options.isOpen) return;
     const abort = new AbortController();
+    let timer: number | undefined;
     const check = async () => {
+      const { revision } = store.get(preferenceWriteAtom);
+      const mayUpdate = () => {
+        const write = store.get(preferenceWriteAtom);
+        return (
+          !abort.signal.aborted && !write.target && revision === write.revision
+        );
+      };
+      let continuePolling = true;
       try {
-        await getVoiceInboundAccess(
+        const next = await getVoiceInboundAccess(
           AbortSignal.any([abort.signal, AbortSignal.timeout(5_000)]),
         );
-        if (!abort.signal.aborted) setAvailable(true);
-      } catch {
-        if (!abort.signal.aborted) setAvailable(false);
+        if (mayUpdate()) {
+          setAccess(next);
+          if (next.preference === 'offline') {
+            if (store.get(pendingStartAtom)) setState('offline');
+            store.set(pendingStartAtom, false);
+            void store.get(registrationAtom)?.stop?.('offline', false);
+          }
+        }
+        continuePolling = next.preference !== undefined;
+      } catch (error) {
+        if (mayUpdate()) setAccess(null);
+        continuePolling = !(
+          error instanceof VoiceApiError && [401, 403].includes(error.status)
+        );
+      } finally {
+        if (continuePolling && !abort.signal.aborted)
+          timer = window.setTimeout(check, 4_000);
       }
     };
 
     void check();
-    return () => abort.abort();
-  }, [options.isOpen]);
+    return () => {
+      abort.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    options.isOpen,
+    pendingStartAtom,
+    preferenceWriteAtom,
+    registrationAtom,
+    store,
+  ]);
 
   useEffect(
     () => () => {
-      store.get(registrationAtom)?.stop?.();
+      void store.get(registrationAtom)?.stop?.();
     },
     [registrationAtom, store],
   );
 
-  const start = async () => {
+  const start = useCallback(async () => {
     if (!available || store.get(registrationAtom)) return;
     const current: ActiveRegistration = { abort: new AbortController() };
     store.set(registrationAtom, current);
@@ -80,23 +129,27 @@ export const useVoiceInboundRegistration = (options: Options) => {
           AbortSignal.timeout(4_000),
         );
       } catch {
-        // The bounded lease still expires if the tab cannot report shutdown.
+        return false;
       }
+      return true;
     };
 
-    const stop = (next: RegistrationState) => {
+    const stop = async (next: RegistrationState = 'offline', revoke = true) => {
       if (!isCurrent()) return;
       store.set(registrationAtom, null);
       window.clearTimeout(timer);
       current.abort.abort();
       current.detach?.();
-      // Serialize shutdown behind any in-flight lease mutation.
       const id = current.sessionId;
-      if (id) void chain.then(() => closeLease(id));
+      if (revoke && id) setState('disconnecting');
       if (current.device) store.get(optionsAtom).onRetire(current.device);
-      setState(next);
+      // An in-flight heartbeat must not supersede the final stop operation.
+      const acknowledged =
+        !revoke || !id || (await chain.then(() => closeLease(id)));
+      if (!store.get(registrationAtom))
+        setState(acknowledged ? next : 'unavailable');
     };
-    current.stop = () => stop('offline');
+    current.stop = stop;
     setState('connecting');
 
     try {
@@ -110,7 +163,7 @@ export const useVoiceInboundRegistration = (options: Options) => {
       current.sessionId = id;
       const device = await store.get(optionsAtom).attachDevice(token, id);
       if (!device) {
-        stop('unavailable');
+        void stop('unavailable');
         return;
       }
       if (!isCurrent()) {
@@ -163,7 +216,7 @@ export const useVoiceInboundRegistration = (options: Options) => {
               error instanceof VoiceApiError &&
               [401, 403, 409].includes(error.status)
             ) {
-              stop('unavailable');
+              void stop('unavailable');
               return;
             }
             refresh ||= shouldRefresh;
@@ -185,7 +238,7 @@ export const useVoiceInboundRegistration = (options: Options) => {
       const onIncoming = (call: Call) => {
         if (isCurrent()) store.get(optionsAtom).onIncoming(call, id);
       };
-      const onDestroyed = () => stop('unavailable');
+      const onDestroyed = () => void stop('unavailable');
       device.on('registered', onRegistered);
       device.on('unregistered', onUnregistered);
       device.on('tokenWillExpire', onTokenWillExpire);
@@ -207,14 +260,64 @@ export const useVoiceInboundRegistration = (options: Options) => {
       });
       schedule(3_000);
     } catch {
-      stop('unavailable');
+      void stop('unavailable');
+    }
+  }, [available, optionsAtom, registrationAtom, store]);
+
+  useEffect(() => {
+    if (options.canRegister && store.get(pendingStartAtom)) {
+      store.set(pendingStartAtom, false);
+      void start();
+    }
+  }, [options.canRegister, pendingStartAtom, start, store]);
+
+  const changePreference = async (preference: VoiceInboundPreference) => {
+    const write = store.get(preferenceWriteAtom);
+    if (write.target) return;
+    store.set(preferenceWriteAtom, {
+      revision: write.revision + 1,
+      target: preference,
+    });
+    setPreferenceError(false);
+    try {
+      const next = await setVoiceInboundPreference(
+        preference,
+        AbortSignal.timeout(5_000),
+      );
+      setAccess(next);
+      if (preference !== 'available' && store.get(pendingStartAtom)) {
+        store.set(pendingStartAtom, false);
+        setState('offline');
+      }
+      if (preference === 'offline')
+        await store.get(registrationAtom)?.stop?.('offline', false);
+      if (preference === 'available' && !next.registered) {
+        if (store.get(optionsAtom).canRegister) await start();
+        else {
+          store.set(pendingStartAtom, true);
+          setState('connecting');
+        }
+      }
+    } catch {
+      setPreferenceError(true);
+    } finally {
+      store.set(preferenceWriteAtom, {
+        revision: write.revision + 2,
+        target: null,
+      });
     }
   };
 
   return {
     available,
+    preference: access?.preference,
+    effective: access?.effective,
+    registered: access?.registered,
+    changePreference,
+    changingPreference,
+    preferenceError,
     state,
     start,
-    stop: () => store.get(registrationAtom)?.stop?.(),
+    stop: () => void store.get(registrationAtom)?.stop?.(),
   };
 };

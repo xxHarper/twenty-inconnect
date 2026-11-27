@@ -4,12 +4,27 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 
 import {
+  lockVoiceReservations,
   type VoiceProviderTarget,
   type VoiceRecordCondition,
 } from 'src/modules/inconnect-voice/inconnect-voice-call.store';
 import { type VoiceInboundConfig } from 'src/modules/inconnect-voice/inconnect-voice-config';
 import { type VoiceProgress } from 'src/modules/inconnect-voice/inconnect-voice-lifecycle';
 
+import {
+  finalizeVoiceInboundOffer,
+  persistVoiceInboundRootTermination,
+  reserveNextVoiceInboundOffer,
+  reserveVoiceInboundOffer,
+  VOICE_INBOUND_OFFER_TABLE,
+  type LockedVoiceInbound,
+  type SelectedVoiceOffer,
+  type VoiceInboundCandidate,
+  type VoiceInboundEvent,
+  type VoiceInboundPlan,
+} from 'src/modules/inconnect-voice/inconnect-voice-distribution.store';
+
+const OFFER = VOICE_INBOUND_OFFER_TABLE;
 const CALL = 'core."inconnectVoiceCall"';
 const LEG = 'core."inconnectVoiceCallLeg"';
 
@@ -19,12 +34,6 @@ export type InboundRoute = {
   recordId: string;
   sessionId: string;
   scope: VoiceRecordCondition;
-};
-
-type Event = {
-  id: string | null;
-  parentSid: string;
-  childSid: string | null;
 };
 
 export const unavailableInbound = () =>
@@ -137,45 +146,95 @@ export class InconnectVoiceInboundStore {
     });
   }
 
+  distribute(
+    config: VoiceInboundConfig,
+    id: string,
+    parentSid: string,
+    plan: VoiceInboundPlan,
+    stillAvailable: (candidate: VoiceInboundCandidate) => Promise<boolean>,
+  ) {
+    return this.dataSource.transaction((manager) =>
+      reserveVoiceInboundOffer(
+        manager,
+        this.dataSource.driver,
+        config,
+        id,
+        parentSid,
+        plan,
+        stillAvailable,
+      ),
+    );
+  }
+
   private async lock(
     manager: EntityManager,
     config: VoiceInboundConfig,
-    event: Event,
+    event: VoiceInboundEvent,
   ) {
-    const [row]: { id: string; sessionId: string | null }[] =
-      await manager.query(
-        `SELECT call.id, call."inboundSessionId" AS "sessionId"
-       FROM ${CALL} call JOIN ${LEG} parent ON parent."callId" = call.id AND parent.kind = 'caller'
-       WHERE call.direction = 'inbound' AND call."workspaceId" = $1 AND call."accountSid" = $2
-         AND parent."providerCallSid" = $3 AND ($4::uuid IS NULL OR call.id = $4)
-         AND call."callerId" = $5 AND call.destination = $6
+    const multi = Boolean(config.distribution);
+    const [call]: LockedVoiceInbound[] = await manager.query(
+      `SELECT call.id, call."inboundSessionId" AS "sessionId"${
+        multi
+          ? `,
+          call."recordId", call.status, call."inboundDecision" AS decision,
+          call."inboundScreenedAt" IS NOT NULL AS screened, call."inboundDialSettled" AS "dialSettled"`
+          : ''
+      }
+       FROM ${CALL} call JOIN ${LEG} parent ON parent."callId"=call.id AND parent.kind='caller'
+       WHERE call.direction='inbound' AND call."workspaceId"=$2 AND call."accountSid"=$3
+         AND parent."providerCallSid"=$1 AND ($4::uuid IS NULL OR call.id=$4)
+         AND call."callerId"=$5 AND call.destination=$6
        FOR UPDATE OF call`,
-        [
-          config.workspaceId,
-          config.accountSid,
-          event.parentSid,
-          event.id,
-          config.source,
-          config.receiver,
-        ],
-      );
-    if (!row) {
-      if (event.id === null) return null;
+      [
+        event.parentSid,
+        config.workspaceId,
+        config.accountSid,
+        multi ? null : event.id,
+        config.source,
+        config.receiver,
+      ],
+    );
+    if (!call) {
+      if (event.id === null || multi) return null;
       throw unavailableInbound();
     }
+    const [offer]: Pick<LockedVoiceInbound, 'offerId' | 'ordinal' | 'pool'>[] =
+      multi && call.sessionId
+        ? await manager.query(
+            `SELECT id AS "offerId", ordinal, pool FROM ${OFFER} WHERE "callId"=$1 AND "sessionId"=$2`,
+            [call.id, call.sessionId],
+          )
+        : [];
+    // The offer is read after taking the root lock. A callback waiting for the
+    // previous offer can never attach its leg or terminal result to the next one.
+    if (
+      multi &&
+      event.id !== null &&
+      event.id !== call.id &&
+      event.id !== offer?.offerId
+    )
+      return null;
+    const row = { ...call, ...offer };
     if (event.childSid) {
       if (!row.sessionId) throw unavailableInbound();
       const [child]: { providerCallSid: string }[] = await manager.query(
-        `SELECT "providerCallSid" FROM ${LEG} WHERE "callId" = $1 AND kind = 'browser-inbound'`,
-        [row.id],
+        `SELECT "providerCallSid" FROM ${LEG} WHERE "callId" = $1 AND kind = 'browser-inbound'
+          ${multi ? 'AND "inboundOfferId" IS NOT DISTINCT FROM $2::uuid' : ''}`,
+        multi ? [row.id, row.offerId ?? null] : [row.id],
       );
       if (child && child.providerCallSid !== event.childSid)
         throw unavailableInbound();
       if (!child) {
         const [inserted] = await manager.query(
-          `INSERT INTO ${LEG} ("callId", "accountSid", "providerCallSid", "parentCallSid", kind)
-           VALUES ($1, $2, $3, $4, 'browser-inbound') ON CONFLICT DO NOTHING RETURNING "callId"`,
-          [row.id, config.accountSid, event.childSid, event.parentSid],
+          `INSERT INTO ${LEG} ("callId", "accountSid", "providerCallSid", "parentCallSid", kind${multi ? ', "inboundOfferId"' : ''})
+           VALUES ($1, $2, $3, $4, 'browser-inbound'${multi ? ', $5' : ''}) ON CONFLICT DO NOTHING RETURNING "callId"`,
+          [
+            row.id,
+            config.accountSid,
+            event.childSid,
+            event.parentSid,
+            ...(multi ? [row.offerId ?? null] : []),
+          ],
         );
         if (!inserted) throw unavailableInbound();
       }
@@ -185,7 +244,8 @@ export class InconnectVoiceInboundStore {
 
   private actorCondition = `call.id = $1 AND call."workspaceId" = $2 AND call."accountSid" = $3
     AND call."actorMemberId" = $4 AND call."inboundSessionId" = $5
-    AND call."callerId" = $6 AND call.destination = $7 AND call."objectMetadataId" = $8
+    AND call."callerId" = $6 AND call.destination = $7
+    AND (call."objectMetadataId" = $8 OR (call."objectMetadataId" IS NULL AND call."recordId" IS NULL))
     AND call.direction = 'inbound'`;
 
   private actorValues(
@@ -211,16 +271,16 @@ export class InconnectVoiceInboundStore {
     id: string,
     memberId: string,
     sessionId: string,
-    scope: VoiceRecordCondition & { name: string },
+    scope: VoiceRecordCondition & { name: string; visibleRecordId?: string },
   ) {
     const [row]: (VoiceProgress & {
       id: string;
-      recordId: string;
+      recordId: string | null;
       name: string | null;
       number: string;
     })[] = await this.dataSource.query(
       ...this.withCondition(
-        `SELECT call.id, call."recordId", call."callerId" AS number, ${scope.name} AS name,
+        `SELECT call.id, ${scope.visibleRecordId ?? 'call."recordId"'} AS "recordId", call."callerId" AS number, ${scope.name} AS name,
           call.status, call.result, call."answeredAt", call."endedAt", call."durationSeconds"
          FROM ${CALL} call WHERE ${this.actorCondition} AND (${scope.sql})`,
         scope,
@@ -257,12 +317,17 @@ export class InconnectVoiceInboundStore {
 
   async screen(
     config: VoiceInboundConfig,
-    event: Event,
+    event: VoiceInboundEvent,
     memberId: string,
     sessionId: string,
     scope: VoiceRecordCondition,
+    mayBridge?: () => Promise<boolean>,
   ) {
     return this.dataSource.transaction(async (manager) => {
+      if (mayBridge) {
+        await lockVoiceReservations(manager, config.workspaceId);
+        if (!(await mayBridge())) return false;
+      }
       const row = await this.lock(manager, config, event);
       if (!row || row.sessionId !== sessionId) return false;
       const [screened] = await manager.query(
@@ -284,76 +349,128 @@ export class InconnectVoiceInboundStore {
 
   async progress(
     config: VoiceInboundConfig,
-    event: Event,
+    event: VoiceInboundEvent,
     terminal: boolean,
   ): Promise<VoiceProviderTarget | null> {
     return this.dataSource.transaction(async (manager) => {
       const row = await this.lock(manager, config, event);
       return row?.sessionId && terminal
-        ? { ...event, id: row.id, direction: 'inbound' }
+        ? {
+            ...event,
+            id: row.id,
+            direction: 'inbound',
+            ...(row.offerId ? { offerId: row.offerId } : {}),
+          }
         : null;
     });
   }
 
   async settle(
     config: VoiceInboundConfig,
-    event: Event,
+    event: VoiceInboundEvent,
     progress: VoiceProgress,
     dial: boolean,
   ): Promise<VoiceProviderTarget | null> {
     if (progress.status !== 'finished' || !progress.result) return null;
     return this.dataSource.transaction(async (manager) => {
+      const rootTerminal = config.distribution && event.id === null && !dial;
+      if (rootTerminal)
+        await manager.query(
+          'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+          [`${config.accountSid}:${event.parentSid}`],
+        );
       const row = await this.lock(manager, config, event);
+      if (!row && rootTerminal) {
+        await persistVoiceInboundRootTermination(
+          manager,
+          config,
+          event.parentSid,
+          progress,
+        );
+      }
       if (!row?.sessionId) return null;
-
-      const [incomplete]: { childSid: string }[] = await manager.query(
-        `WITH verdict AS (
-           SELECT id, CASE
-             WHEN "inboundDecision" = 'decline' THEN 'declined'
-             WHEN status = 'finished' AND ("inboundDialSettled"
-               OR (NOT $2::boolean AND NOT (result = 'no-answer' AND $3::text = 'canceled'))) THEN result
-             WHEN $3::text = 'answered' AND "inboundScreenedAt" IS NOT NULL THEN 'answered'
-             WHEN $3::text = 'answered' OR "inboundScreenedAt" IS NOT NULL THEN 'failed'
-             ELSE $3::text END AS result
-           FROM ${CALL} WHERE id = $1
-         ), next AS (
-           SELECT c.id, verdict.result, c."inboundDialSettled" OR $2::boolean AS dial,
-             CASE WHEN verdict.result = 'answered' THEN c."actorMemberId" END AS member,
-             COALESCE(c."endedAt", $4::timestamptz) AS ended,
-             CASE WHEN verdict.result = 'answered' THEN CASE
-               WHEN $3::text = 'answered' AND $2::boolean AND NOT c."inboundDialSettled"
-                 THEN COALESCE($5::integer, c."durationSeconds")
-               WHEN $3::text = 'answered' THEN COALESCE(c."durationSeconds", $5::integer)
-               ELSE c."durationSeconds" END END AS duration
-           FROM ${CALL} c JOIN verdict USING (id)
-         ), updated AS (
-           UPDATE ${CALL} c SET status = 'finished', result = next.result, "inboundDialSettled" = next.dial,
-             "answeredMemberId" = next.member, "endedAt" = next.ended, "durationSeconds" = next.duration
-           FROM next WHERE c.id = next.id AND
-             (c.status, c.result, c."inboundDialSettled", c."answeredMemberId", c."endedAt", c."durationSeconds")
-             IS DISTINCT FROM ('finished'::text, next.result, next.dial, next.member, next.ended, next.duration)
-           RETURNING c.id, c.result, c."durationSeconds", c."inboundDialSettled"
-         )
-         SELECT leg."providerCallSid" AS "childSid"
-         FROM updated JOIN ${LEG} leg ON leg."callId" = updated.id AND leg.kind = 'browser-inbound'
-         WHERE (updated.result = 'answered' AND updated."durationSeconds" IS NULL)
-            OR (updated.result = 'no-answer' AND NOT updated."inboundDialSettled")`,
-        [
-          row.id,
-          dial,
-          progress.result,
-          progress.endedAt,
-          progress.durationSeconds,
-        ],
+      return finalizeVoiceInboundOffer(
+        manager,
+        config,
+        event,
+        row,
+        progress,
+        dial,
       );
-      return incomplete
-        ? {
-            id: row.id,
-            parentSid: event.parentSid,
-            childSid: incomplete.childSid,
-            direction: 'inbound',
-          }
-        : null;
+    });
+  }
+
+  async completeDistribution(
+    config: VoiceInboundConfig,
+    event: VoiceInboundEvent,
+    progress: VoiceProgress,
+    plan: VoiceInboundPlan | null,
+    stillAvailable: (candidate: VoiceInboundCandidate) => Promise<boolean>,
+  ): Promise<
+    | { kind: 'duplicate' | 'terminal' }
+    | { kind: 'next'; callId: string; selected: SelectedVoiceOffer }
+  > {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query("SET LOCAL lock_timeout = '2500ms'");
+      await lockVoiceReservations(manager, config.workspaceId);
+      const row = await this.lock(manager, config, event);
+      if (!row?.sessionId || row.dialSettled) return { kind: 'duplicate' };
+      const pool = plan?.pool;
+      const scope = plan?.routeScope;
+      const distribution = config.distribution;
+      if (
+        row.offerId &&
+        row.ordinal &&
+        row.status === 'ringing' &&
+        !row.screened &&
+        row.decision !== 'accept' &&
+        (row.decision === 'decline' ||
+          progress.result === 'no-answer' ||
+          progress.result === 'busy') &&
+        progress.result !== 'canceled' &&
+        distribution &&
+        row.ordinal < distribution.maxAttempts &&
+        pool &&
+        pool.key === row.pool &&
+        scope &&
+        row.recordId === plan.recordId
+      ) {
+        const [remaining]: { seconds: number }[] = await manager.query(
+          `SELECT floor(extract(epoch FROM ("createdAt" + make_interval(secs => $2::int) - clock_timestamp())))::int AS seconds
+            FROM ${CALL} WHERE id=$1`,
+          [row.id, distribution.distributionSeconds],
+        );
+        // Twilio can add a small margin to its configured Dial timeout.
+        const ringSeconds = Math.min(
+          distribution.ringSeconds,
+          remaining.seconds - 5,
+        );
+        if (ringSeconds >= 8) {
+          const next = await reserveNextVoiceInboundOffer(
+            manager,
+            this.dataSource.driver,
+            config,
+            row,
+            progress,
+            pool,
+            scope,
+            plan.ownerId,
+            ringSeconds,
+            stillAvailable,
+          );
+          if (next) return { kind: 'next', callId: row.id, selected: next };
+        }
+      }
+
+      await finalizeVoiceInboundOffer(
+        manager,
+        config,
+        event,
+        row,
+        progress,
+        true,
+      );
+      return { kind: 'terminal' };
     });
   }
 }

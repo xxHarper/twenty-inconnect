@@ -17,6 +17,7 @@ import { InconnectVoiceInboundController } from 'src/modules/inconnect-voice/inc
 import { InconnectVoiceInboundService } from 'src/modules/inconnect-voice/inconnect-voice-inbound.service';
 import { InconnectVoiceInboundSessionService } from 'src/modules/inconnect-voice/inconnect-voice-inbound-session.service';
 import { InconnectVoiceInboundStore } from 'src/modules/inconnect-voice/inconnect-voice-inbound.store';
+import { InconnectVoiceRoutingService } from 'src/modules/inconnect-voice/inconnect-voice-routing.service';
 import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voice.service';
 
 @Module({
@@ -40,6 +41,7 @@ import { InconnectVoiceService } from 'src/modules/inconnect-voice/inconnect-voi
     InconnectVoiceInboundService,
     InconnectVoiceInboundSessionService,
     InconnectVoiceInboundStore,
+    InconnectVoiceRoutingService,
   ],
 })
 export class InconnectVoiceModule {}

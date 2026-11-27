@@ -23,6 +23,7 @@ import { SecretEncryptionService } from 'src/engine/core-modules/secret-encrypti
 import { type UserWorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { PermissionsService } from 'src/engine/metadata-modules/permissions/permissions.service';
 import {
+  canReceiveVoice,
   getInconnectVoiceConfig,
   getVoiceInboundConfig,
   type InconnectVoiceConfig,
@@ -119,10 +120,11 @@ export class InconnectVoiceService {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
     const inbound = getVoiceInboundConfig();
+    const member = request.userWorkspaceId;
     const actor = resolveVoiceActor(
       request,
-      inbound && request.userWorkspaceId === inbound.userWorkspaceId
-        ? inbound
+      inbound && canReceiveVoice(inbound, member)
+        ? { ...config, dialUserWorkspaceIds: [member] }
         : config,
     );
     await this.directory.rolePermissions(actor);
@@ -167,7 +169,11 @@ export class InconnectVoiceService {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
     const actor = resolveVoiceActor(request, config);
-    await this.throttle(config, 'lookup', 1);
+    await this.throttle(
+      { ...config, userWorkspaceId: actor.userWorkspaceId },
+      'lookup',
+      1,
+    );
     const phone = normalizeVoiceDialNumber(input, config);
     const result = await this.directory.lookup(actor, config, phone, after);
     const canCall = config.enabled && canDialVoiceNumber(phone, config);
@@ -220,9 +226,19 @@ export class InconnectVoiceService {
       throw new ServiceUnavailableException('Outbound Voice is unavailable');
 
     const actor = resolveVoiceActor(request, config);
+    if (
+      actor.userWorkspaceId !== config.userWorkspaceId &&
+      !(await this.hasFlag(actor, PermissionFlagType.DIAL_INCONNECT_VOICE))
+    )
+      throw forbidden();
     const credential = getVoiceCredential(request);
     const manual = manualInput !== undefined;
-    if (manual) await this.throttle(config, 'manual-session', 10);
+    if (manual)
+      await this.throttle(
+        { ...config, userWorkspaceId: actor.userWorkspaceId },
+        'manual-session',
+        10,
+      );
     const { destination, scope } = manual
       ? await this.manualAuthority(actor, config, manualInput, recordId)
       : await this.linkedAuthority(actor, config, recordId);
@@ -230,26 +246,37 @@ export class InconnectVoiceService {
     const useRegisteredDevice = Boolean(
       inboundSessionId &&
       inbound &&
-      inbound.userWorkspaceId === actor.userWorkspaceId &&
+      canReceiveVoice(inbound, actor.userWorkspaceId) &&
       (await this.inboundSessions?.current(
         inbound,
         inboundSessionId,
         actor.workspaceMemberId,
         false,
+        ...(inbound.distribution ? ([actor.userWorkspaceId] as const) : []),
       )),
     );
     if (inboundSessionId && !useRegisteredDevice) throw forbidden();
     const browserIdentity =
       inboundSessionId && inbound
-        ? getVoiceInboundIdentity(inbound, inboundSessionId)
-        : getVoiceIdentity(config);
+        ? getVoiceInboundIdentity(
+            inbound,
+            inboundSessionId,
+            actor.userWorkspaceId,
+          )
+        : getVoiceIdentity({
+            ...config,
+            userWorkspaceId: actor.userWorkspaceId,
+          });
     const intentId = randomUUID();
     const intentExpiresAt = Date.now() + VOICE_INTENT_TTL_SECONDS * 1_000;
     const intent = {
       intentId,
       recordId,
       ...(manual ? { manual: true } : {}),
-      ...(useRegisteredDevice ? { browserIdentity } : {}),
+      ...(useRegisteredDevice ||
+      actor.userWorkspaceId !== config.userWorkspaceId
+        ? { browserIdentity }
+        : {}),
       actorMemberId: actor.workspaceMemberId,
       destination,
       expiresAt: intentExpiresAt,
@@ -291,7 +318,10 @@ export class InconnectVoiceService {
       const stored = await this.redis
         .getClient()
         .set(
-          getIntentKey(config, intentId),
+          getIntentKey(
+            { ...config, userWorkspaceId: actor.userWorkspaceId },
+            intentId,
+          ),
           sealed,
           'EX',
           VOICE_INTENT_TTL_SECONDS,
@@ -326,6 +356,7 @@ export class InconnectVoiceService {
           },
           actorLabel,
           scope,
+          ...(inbound?.distribution ? ([true] as const) : []),
         ))
       ) {
         throw new ConflictException(
@@ -372,19 +403,29 @@ export class InconnectVoiceService {
 
     try {
       const params = readSignedVoiceWebhook(request, config, config.voiceUrl);
+      const signedActorId = (
+        config.dialUserWorkspaceIds ?? [config.userWorkspaceId]
+      ).find((userWorkspaceId) => {
+        const identity = getVoiceIdentity({ ...config, userWorkspaceId });
+        return new RegExp(`^client:${identity}(?:_[a-f0-9]{32})?$`).test(
+          params.From ?? '',
+        );
+      });
       if (
-        (params.From !== `client:${getVoiceIdentity(config)}` &&
-          !params.From?.startsWith(`client:${getVoiceIdentity(config)}_`)) ||
+        !signedActorId ||
         !isTwilioCallSid(params.CallSid) ||
         !z.string().uuid().safeParse(params.intentId).success
-      ) {
+      )
         throw forbidden();
-      }
 
-      // Consume before any remote instructions can be returned, including concurrent retries.
+      // A signed device can consume only the intent for its own UserWorkspace.
+      const intentKey = getIntentKey(
+        { ...config, userWorkspaceId: signedActorId },
+        params.intentId,
+      );
       const sealed = await this.redis
         .getClient()
-        .eval(consumeIntentScript, 1, getIntentKey(config, params.intentId));
+        .eval(consumeIntentScript, 1, intentKey);
       if (typeof sealed !== 'string') throw forbidden();
       const intent = intentSchema.parse(
         JSON.parse(
@@ -416,7 +457,13 @@ export class InconnectVoiceService {
         headers: intent.credential,
       } as Request);
       const actor = resolveVoiceActor(auth, config);
-      if (actor.workspaceMemberId !== intent.actorMemberId) throw forbidden();
+      if (
+        actor.workspaceMemberId !== intent.actorMemberId ||
+        actor.userWorkspaceId !== signedActorId ||
+        (actor.userWorkspaceId !== config.userWorkspaceId &&
+          !(await this.hasFlag(actor, PermissionFlagType.DIAL_INCONNECT_VOICE)))
+      )
+        throw forbidden();
       const { destination, scope } = intent.manual
         ? await this.manualAuthority(
             actor,
@@ -483,15 +530,16 @@ export class InconnectVoiceService {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
     const inbound = getVoiceInboundConfig();
+    const member = request.userWorkspaceId;
     const baseHistory =
-      request.userWorkspaceId === config.userWorkspaceId ||
-      (request.userWorkspaceId &&
-        config.historyUserWorkspaceIds.includes(request.userWorkspaceId));
-    const actor = resolveVoiceActor(
-      request,
-      baseHistory ? config : (inbound ?? config),
-      true,
-    );
+      member === config.userWorkspaceId ||
+      (member && config.historyUserWorkspaceIds.includes(member));
+    const eligible =
+      member && (baseHistory || (inbound && canReceiveVoice(inbound, member)));
+    const actor = resolveVoiceActor(request, {
+      ...config,
+      dialUserWorkspaceIds: eligible ? [member] : [],
+    });
     const scope = await this.destination.authorizeHistory(
       actor,
       config,
@@ -548,11 +596,21 @@ export class InconnectVoiceService {
     const config = getInconnectVoiceConfig();
     if (!config) throw forbidden();
     const inbound = getVoiceInboundConfig();
-    const canReadOutbound = request.userWorkspaceId === config.userWorkspaceId;
-    const actor = resolveVoiceActor(
-      request,
-      canReadOutbound ? config : (inbound ?? config),
+    const memberId = request.userWorkspaceId;
+    const canReadOutbound = Boolean(
+      memberId &&
+      (config.dialUserWorkspaceIds ?? [config.userWorkspaceId]).includes(
+        memberId,
+      ),
     );
+    const canReadInbound = Boolean(
+      inbound && canReceiveVoice(inbound, memberId),
+    );
+    const actor = resolveVoiceActor(request, {
+      ...config,
+      dialUserWorkspaceIds:
+        memberId && (canReadOutbound || canReadInbound) ? [memberId] : [],
+    });
     const unlinked = await this.hasFlag(
       actor,
       PermissionFlagType.READ_UNLINKED_INCONNECT_VOICE_HISTORY,
@@ -585,7 +643,16 @@ export class InconnectVoiceService {
       if (!(error instanceof ForbiddenException) || !unlinked) throw error;
     }
 
-    if (inbound && request.userWorkspaceId === inbound.userWorkspaceId) {
+    if (inbound && canReadInbound) {
+      if (inbound.distribution && unlinked) {
+        conditions.push(`(call.direction = 'inbound' AND call."recordId" IS NULL AND call."objectMetadataId" IS NULL
+          AND call."callerId" = :inboundUnlinkedSource AND call.destination = :inboundUnlinkedReceiver)`);
+        parameters = {
+          ...parameters,
+          inboundUnlinkedSource: inbound.source,
+          inboundUnlinkedReceiver: inbound.receiver,
+        };
+      }
       try {
         const phone = normalizeVoiceDialNumber(inbound.source, inbound);
         const lead = await this.directory.query(actor, inbound, phone);
@@ -639,10 +706,12 @@ export class InconnectVoiceService {
     action?: 'cancel' | 'reconcile',
     manual = false,
   ) {
+    const legacy =
+      getInconnectVoiceConfig()?.userWorkspaceId === request.userWorkspaceId;
     const getAuthority = () =>
       recordId === null
         ? this.unlinkedProgressAuthority(request)
-        : manual
+        : manual || !legacy
           ? this.linkedProgressAuthority(request, recordId)
           : this.historyAuthority(request, recordId);
     const { config, scope, authority } = await getAuthority();
@@ -695,7 +764,7 @@ export class InconnectVoiceService {
     return {
       config,
       scope: {
-        sql: `call."objectMetadataId" = :voiceProgressObject AND call."recordId" = :voiceProgressRecord
+        sql: `call.direction = 'outbound' AND call."objectMetadataId" = :voiceProgressObject AND call."recordId" = :voiceProgressRecord
           AND call.destination = :voiceProgressDestination AND (${scope.sql})`,
         parameters: {
           ...scope.parameters,
@@ -721,7 +790,7 @@ export class InconnectVoiceService {
     return {
       config,
       scope: {
-        sql: `call."objectMetadataId" IS NULL AND call."recordId" IS NULL
+        sql: `call.direction = 'outbound' AND call."objectMetadataId" IS NULL AND call."recordId" IS NULL
           AND call."expiresAt" > clock_timestamp() - interval '8 minutes'`,
         parameters: {},
       },

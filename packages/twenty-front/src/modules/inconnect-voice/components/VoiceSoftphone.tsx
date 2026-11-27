@@ -1,3 +1,4 @@
+import { VoiceAvailabilityControl } from '@/inconnect-voice/components/VoiceAvailabilityControl';
 import {
   VoiceSoftphoneView,
   type VoiceStatusTone,
@@ -132,7 +133,7 @@ export const VoiceSoftphoneControls = ({
       : voice.inboundOffer
         ? {
             number: voice.inboundOffer.number,
-            name: voice.inboundOffer.name ?? t`Lead`,
+            name: voice.inboundOffer.name ?? '',
           }
         : manual?.identity;
   const canSendDigit =
@@ -254,6 +255,11 @@ export const VoiceSoftphoneControls = ({
         authorizedDetails && recordId
           ? () => void placeCall(recordId, authorizedDetails.number)
           : undefined
+      }
+      availabilityControl={
+        voice.inbound.available && voice.inbound.preference !== undefined ? (
+          <VoiceAvailabilityControl inbound={voice.inbound} />
+        ) : undefined
       }
       idleContent={manual?.idleContent}
       onReturnToDialer={

@@ -30,6 +30,7 @@ import {
   getVoiceRecents,
   getVoiceStatus,
   lookupVoiceNumber,
+  setVoiceInboundPreference,
   startVoiceInboundSession,
   updateVoiceInboundSession,
   type VoiceLookup,
@@ -72,6 +73,7 @@ jest.mock('@/inconnect-voice/utils/voiceApi', () => ({
   getVoiceRecents: jest.fn(),
   getVoiceStatus: jest.fn(),
   lookupVoiceNumber: jest.fn(),
+  setVoiceInboundPreference: jest.fn(),
   startVoiceInboundSession: jest.fn(),
   updateVoiceInboundSession: jest.fn(),
   VoiceApiError: Error,
@@ -740,6 +742,162 @@ describe('VoiceCallProvider', () => {
     expect(second.eventNames()).toEqual([]);
     expect(device.listenerCount('error')).toBe(0);
     expect(device.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows effective Voice availability and changes the manual preference without stopping registration', async () => {
+    jest.mocked(getVoiceInboundAccess).mockResolvedValue({
+      available: true,
+      preference: 'available',
+      effective: 'busy',
+      registered: true,
+    });
+    jest.mocked(setVoiceInboundPreference).mockResolvedValue({
+      available: true,
+      preference: 'unavailable',
+      effective: 'busy',
+      registered: true,
+    });
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: 'Phone' }));
+    const selector = await screen.findByRole('combobox', {
+      name: 'Call availability',
+    });
+    expect(selector).toHaveDisplayValue('Busy');
+    await act(async () =>
+      fireEvent.change(selector, { target: { value: 'unavailable' } }),
+    );
+    expect(selector).toHaveDisplayValue('Busy');
+    expect(setVoiceInboundPreference).toHaveBeenCalledWith(
+      'unavailable',
+      expect.any(AbortSignal),
+    );
+    expect(updateVoiceInboundSession).not.toHaveBeenCalled();
+  });
+
+  it('waits for backend availability and revokes reception through the same selector', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000003';
+    jest.mocked(getVoiceInboundAccess).mockResolvedValue({
+      available: true,
+      preference: 'offline',
+      registered: false,
+      effective: 'offline',
+    });
+    jest
+      .mocked(setVoiceInboundPreference)
+      .mockImplementation(async (preference) => ({
+        available: true,
+        preference,
+        registered: false,
+        effective: 'offline',
+      }));
+    jest
+      .mocked(startVoiceInboundSession)
+      .mockResolvedValue({ id: sessionId, token: 'inbound-token' });
+    jest.mocked(updateVoiceInboundSession).mockResolvedValue({});
+    const { device } = setup();
+    const receiver = Object.assign(device, {
+      state: 'unregistered',
+      register: jest.fn(async () => {
+        receiver.state = 'registered';
+        receiver.emit('registered');
+      }),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Phone' }));
+    const selector = await screen.findByRole('combobox', {
+      name: 'Call availability',
+    });
+    expect(selector).toHaveDisplayValue('Offline');
+    await act(async () =>
+      fireEvent.change(selector, { target: { value: 'available' } }),
+    );
+    expect(receiver.register).toHaveBeenCalledTimes(1);
+    expect(selector).not.toHaveDisplayValue('Available');
+    await act(async () =>
+      fireEvent.change(selector, { target: { value: 'offline' } }),
+    );
+    expect(setVoiceInboundPreference).toHaveBeenLastCalledWith(
+      'offline',
+      expect.any(AbortSignal),
+    );
+    expect(selector).toHaveDisplayValue('Offline');
+    expect(device.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an accepted inbound call connected when reception is switched offline', async () => {
+    const sessionId = '00000000-0000-4000-8000-000000000003';
+    jest.mocked(getVoiceInboundAccess).mockResolvedValue({
+      available: true,
+      preference: 'unavailable',
+      registered: false,
+      effective: 'offline',
+    });
+    jest
+      .mocked(setVoiceInboundPreference)
+      .mockImplementation(async (preference) => ({
+        available: true,
+        preference,
+        registered: false,
+        effective: preference === 'offline' ? 'busy' : 'offline',
+      }));
+    jest
+      .mocked(startVoiceInboundSession)
+      .mockResolvedValue({ id: sessionId, token: 'inbound-token' });
+    jest.mocked(updateVoiceInboundSession).mockResolvedValue({});
+    jest.mocked(getVoiceInboundOffer).mockImplementation(async (id) => ({
+      id,
+      recordId: null,
+      name: null,
+      number: destination,
+      status: 'ringing',
+      result: null,
+      answeredAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      observedAt: Date.now(),
+    }));
+    const { first, device } = setup();
+    const receiver = Object.assign(device, {
+      state: 'unregistered',
+      register: jest.fn(async () => {
+        receiver.state = 'registered';
+        receiver.emit('registered');
+      }),
+      unregister: jest.fn().mockResolvedValue(undefined),
+    });
+    first.setStatus('pending');
+    const incoming = Object.assign(first, {
+      customParameters: new Map([['inconnectVoiceCallId', anotherLead]]),
+      accept: jest.fn(),
+      reject: jest.fn(),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Phone' }));
+    const selector = await screen.findByRole('combobox', {
+      name: 'Call availability',
+    });
+    await act(async () =>
+      fireEvent.change(selector, { target: { value: 'available' } }),
+    );
+    await act(async () => {
+      receiver.emit('incoming', incoming);
+    });
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Accept' })),
+    );
+    await act(async () => {
+      first.setStatus('open');
+      first.emit('accept');
+    });
+    const activeSelector = screen.getByRole('combobox', {
+      name: 'Call availability',
+    });
+    await act(async () =>
+      fireEvent.change(activeSelector, { target: { value: 'offline' } }),
+    );
+    expect(receiver.unregister).toHaveBeenCalledTimes(1);
+    expect(incoming.disconnect).not.toHaveBeenCalled();
+    expect(incoming.reject).not.toHaveBeenCalled();
+    expect(device.destroy).not.toHaveBeenCalled();
+    expect(activeSelector).toHaveDisplayValue('Busy');
   });
 
   it('shows symmetric incoming controls and opens Recents after completion without retiring the registered device', async () => {

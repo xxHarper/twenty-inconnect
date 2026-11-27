@@ -70,6 +70,35 @@ it('allows the outbound caller ID as the inbound receiver with an independent so
   ).toBeNull();
 });
 
+const multi = getVoiceInboundConfig({
+  ...env,
+  INCONNECT_VOICE_RECEIVE_USER_WORKSPACE_IDS: `${memberId},${recordId}`,
+  INCONNECT_VOICE_ROUND_ROBIN_USER_WORKSPACE_IDS: recordId,
+});
+if (!multi) throw new Error('Expected multi-agent test config');
+
+it('requires an explicit bounded receive pool and rejects a foreign round-robin identity', () => {
+  expect(multi.distribution).toMatchObject({
+    receiveUserWorkspaceIds: [memberId, recordId],
+    roundRobinUserWorkspaceIds: [recordId],
+    fallbackUnavailable: false,
+    retryUnanswered: false,
+  });
+  expect(
+    getVoiceInboundConfig({
+      ...env,
+      INCONNECT_VOICE_RECEIVE_USER_WORKSPACE_IDS: memberId,
+      INCONNECT_VOICE_ROUND_ROBIN_USER_WORKSPACE_IDS: recordId,
+    }),
+  ).toBeNull();
+  expect(
+    getVoiceInboundConfig({
+      ...env,
+      INCONNECT_VOICE_RECEIVE_USER_WORKSPACE_IDS: '',
+    }),
+  ).toBeNull();
+});
+
 const sign = (
   url: string,
   fields: Record<string, string>,
@@ -462,5 +491,223 @@ describe('Voice V2 signed inbound and authenticated decisions', () => {
       expect.objectContaining({ result: 'answered', durationSeconds: 30 }),
       true,
     );
+  });
+});
+
+describe('Voice V2.1 phone versus CRM authority', () => {
+  it('allows the offered receiver to decide with the Lead fields redacted', async () => {
+    const session = {
+      authorize: jest
+        .fn()
+        .mockResolvedValue({ ...actor, userWorkspaceId: memberId }),
+      canReceiveOffer: jest.fn().mockResolvedValue(true),
+    };
+    const read = jest
+      .fn()
+      .mockResolvedValue({ id, recordId: null, name: null });
+    const decide = jest.fn();
+    const inbound = new InconnectVoiceInboundService(
+      {
+        query: jest.fn().mockRejectedValue(new Error('Lead out of scope')),
+      } as unknown as InconnectVoiceDirectoryService,
+      session as unknown as InconnectVoiceInboundSessionService,
+      { read, decide } as unknown as InconnectVoiceInboundStore,
+      {} as InconnectVoiceCallStore,
+      {} as InconnectVoiceProviderService,
+    );
+    await expect(
+      inbound.offer({} as Request, multi, id, sessionId, 'accept'),
+    ).resolves.toMatchObject({
+      id,
+      recordId: null,
+      name: null,
+    });
+    expect(decide).toHaveBeenCalledWith(
+      multi,
+      id,
+      memberId,
+      sessionId,
+      expect.objectContaining({
+        sql: 'TRUE',
+        visibleRecordId: 'NULL::uuid',
+        name: 'NULL::text',
+      }),
+      'accept',
+    );
+    expect(session.canReceiveOffer).toHaveBeenCalledWith(
+      multi,
+      expect.objectContaining({ workspaceMemberId: memberId }),
+      sessionId,
+    );
+  });
+  it('denies a new accept after revocation and scopes progress to the prior screened offer', async () => {
+    const session = {
+      authorize: jest
+        .fn()
+        .mockResolvedValue({ ...actor, userWorkspaceId: memberId }),
+      canReceiveOffer: jest.fn().mockResolvedValue(false),
+    };
+    const read = jest.fn().mockResolvedValue({ id, status: 'answered' });
+    const decide = jest.fn();
+    const inbound = new InconnectVoiceInboundService(
+      {
+        query: jest.fn().mockRejectedValue(new Error('Lead out of scope')),
+      } as unknown as InconnectVoiceDirectoryService,
+      session as unknown as InconnectVoiceInboundSessionService,
+      { read, decide } as unknown as InconnectVoiceInboundStore,
+      {} as InconnectVoiceCallStore,
+      {} as InconnectVoiceProviderService,
+    );
+    await expect(
+      inbound.offer({} as Request, multi, id, sessionId, 'accept'),
+    ).rejects.toThrow();
+    expect(decide).not.toHaveBeenCalled();
+    await expect(
+      inbound.offer({} as Request, multi, id, sessionId),
+    ).resolves.toMatchObject({ id, status: 'answered' });
+    expect(read).toHaveBeenCalledWith(
+      multi,
+      id,
+      memberId,
+      sessionId,
+      expect.objectContaining({
+        sql: 'call."inboundScreenedAt" IS NOT NULL AND (TRUE)',
+      }),
+    );
+  });
+});
+
+describe('Voice V2.1 presence leases', () => {
+  it('keeps two identities separate and retains an active reservation through preference and lease changes', async () => {
+    const values = new Map<string, string>();
+    const client = {
+      get: jest.fn(async (key: string) => values.get(key) ?? null),
+      set: jest.fn(async (key: string, value: string, expiry?: string) => {
+        if (expiry && values.has(key)) return null;
+        values.set(key, value);
+        return 'OK';
+      }),
+      eval: jest.fn(
+        async (
+          _code: string,
+          keys: number,
+          key: string,
+          expected: string,
+          replacement: string,
+        ) => {
+          if (keys === 2) {
+            values.set(key, 'offline');
+            values.delete(expected);
+            return 1;
+          }
+          if (values.get(key) !== expected) return 0;
+          if (replacement) values.set(key, replacement);
+          else values.delete(key);
+          return 1;
+        },
+      ),
+    };
+    const requestFor = (userWorkspaceId: string) =>
+      ({
+        headers: { authorization: `Bearer agent-${userWorkspaceId}` },
+        tokenType: JwtTokenTypeEnum.ACCESS,
+        user: { id },
+        workspace: { id: workspaceId },
+        workspaceMember: { id: userWorkspaceId, userId: id },
+        workspaceMemberId: userWorkspaceId,
+        userWorkspaceId,
+      }) as unknown as Request;
+    const first = requestFor(memberId);
+    const second = requestFor(recordId);
+    const busy = jest.fn().mockResolvedValue(null);
+    const sessions = new InconnectVoiceInboundSessionService(
+      { getClient: () => client } as unknown as RedisClientService,
+      {
+        encryptVersioned: (value: string) => value,
+        decryptVersionedOrThrow: (value: string) => value,
+      } as unknown as SecretEncryptionService,
+      {
+        rolePermissions: jest.fn().mockResolvedValue({}),
+      } as unknown as InconnectVoiceDirectoryService,
+      {
+        validateTokenByRequest: jest.fn(async (request: Request) =>
+          request.headers.authorization === first.headers.authorization
+            ? first
+            : second,
+        ),
+      } as unknown as AccessTokenService,
+      {
+        activeReservation: busy,
+        withReservationAuthority: async (
+          _workspaceId: string,
+          write: () => Promise<unknown>,
+        ) => write(),
+      } as unknown as InconnectVoiceCallStore,
+    );
+    const firstLease = await sessions.start(first, multi);
+    const secondLease = await sessions.start(second, multi);
+    await sessions.update(first, multi, firstLease.id, 'registered', false);
+    await sessions.update(second, multi, secondLease.id, 'registered', false);
+    await expect(
+      sessions.update(second, multi, firstLease.id, 'registered', false),
+    ).rejects.toThrow();
+    await expect(sessions.candidate(multi, memberId)).resolves.toBeNull();
+    await expect(
+      sessions.availability(first, multi, 'available'),
+    ).resolves.toMatchObject({
+      effective: 'available',
+      registered: true,
+    });
+    await expect(sessions.candidate(multi, memberId)).resolves.toMatchObject({
+      sessionId: firstLease.id,
+    });
+
+    busy.mockResolvedValue('busy');
+    await expect(
+      sessions.availability(first, multi, 'unavailable'),
+    ).resolves.toMatchObject({
+      effective: 'busy',
+      preference: 'unavailable',
+    });
+    const firstKey = [...values.keys()].find(
+      (key) =>
+        key.includes(':session:') && key.endsWith(memberId.replace(/-/g, '')),
+    );
+    if (!firstKey) throw new Error('Missing first lease');
+    values.delete(firstKey);
+    await expect(sessions.availability(first, multi)).resolves.toMatchObject({
+      effective: 'busy',
+      registered: false,
+    });
+    const offline = await sessions.availability(second, multi, 'offline');
+    expect(offline).toMatchObject({
+      preference: 'offline',
+      registered: false,
+      effective: 'busy',
+    });
+    await expect(sessions.candidate(multi, recordId)).resolves.toBeNull();
+    await expect(
+      sessions.update(second, multi, secondLease.id, 'registered', false),
+    ).rejects.toThrow();
+    await expect(sessions.start(second, multi)).rejects.toThrow();
+    busy.mockResolvedValue(null);
+    await expect(sessions.availability(second, multi)).resolves.toMatchObject({
+      preference: 'offline',
+      registered: false,
+      effective: 'offline',
+    });
+    await sessions.availability(second, multi, 'available');
+    const newLease = await sessions.start(second, multi);
+    await sessions.update(second, multi, secondLease.id, 'stop', false);
+    await sessions.update(second, multi, newLease.id, 'registered', false);
+    busy.mockResolvedValue(null);
+    await expect(sessions.availability(first, multi)).resolves.toMatchObject({
+      effective: 'offline',
+      preference: 'unavailable',
+    });
+    await expect(sessions.availability(second, multi)).resolves.toMatchObject({
+      effective: 'available',
+      registered: true,
+    });
   });
 });

@@ -83,18 +83,20 @@ Future Messaging automation may support `HUMAN_ONLY`, after-hours AI, AI-assiste
   un operador explícito, coincidencia exacta de Lead propio, Device global
   y persistencia. R1 y el refinamiento del softphone cierran el piloto
   de desarrollo. [Voice V2](INCONNECT_VOICE_V2.md)
-- **Voice V2.1.** Distribución telefónica multiagente. Propietario
-  disponible, Round Robin del Commercial Team si está ocupado y Round
-  Robin general para números sin coincidencia. El cursor es independiente de
-  la asignación comercial. Offline, ambigüedad, rechazo, timeout y falta de
-  candidatos requieren reglas explícitas.
+- **Voice V2.1, R1 y UI/UX Polish.** Piloto cerrado y habilitado en
+  DEV-LOCAL-R1. El operador aprobó el selector y confirmó el fallback
+  del propietario desconectado. Cuatro ofertas sin Lead acreditan
+  la alternancia del pool general. Queda la concurrencia de dos
+  llamadas telefónicas reales y el alcance de evidencia individual
+  registrado en el cierre. [Voice V2.1](INCONNECT_VOICE_V2_1.md#cierre-del-piloto-en-dev-local-r1)
 - **Voice V3.** Transferencia directa y asistida entre agentes elegibles,
   incluidos ejecutivos y coordinadores, Hold, recuperación ante fallo e
   historial de participantes.
 - **Voice V3.1.** Grabaciones entrantes y salientes asociadas a la llamada
   lógica, callbacks de disponibilidad, reproducción y descarga autorizadas.
   Definir consentimiento, aviso, retención y costos antes de su activación.
-- **Voice V4.** Supervisión, productividad y estadísticas.
+- **Voice V4.** Supervisión de agentes, disponibilidad, llamadas activas y
+  métricas individuales y por Commercial Team.
 - **Pendiente operativo.** Validación y autorización para producción,
   consentimiento, retención y políticas operativas.
 

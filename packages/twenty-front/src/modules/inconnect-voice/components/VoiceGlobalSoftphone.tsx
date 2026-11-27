@@ -453,29 +453,31 @@ export const VoiceGlobalSoftphone = ({
                   </StyledControl>
                 </span>
               </StyledControls>
-              {voice.inbound.available && (
-                <>
-                  <Button
-                    title={receiveCallsLabel}
-                    ariaLabel={receiveCallsLabel}
-                    onClick={
-                      receiving
-                        ? voice.inbound.stop
-                        : () => void voice.inbound.start()
-                    }
-                    size="small"
-                  />
-                  <InputHint>
-                    {inboundOnline
-                      ? t`Ready to receive calls`
-                      : inboundState === 'connecting'
-                        ? t`Connecting incoming calls…`
-                        : inboundState === 'unavailable'
-                          ? t`Incoming calls unavailable. Try again.`
-                          : t`Incoming calls offline`}
-                  </InputHint>
-                </>
-              )}
+              {voice.inbound.available &&
+                voice.inbound.preference === undefined && (
+                  <>
+                    <Button
+                      title={receiveCallsLabel}
+                      ariaLabel={receiveCallsLabel}
+                      onClick={
+                        receiving
+                          ? voice.inbound.stop
+                          : () => void voice.inbound.start()
+                      }
+                      size="small"
+                    />
+                    <InputHint>
+                      {inboundOnline
+                        ? t`Ready to receive calls`
+                        : inboundState === 'connecting' ||
+                            inboundState === 'disconnecting'
+                          ? t`Connecting incoming calls…`
+                          : inboundState === 'unavailable'
+                            ? t`Incoming calls unavailable. Try again.`
+                            : t`Incoming calls offline`}
+                    </InputHint>
+                  </>
+                )}
             </StyledFooter>
           </StyledDialer>
         ),

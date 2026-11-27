@@ -166,7 +166,7 @@ const constraintsByTable = {
 
 export async function verifyInstalledVoiceSchema(
   runner: QueryRunner,
-  version: '1.2' | '1.4' | '2' = '1.2',
+  version: '1.2' | '1.4' | '2' | '2.1' = '1.2',
 ) {
   const columns: { name: string; column: string; valid: boolean }[] =
     await runner.query(
@@ -205,7 +205,7 @@ export async function verifyInstalledVoiceSchema(
         'CHECK (("objectMetadataId" IS NULL) = ("recordId" IS NULL))',
       );
     }
-    if (version === '2' && table === CALL) {
+    if ((version === '2' || version === '2.1') && table === CALL) {
       expectedFields[expectedFields.indexOf('actorMemberId:uuid!')] =
         'actorMemberId:uuid';
       expectedFields.push(
@@ -226,11 +226,31 @@ export async function verifyInstalledVoiceSchema(
         'CHECK ("answeredMemberId" IS NULL OR direction = \'inbound\' AND result IS NOT DISTINCT FROM \'answered\' AND NOT "answeredMemberId" IS DISTINCT FROM "actorMemberId" AND "inboundScreenedAt" IS NOT NULL)',
       );
     }
-    if (version === '2' && table === LEG) {
+    if ((version === '2' || version === '2.1') && table === LEG) {
       expectedChecks[5] =
         "CHECK (kind = ANY (ARRAY['browser', 'destination', 'caller', 'browser-inbound']))";
       expectedChecks[6] =
         "CHECK ((kind = ANY (ARRAY['browser', 'caller'])) = (\"parentCallSid\" IS NULL))";
+    }
+    if (version === '2.1' && table === CALL) {
+      expectedFields.push('distributionReason:text');
+      const originalSession = expectedChecks.findIndex((item) =>
+        item.startsWith('CHECK ("inboundSessionId"'),
+      );
+      expectedChecks[originalSession] =
+        `CHECK ("inboundSessionId" IS NULL OR direction = 'inbound' AND
+        "actorMemberId" IS NOT NULL AND ("recordId" IS NOT NULL OR "distributionReason" IS NOT NULL))`;
+      expectedChecks.push(
+        `CHECK ("distributionReason" IS NULL OR direction = 'inbound')`,
+      );
+    }
+    if (version === '2.1' && table === LEG) {
+      expectedFields.push('inboundOfferId:uuid');
+      expectedChecks.splice(1, 1);
+      expectedChecks.push(
+        `FOREIGN KEY ("callId", "inboundOfferId") REFERENCES core."inconnectVoiceInboundOffer"("callId", id)`,
+        `CHECK ("inboundOfferId" IS NULL OR kind = 'browser-inbound')`,
+      );
     }
     requireVoiceInstall(
       fields.every(({ valid }) => valid) &&
@@ -259,8 +279,13 @@ export async function verifyInstalledVoiceSchema(
     indexes.map((index) => [index.name, index.definition]),
   );
   requireVoiceInstall(
-    indexes.length === (version === '1.2' ? 7 : 8) &&
+    indexes.length === (version === '1.2' ? 7 : version === '2.1' ? 9 : 8) &&
       indexes.every(({ valid }) => valid) &&
+      (version !== '2.1' ||
+        (definitions.get('IDX_inconnectVoiceLeg_legacyKind') ===
+          `CREATE UNIQUE INDEX "IDX_inconnectVoiceLeg_legacyKind" ON core."inconnectVoiceCallLeg" USING btree ("callId", kind) WHERE ("inboundOfferId" IS NULL)` &&
+          definitions.get('IDX_inconnectVoiceLeg_offer') ===
+            `CREATE UNIQUE INDEX "IDX_inconnectVoiceLeg_offer" ON core."inconnectVoiceCallLeg" USING btree ("inboundOfferId") WHERE ("inboundOfferId" IS NOT NULL)`)) &&
       definitions.get(ACTIVE) ===
         `CREATE UNIQUE INDEX "${ACTIVE}" ON core."inconnectVoiceCall" USING btree ("workspaceId", "actorMemberId") WHERE (status <> 'finished'::text)` &&
       definitions.get(HISTORY) ===

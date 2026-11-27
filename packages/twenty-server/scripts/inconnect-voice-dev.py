@@ -185,9 +185,25 @@ def stop_nest(pid):
         os.close(fd)
 
 
-def inspect_install():
+def inspect_install(config=None):
+    v21 = SERVER / "dist/database/scripts/inconnect-voice-v21/install.js"
+    distribution = config is not None and "INCONNECT_VOICE_RECEIVE_USER_WORKSPACE_IDS" in config
+    require(not distribution or v21.is_file(), "The running Voice build does not include V2.1")
+    if distribution:
+        validation = subprocess.run(
+            [NODE, "-e", "const config = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));"
+             "const voice = require('./dist/modules/inconnect-voice/inconnect-voice-config');"
+             "process.exit(voice.getVoiceInboundConfig(config)?.distribution ? 0 : 1);"],
+            cwd=SERVER,
+            env=PROCESS_ENV,
+            input=json.dumps(config).encode(),
+            capture_output=True,
+            timeout=10,
+        )
+        require(validation.returncode == 0, "Explicit Voice V2.1 distribution configuration is invalid")
+    installer = v21 if v21.is_file() else SERVER / "dist/database/scripts/inconnect-voice-v2/install.js"
     result = subprocess.run(
-        [NODE, "dist/database/scripts/inconnect-voice-v2/install.js", "--inspect"],
+        [NODE, installer, "--inspect"],
         cwd=SERVER,
         env=PROCESS_ENV,
         stdout=subprocess.PIPE,
@@ -196,7 +212,11 @@ def inspect_install():
     )
     require(result.returncode == 0, "Could not inspect the dedicated Voice installation")
     record = json.loads(result.stdout)
-    require(record["state"] == "installed", "Voice V2 is pending installation")
+    require(
+        record["state"] == "installed"
+        or (installer == v21 and record["state"] == "ready" and not distribution),
+        "The requested Voice schema is pending installation",
+    )
     return record
 
 
@@ -275,11 +295,12 @@ def verify_provider(config, directions):
     paths = ["twiml", "call-progress"]
     if "inbound" in directions:
         receiver = config["INCONNECT_VOICE_INBOUND_NUMBER"]
+        distribution = "INCONNECT_VOICE_RECEIVE_USER_WORKSPACE_IDS" in config
         require(
             receiver == config["INCONNECT_VOICE_CALLER_ID"]
             and config["INCONNECT_VOICE_INBOUND_TEST_SOURCE"] != receiver
-            and config["INCONNECT_VOICE_INBOUND_USER_WORKSPACE_ID"]
-                == config["INCONNECT_VOICE_USER_WORKSPACE_ID"],
+            and (distribution or config["INCONNECT_VOICE_INBOUND_USER_WORKSPACE_ID"]
+                == config["INCONNECT_VOICE_USER_WORKSPACE_ID"]),
             "The inbound receiver or original operator differs",
         )
         incoming = f"https://{host.netloc}{VOICE_PATH}/inbound"
@@ -355,7 +376,7 @@ def main():
         raw = private_file(ENV_FILE)
         config = read_env(raw)
         pid = nest_listener()
-        inventory = inspect_install()
+        inventory = inspect_install(config)
         if command.action == "status":
             print(json.dumps({
                 "persisted": {name: config[key] for name, key in FLAGS.items()},

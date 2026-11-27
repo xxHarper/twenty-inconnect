@@ -3,7 +3,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 
 import { DataSource } from 'typeorm';
 
-import { type InconnectVoiceConfig } from 'src/modules/inconnect-voice/inconnect-voice-config';
+import {
+  getVoiceInboundConfig,
+  type InconnectVoiceConfig,
+} from 'src/modules/inconnect-voice/inconnect-voice-config';
 import {
   mergeVoiceProgress,
   type VoiceProgress,
@@ -13,6 +16,14 @@ const CALL = 'core."inconnectVoiceCall"';
 const LEG = 'core."inconnectVoiceCallLeg"';
 const PROJECTION =
   'call.id, call.status, call.result, call."answeredAt", call."endedAt", call."durationSeconds"';
+export const lockVoiceReservations = (
+  manager: { query: DataSource['query'] },
+  workspaceId: string,
+) =>
+  manager.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
+    `inconnectVoice:reservations:${workspaceId}`,
+  ]);
+
 const EXPIRED = `call.status = 'reserved' AND call."expiresAt" <= clock_timestamp()`;
 const PUBLIC_PROJECTION = `call.id, CASE WHEN ${EXPIRED} THEN 'finished' ELSE call.status END AS status,
   CASE WHEN ${EXPIRED} THEN 'canceled' ELSE call.result END AS result,
@@ -38,12 +49,34 @@ export type VoiceProviderTarget = {
   id: string;
   parentSid: string;
   childSid: string | null;
+  offerId?: string | null;
   direction?: 'outbound' | 'inbound';
 };
 
 @Injectable()
 export class InconnectVoiceCallStore {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  async withReservationAuthority<T>(
+    workspaceId: string,
+    operation: () => Promise<T>,
+  ) {
+    return this.dataSource.transaction(async (manager) => {
+      await lockVoiceReservations(manager, workspaceId);
+      return operation();
+    });
+  }
+
+  async activeReservation(workspaceId: string, memberId: string) {
+    const [row]: { state: 'busy' | 'ringing' }[] = await this.dataSource.query(
+      `SELECT CASE WHEN direction = 'inbound' AND status = 'ringing' AND "inboundScreenedAt" IS NULL
+          THEN 'ringing' ELSE 'busy' END AS state
+        FROM ${CALL} call WHERE "workspaceId" = $1 AND "actorMemberId" = $2
+          AND status <> 'finished' AND NOT (${EXPIRED})`,
+      [workspaceId, memberId],
+    );
+    return row?.state ?? null;
+  }
 
   private withRecordCondition(
     sql: string,
@@ -62,8 +95,11 @@ export class InconnectVoiceCallStore {
     attempt: VoiceReservation,
     actorLabel: string,
     scope: VoiceRecordCondition,
+    coordinateDistribution = false,
   ) {
     return this.dataSource.transaction(async (manager) => {
+      if (coordinateDistribution)
+        await lockVoiceReservations(manager, attempt.workspaceId);
       await manager.query(
         `UPDATE ${CALL} SET status = 'finished', result = 'canceled',
         "technicalError" = 'reservation-expired'
@@ -256,6 +292,7 @@ export class InconnectVoiceCallStore {
     callId?: string,
     scope?: VoiceRecordCondition,
   ) {
+    const distribution = getVoiceInboundConfig()?.distribution;
     const [target]: VoiceProviderTarget[] = await this.dataSource.query(
       ...this.withRecordCondition(
         `WITH leased AS (
@@ -266,11 +303,17 @@ export class InconnectVoiceCallStore {
            AND (($5::uuid IS NULL AND status <> 'finished') OR id = $5)
            AND (status <> 'finished' OR "endedAt" IS NULL OR (result = 'answered' AND "durationSeconds" IS NULL))
            AND "nextReconcileAt" <= clock_timestamp() AND (${scope?.sql ?? 'TRUE'})
-         RETURNING id, direction
+         RETURNING id, direction${distribution ? ', "inboundSessionId"' : ''}
        )
-       SELECT leased.id, leased.direction, browser."providerCallSid" AS "parentSid", child."providerCallSid" AS "childSid"
+       SELECT leased.id, leased.direction, browser."providerCallSid" AS "parentSid", child."providerCallSid" AS "childSid"${distribution ? ', child."inboundOfferId" AS "offerId"' : ''}
        FROM leased JOIN ${LEG} browser ON browser."callId" = leased.id AND browser.kind = CASE WHEN leased.direction = 'inbound' THEN 'caller' ELSE 'browser' END
-       LEFT JOIN ${LEG} child ON child."callId" = leased.id AND child.kind = CASE WHEN leased.direction = 'inbound' THEN 'browser-inbound' ELSE 'destination' END`,
+       LEFT JOIN ${LEG} child ON child."callId" = leased.id AND child.kind = CASE WHEN leased.direction = 'inbound' THEN 'browser-inbound' ELSE 'destination' END
+       ${
+         distribution
+           ? `AND child."inboundOfferId" IS NOT DISTINCT FROM
+           (SELECT offer.id FROM core."inconnectVoiceInboundOffer" offer WHERE offer."callId"=leased.id AND offer."sessionId"=leased."inboundSessionId")`
+           : ''
+       }`,
         scope ?? { sql: 'TRUE', parameters: {} },
         [
           actor.workspaceId,

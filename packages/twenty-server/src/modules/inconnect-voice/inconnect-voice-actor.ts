@@ -62,7 +62,9 @@ export const resolveVoiceActor = (
     !workspaceMemberId ||
     !userWorkspaceId ||
     workspace.id !== config.workspaceId ||
-    (userWorkspaceId !== config.userWorkspaceId &&
+    (!(config.dialUserWorkspaceIds ?? [config.userWorkspaceId]).includes(
+      userWorkspaceId,
+    ) &&
       !(
         allowHistory && config.historyUserWorkspaceIds.includes(userWorkspaceId)
       )) ||

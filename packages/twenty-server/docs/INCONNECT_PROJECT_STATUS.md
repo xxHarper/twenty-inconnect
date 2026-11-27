@@ -15,6 +15,50 @@ una aceptación nunca levanta gates de ejecución. «Fuente implementada»,
 «instalado en un entorno», «activado» y «desplegado» son afirmaciones distintas.
 La evidencia física describe el entorno y el momento de su comprobación.
 
+## Checkpoint del 27 de noviembre de 2026
+
+**Voice V2.1 cerrado en DEV-LOCAL-R1.** El operador aprobó R1,
+el selector y el refinamiento visual. Se verificaron seis llamadas
+posteriores a R1 y cuatro ofertas consecutivas del pool general
+que alternaron Administrador y Voice Test, todas sin vínculo CRM.
+Se restauró y cotejó el compuesto telefónico original del Lead
+sintético. El inventario final registra 41 llamadas, 14 ofertas,
+74 tramos, 504 s y cero reservas activas u obsoletas. Se conservaron
+ambos agentes en **Voice V2.1 — DEV** e Inbound y Outbound siguen
+habilitados. Quedan pendientes la concurrencia de dos llamadas
+telefónicas reales y los casos sin evidencia individual descritos
+en el cierre. PHYS-A0 sigue **NO-GO**.
+[Cierre y manifiesto de Voice V2.1](INCONNECT_VOICE_V2_1.md#cierre-del-piloto-en-dev-local-r1)
+
+**DEV-LOCAL-R1 recuperado con Voice V2.** Se comprobó PostgreSQL 55432
+y se restauraron Redis, Nest, Vite, Nginx y el Quick Tunnel dedicado.
+Twilio confirmó las tres URLs Voice DEV tras el cambio de hostname. Las
+cuatro rutas rechazaron solicitudes sin firma, las dos direcciones
+quedaron habilitadas en el build V2 y se conservaron 27 llamadas,
+46 tramos, 443 s y cero activas. [Recuperación](INCONNECT_VOICE_V2_1.md#recuperación-de-dev-local-r1)
+
+**Voice V2.1 instalado y habilitado en DEV-LOCAL-R1.** El Slow
+`1795780800000` avanzó ambos cursores y preservó 27 llamadas, 46 tramos,
+443 s y cero activas. Administrador original y Voice Test quedaron
+configurados en el Commercial Team de prueba, con fallback y reintentos
+activos a 20 s por oferta, 3 ofertas y 60 s totales. La prueba física
+reversible y el ensayo de NO_MATCH con restauración pasaron. Inbound y
+Outbound siguieron habilitados para las pruebas manuales de R1.
+PHYS-A0 siguió **NO-GO**.
+[Instalación y evidencias de Voice V2.1](INCONNECT_VOICE_V2_1.md#instalación-física-y-habilitación)
+
+**Voice V2.1 R1 operativo en DEV-LOCAL-R1.** La revisión de ofertas
+y el AOF confirmó una nueva concesión del administrador después
+del desregistro mientras seguía su preferencia Available. Offline
+revoca ahora la concesión y persiste el cierre a nivel operador,
+con reserva y screening protegidos. Phone incorpora el selector
+compacto con traducción al español. El reinicio preservó 35 llamadas,
+61 tramos, 489 s y cero activas, con ambos flags habilitados.
+La prueba física de revocación desde dos sesiones autenticadas
+pasó. El cierre posterior documenta la prueba manual con los dos
+navegadores y la alternancia del pool general.
+[Diagnóstico y verificación de R1](INCONNECT_VOICE_V2_1.md#r1--cierre-de-recepción-y-selector-de-phone)
+
 ## Checkpoint del 26 de noviembre de 2026
 
 **Voice V1.4 funcionalmente validado en DEV-LOCAL-R1.** El administrador

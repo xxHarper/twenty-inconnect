@@ -43,7 +43,7 @@ export async function readPrivateVoiceFile(name: string) {
 }
 
 export async function withVoiceConnection<T>(
-  version: '1.4' | '2',
+  version: '1.4' | '2' | '2.1',
   password: string,
   operation: (runner: QueryRunner, pid: number) => Promise<T>,
 ) {
@@ -69,7 +69,9 @@ export async function withVoiceConnection<T>(
       application_name:
         version === '1.4'
           ? 'voice-v14-dev-local-only'
-          : 'voice-v2-dev-local-only',
+          : version === '2.1'
+            ? 'voice-v21-dev-local-only'
+            : 'voice-v2-dev-local-only',
       connectionTimeoutMillis: 5_000,
       options:
         '-c default_transaction_read_only=on -c lock_timeout=4000 -c statement_timeout=15000 -c idle_in_transaction_session_timeout=180000',
@@ -95,7 +97,7 @@ export async function withVoiceConnection<T>(
 export async function backupVoiceSnapshot(
   snapshot: string,
   password: string,
-  version: '1.4' | '2',
+  version: '1.4' | '2' | '2.1',
   command: string,
 ) {
   const directory = await mkdtemp(

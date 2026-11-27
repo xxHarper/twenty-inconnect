@@ -82,6 +82,7 @@ type VoiceAttempt = {
   unbind?: () => void;
   ending?: boolean;
   sdkOpen?: boolean;
+  inboundAccepted?: true;
   intentId?: string;
   inboundSessionId?: string;
   deciding?: boolean;
@@ -575,6 +576,7 @@ export const useLeadVoiceCall = (
 
   const inbound = useVoiceInboundRegistration({
     isOpen,
+    canRegister: !snapshot.busy,
     attachDevice: async (token, sessionId) => {
       const { Device: TwilioDevice, Logger } =
         await import('@twilio/voice-sdk');
@@ -587,12 +589,23 @@ export const useLeadVoiceCall = (
     onRetire: (device) => {
       const current = readRuntime();
       if (current.device?.instance !== device) return;
-      if (current.attempt?.inboundSessionId) finish('unauthorized', true);
-      else if (!current.attempt) release(true);
-      else {
-        current.device.retireAfterCall = true;
-        void device.unregister().catch(() => undefined);
+      if (!current.attempt) {
+        release(true);
+        return;
       }
+      if (
+        current.attempt.inboundSessionId &&
+        !current.attempt.inboundAccepted &&
+        !current.attempt.sdkOpen
+      ) {
+        current.attempt.call?.reject();
+        if (readRuntime().attempt === current.attempt)
+          finish('disconnected', true);
+        return;
+      }
+      // Unregister signaling for future inbound calls while the active media survives.
+      current.device.retireAfterCall = true;
+      void device.unregister().catch(() => undefined);
     },
   });
 
@@ -638,6 +651,7 @@ export const useLeadVoiceCall = (
         () => finish('timeout', true, { stage: 'connection' }),
         PREPARATION_TIMEOUT_MS,
       );
+      attempt.inboundAccepted = true;
       call.accept();
     } catch (error) {
       if (!isCurrent()) return;
@@ -712,7 +726,10 @@ export const useLeadVoiceCall = (
       Logger.setLevel('silent', false);
 
       beginStage('session', 'preparing');
-      const inboundSessionId = readRuntime().device?.inboundSessionId;
+      const currentDevice = readRuntime().device;
+      const inboundSessionId = currentDevice?.retireAfterCall
+        ? undefined
+        : currentDevice?.inboundSessionId;
       const inboundArgument = inboundSessionId ? [inboundSessionId] : [];
       const session = manual
         ? await createManualVoiceSession(

@@ -38,7 +38,11 @@ export function voiceV2Command() {
   return new command();
 }
 
-export async function inspectVoiceV2(runner: QueryRunner, workspaceId: string) {
+export async function inspectVoiceV2(
+  runner: QueryRunner,
+  workspaceId: string,
+  successor?: string,
+) {
   const [conflict]: { alias: boolean }[] = await runner.query(
     `SELECT EXISTS (SELECT FROM core."upgradeMigration" WHERE name <> $1
       AND (name LIKE '%' || $2 || '%' OR name LIKE '%AddInconnectVoiceInboundSlowInstanceCommand%')) AS alias`,
@@ -56,12 +60,15 @@ export async function inspectVoiceV2(runner: QueryRunner, workspaceId: string) {
     (await readVoiceV14State(
       runner,
       workspaceId,
-      installed ? VOICE_V2_INSTANCE : undefined,
+      installed ? (successor ?? VOICE_V2_INSTANCE) : undefined,
     )) === 'installed',
     'Voice V1.4 instance and workspace refresh must be completed',
   );
   await verifyVoiceDependencies(runner);
-  await verifyInstalledVoiceSchema(runner, installed ? '2' : '1.4');
+  await verifyInstalledVoiceSchema(
+    runner,
+    installed ? (successor ? '2.1' : '2') : '1.4',
+  );
 
   const [ready]: { valid: boolean }[] = await runner.query(
     `SELECT NOT EXISTS (SELECT FROM pg_inherits WHERE inhparent IN
@@ -132,7 +139,7 @@ async function preservationDigest(runner: QueryRunner) {
   return JSON.stringify(digest);
 }
 
-async function verifyOtherClientsStopped(runner: QueryRunner) {
+export async function verifyOtherClientsStopped(runner: QueryRunner) {
   const [gate]: { idle: boolean }[] = await runner.query(
     `SELECT NOT EXISTS (SELECT FROM pg_stat_activity WHERE datname=current_database()
       AND pid<>pg_backend_pid() AND backend_type='client backend') AS idle`,

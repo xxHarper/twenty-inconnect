@@ -14,6 +14,16 @@ const isCanonicalPhone = (value: string) => {
   return phone?.number === value && phone.isValid() && !phone.ext;
 };
 
+const parseVoiceIds = (input: string) => {
+  if (input === '') return [];
+  const ids = input.split(',').map((entry) => entry.trim().toLowerCase());
+  return ids.length <= 32 &&
+    ids.every((id) => isUUID(id)) &&
+    new Set(ids).size === ids.length
+    ? ids
+    : null;
+};
+
 export const getInconnectVoiceConfig = (
   env: NodeJS.ProcessEnv = process.env,
 ) => {
@@ -32,16 +42,19 @@ export const getInconnectVoiceConfig = (
     INCONNECT_VOICE_PHONE_FIELD_ID: fieldId = '',
     INCONNECT_VOICE_ENABLE_OUTBOUND: enabled,
     INCONNECT_VOICE_HISTORY_USER_WORKSPACE_IDS: historyUsers = '',
+    INCONNECT_VOICE_DIAL_USER_WORKSPACE_IDS: dialUsers = '',
     INCONNECT_VOICE_DEFAULT_COUNTRY: defaultCountrySetting = 'MX',
     INCONNECT_VOICE_MANUAL_ALLOWED_COUNTRIES: allowedCountrySetting = 'MX',
   } = env;
 
+  const dialUserWorkspaceIds = parseVoiceIds(dialUsers);
   const countries = getCountries();
   const allowedCountryCodes = allowedCountrySetting
     .split(',')
     .map((code) => code.trim());
 
   if (
+    dialUserWorkspaceIds === null ||
     !sid(accountSid, 'AC') ||
     !sid(apiKeySid, 'SK') ||
     !sid(applicationSid, 'AP') ||
@@ -93,6 +106,7 @@ export const getInconnectVoiceConfig = (
     )
       ? allowedCountryCodes
       : [],
+    dialUserWorkspaceIds: [userWorkspaceId, ...dialUserWorkspaceIds],
     historyUserWorkspaceIds: historyUsers
       .split(',')
       .map((value) => value.trim())
@@ -109,11 +123,49 @@ export const getVoiceInboundConfig = (env: NodeJS.ProcessEnv = process.env) => {
     INCONNECT_VOICE_INBOUND_NUMBER: receiver = '',
     INCONNECT_VOICE_INBOUND_TEST_SOURCE: source = '',
     INCONNECT_VOICE_INBOUND_URL: url = '',
+    INCONNECT_VOICE_RECEIVE_USER_WORKSPACE_IDS: receiveUsers,
+    INCONNECT_VOICE_ROUND_ROBIN_USER_WORKSPACE_IDS: roundRobinUsers = '',
+    INCONNECT_VOICE_RING_SECONDS: ringSecondsSetting = '20',
+    INCONNECT_VOICE_DISTRIBUTION_SECONDS: distributionSecondsSetting = '55',
+    INCONNECT_VOICE_DISTRIBUTION_ATTEMPTS: attemptsSetting = '2',
+    INCONNECT_VOICE_FALLBACK_UNAVAILABLE: fallbackUnavailable = 'false',
+    INCONNECT_VOICE_RETRY_UNANSWERED: retryUnanswered = 'false',
   } = env;
+
+  const receiveUserWorkspaceIds = parseVoiceIds(receiveUsers ?? '');
+  const roundRobinUserWorkspaceIds = parseVoiceIds(roundRobinUsers);
+  const ringSeconds = Number(ringSecondsSetting);
+  const distributionSeconds = Number(distributionSecondsSetting);
+  const maxAttempts = Number(attemptsSetting);
+  const multiAgent = receiveUsers !== undefined;
+  const distributionValid =
+    receiveUserWorkspaceIds !== null &&
+    roundRobinUserWorkspaceIds !== null &&
+    (multiAgent
+      ? receiveUserWorkspaceIds.length > 0
+      : roundRobinUserWorkspaceIds.length === 0) &&
+    roundRobinUserWorkspaceIds.every((id) =>
+      receiveUserWorkspaceIds.includes(id),
+    ) &&
+    Number.isInteger(ringSeconds) &&
+    ringSeconds >= 8 &&
+    ringSeconds <= 25 &&
+    Number.isInteger(distributionSeconds) &&
+    distributionSeconds >= ringSeconds + 5 &&
+    distributionSeconds <= 90 &&
+    Number.isInteger(maxAttempts) &&
+    maxAttempts >= 1 &&
+    maxAttempts <= 5 &&
+    [fallbackUnavailable, retryUnanswered].every(
+      (value) => value === 'true' || value === 'false',
+    ) &&
+    (multiAgent ||
+      (fallbackUnavailable === 'false' && retryUnanswered === 'false'));
 
   if (
     !base?.defaultCountry ||
-    !isUUID(userWorkspaceId) ||
+    !distributionValid ||
+    (!multiAgent && !isUUID(userWorkspaceId)) ||
     !isCanonicalPhone(receiver) ||
     !isCanonicalPhone(source) ||
     receiver === source
@@ -142,6 +194,19 @@ export const getVoiceInboundConfig = (env: NodeJS.ProcessEnv = process.env) => {
     receiver,
     source,
     inboundUrl: url,
+    ...(multiAgent
+      ? {
+          distribution: {
+            receiveUserWorkspaceIds,
+            roundRobinUserWorkspaceIds,
+            ringSeconds,
+            distributionSeconds,
+            maxAttempts,
+            fallbackUnavailable: fallbackUnavailable === 'true',
+            retryUnanswered: retryUnanswered === 'true',
+          },
+        }
+      : {}),
     inboundEnabled: enabled === 'true',
   };
 };
@@ -149,6 +214,17 @@ export const getVoiceInboundConfig = (env: NodeJS.ProcessEnv = process.env) => {
 export type VoiceInboundConfig = NonNullable<
   ReturnType<typeof getVoiceInboundConfig>
 >;
+
+export const canReceiveVoice = (
+  config: VoiceInboundConfig,
+  userWorkspaceId: string | undefined,
+): userWorkspaceId is string =>
+  Boolean(
+    userWorkspaceId &&
+    (
+      config.distribution?.receiveUserWorkspaceIds ?? [config.userWorkspaceId]
+    ).includes(userWorkspaceId),
+  );
 
 export type InconnectVoiceConfig = NonNullable<
   ReturnType<typeof getInconnectVoiceConfig>

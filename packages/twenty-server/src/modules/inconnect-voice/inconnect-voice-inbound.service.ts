@@ -2,6 +2,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 
@@ -15,6 +16,10 @@ import {
   INCONNECT_VOICE_PATH,
   type VoiceInboundConfig,
 } from 'src/modules/inconnect-voice/inconnect-voice-config';
+import {
+  type VoiceInboundPlan,
+  type VoiceInboundCandidate,
+} from 'src/modules/inconnect-voice/inconnect-voice-distribution.store';
 import { normalizeVoiceDialNumber } from 'src/modules/inconnect-voice/inconnect-voice-dial-number';
 import { InconnectVoiceDirectoryService } from 'src/modules/inconnect-voice/inconnect-voice-directory.service';
 import {
@@ -26,6 +31,7 @@ import {
   InconnectVoiceInboundStore,
   unavailableInbound,
 } from 'src/modules/inconnect-voice/inconnect-voice-inbound.store';
+import { InconnectVoiceRoutingService } from 'src/modules/inconnect-voice/inconnect-voice-routing.service';
 import {
   isTwilioCallSid,
   readTwilioProgress,
@@ -69,6 +75,7 @@ export class InconnectVoiceInboundService {
     private readonly inbound: InconnectVoiceInboundStore,
     private readonly calls: InconnectVoiceCallStore,
     private readonly provider: InconnectVoiceProviderService,
+    @Optional() private readonly routing?: InconnectVoiceRoutingService,
   ) {}
 
   private phone(config: VoiceInboundConfig) {
@@ -79,6 +86,29 @@ export class InconnectVoiceInboundService {
     actor: UserWorkspaceAuthContext,
     config: VoiceInboundConfig,
   ) {
+    if (config.distribution) {
+      try {
+        const lead = await this.directory.query(
+          actor,
+          config,
+          this.phone(config),
+        );
+        const exact = lead.query.andWhere(`${lead.id} = call."recordId"`);
+        return {
+          sql: 'TRUE',
+          name: `(${exact.clone().select(lead.name).getQuery()})`,
+          visibleRecordId: `(${exact.select(lead.id).getQuery()})`,
+          parameters: exact.getParameters(),
+        };
+      } catch {
+        return {
+          sql: 'TRUE',
+          name: 'NULL::text',
+          visibleRecordId: 'NULL::uuid',
+          parameters: {},
+        };
+      }
+    }
     const lead = await this.directory.query(
       actor,
       config,
@@ -101,16 +131,27 @@ export class InconnectVoiceInboundService {
     action?: 'accept' | 'decline' | 'reconcile',
   ) {
     const actor = await this.sessions.authorize(request, config);
+    const mayReceive = config.distribution
+      ? await this.sessions.canReceiveOffer(config, actor, sessionId)
+      : await this.sessions.current(
+          config,
+          sessionId,
+          actor.workspaceMemberId,
+          action === 'accept',
+        );
     if (
-      !(await this.sessions.current(
-        config,
-        sessionId,
-        actor.workspaceMemberId,
-        action === 'accept',
-      ))
+      !mayReceive &&
+      (!config.distribution || action === 'accept' || action === 'decline')
     )
       throw unavailableInbound();
-    const scope = await this.offerScope(actor, config);
+    const visibleScope = await this.offerScope(actor, config);
+    // Revocation blocks new offers. An already screened call keeps its own progress channel.
+    const scope = mayReceive
+      ? visibleScope
+      : {
+          ...visibleScope,
+          sql: `call."inboundScreenedAt" IS NOT NULL AND (${visibleScope.sql})`,
+        };
     if (action === 'accept' || action === 'decline') {
       await this.inbound.decide(
         config,
@@ -129,7 +170,14 @@ export class InconnectVoiceInboundService {
           actorMemberId: actor.workspaceMemberId,
         },
         id,
-        { ...scope, sql: `call.direction = 'inbound' AND (${scope.sql})` },
+        {
+          ...scope,
+          sql: `call.direction = 'inbound' AND call."inboundSessionId" = :voiceInboundActorSession AND (${scope.sql})`,
+          parameters: {
+            ...scope.parameters,
+            voiceInboundActorSession: sessionId,
+          },
+        },
       );
       if (target) await this.provider.reconcile(config, target);
     }
@@ -182,6 +230,24 @@ export class InconnectVoiceInboundService {
     };
   }
 
+  private async stillAvailable(
+    config: VoiceInboundConfig,
+    candidate: VoiceInboundCandidate,
+  ) {
+    try {
+      const fresh = await this.sessions.candidate(
+        config,
+        candidate.userWorkspaceId,
+      );
+      return (
+        fresh?.sessionId === candidate.sessionId &&
+        fresh.actor.workspaceMemberId === candidate.actorMemberId
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async receive(request: SignedRequest, config: VoiceInboundConfig) {
     if (!config.inboundEnabled) throw unavailableInbound();
     const params = readSignedVoiceWebhook(request, config, config.inboundUrl);
@@ -194,6 +260,31 @@ export class InconnectVoiceInboundService {
       throw unavailableInbound();
 
     if (!this.isAllowedSource(params.From, config)) return rejected();
+
+    if (config.distribution) {
+      let plan: VoiceInboundPlan;
+      try {
+        plan = this.routing
+          ? await this.routing.plan(config)
+          : { reason: 'configuration-incomplete' };
+      } catch {
+        plan = { reason: 'resolution-error' };
+        this.logger.warn(
+          'Inbound Voice routing authority could not be resolved',
+        );
+      }
+      const id = randomUUID();
+      const selected = await this.inbound.distribute(
+        config,
+        id,
+        params.CallSid,
+        plan,
+        (candidate) => this.stillAvailable(config, candidate),
+      );
+      return selected
+        ? this.dial(config, id, params.CallSid, selected)
+        : rejected();
+    }
 
     let route: InboundRoute | null = null;
     let failure = false;
@@ -222,29 +313,44 @@ export class InconnectVoiceInboundService {
     )
       return rejected();
 
+    return this.dial(config, id, parentSid, route);
+  }
+
+  private dial(
+    config: VoiceInboundConfig,
+    id: string,
+    parentSid: string,
+    route: Pick<VoiceInboundCandidate, 'sessionId'> &
+      Partial<Pick<VoiceInboundCandidate, 'userWorkspaceId'>> & {
+        offerId?: string;
+        ringSeconds?: number;
+      },
+  ) {
     // Only the opaque logical call ID is sent to the SDK. The browser reads CRM context through Twenty.
     const response = new Twilio.twiml.VoiceResponse();
+    const callback = { id: route.offerId ?? id, parentSid };
     const client = response
       .dial({
-        action: inboundProgressUrl(config, { id, parentSid, source: 'dial' }),
+        action: inboundProgressUrl(config, { ...callback, source: 'dial' }),
         method: 'POST',
         answerOnBridge: true,
-        timeout: 25,
+        timeout: route.ringSeconds ?? config.distribution?.ringSeconds ?? 25,
         timeLimit: 300,
         record: 'do-not-record',
       })
       .client({
-        url: inboundProgressUrl(config, { id, parentSid, source: 'screen' }),
+        url: inboundProgressUrl(config, { ...callback, source: 'screen' }),
         method: 'POST',
         statusCallback: inboundProgressUrl(config, {
-          id,
-          parentSid,
+          ...callback,
           source: 'client',
         }),
         statusCallbackMethod: 'POST',
         statusCallbackEvent: [...DIAL_EVENTS],
       });
-    client.identity(getVoiceInboundIdentity(config, route.sessionId));
+    client.identity(
+      getVoiceInboundIdentity(config, route.sessionId, route.userWorkspaceId),
+    );
     client.parameter({ name: 'inconnectVoiceCallId', value: id });
     return response.toString();
   }
@@ -325,11 +431,13 @@ export class InconnectVoiceInboundService {
     if (source === 'screen') {
       let allowed = false;
       try {
-        const ready = await this.sessions.readyActor(config);
+        const ready = config.distribution
+          ? await this.sessions.screenActor(config, params.To)
+          : await this.sessions.readyActor(config);
         if (
           ready &&
           params.To ===
-            `client:${getVoiceInboundIdentity(config, ready.sessionId)}`
+            `client:${getVoiceInboundIdentity(config, ready.sessionId, config.distribution ? ready.actor.userWorkspaceId : undefined)}`
         ) {
           const scope = await this.offerScope(ready.actor, config);
           allowed = await this.inbound.screen(
@@ -338,6 +446,16 @@ export class InconnectVoiceInboundService {
             ready.actor.workspaceMemberId,
             ready.sessionId,
             scope,
+            ...(config.distribution
+              ? ([
+                  () =>
+                    this.sessions.canReceiveOffer(
+                      config,
+                      ready.actor,
+                      ready.sessionId,
+                    ),
+                ] as const)
+              : []),
           );
         }
       } catch {
@@ -369,7 +487,41 @@ export class InconnectVoiceInboundService {
         eventTime: params.Timestamp,
       });
       if (progress?.status !== 'finished') throw unavailableInbound();
-      await this.inbound.settle(config, event, progress, true);
+      if (config.distribution) {
+        let nextPlan: VoiceInboundPlan | null = null;
+        if (
+          !bridged &&
+          progress.result !== 'canceled' &&
+          config.distribution.retryUnanswered &&
+          this.routing &&
+          (await this.provider.hasActiveInboundCaller(config, parentSid))
+        ) {
+          try {
+            nextPlan = await this.routing.plan(config, true);
+          } catch {
+            this.logger.warn(
+              'Inbound Voice retry authority could not be resolved',
+            );
+          }
+        }
+        const completed = await this.inbound.completeDistribution(
+          config,
+          event,
+          progress,
+          nextPlan,
+          (candidate) => this.stillAvailable(config, candidate),
+        );
+        if (completed.kind === 'next')
+          return this.dial(
+            config,
+            completed.callId,
+            parentSid,
+            completed.selected,
+          );
+        if (completed.kind === 'duplicate') return response.toString();
+      } else {
+        await this.inbound.settle(config, event, progress, true);
+      }
       response.hangup();
     }
     return response.toString();

@@ -21816,3 +21816,198 @@ msgstr "Your workspace will be disabled"
 #: src/modules/settings/mcp-and-apis/utils/buildMcpSetupCategories.tsx
 msgid "Zed"
 msgstr "Zed"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.available"
+msgstr "Available"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.unavailable"
+msgstr "Unavailable"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.offline"
+msgstr "Offline"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.busy"
+msgstr "Busy"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.ringing"
+msgstr "Ringing"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.disconnecting"
+msgstr "Disconnecting…"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.connecting"
+msgstr "Connecting…"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.connected"
+msgstr "Connected"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.disconnected"
+msgstr "Disconnected"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.registered"
+msgstr "Device registered for incoming calls"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.unregistered"
+msgstr "Device not registered for incoming calls"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.label"
+msgstr "Call availability"
+
+#: src/modules/inconnect-voice/components/VoiceAvailabilityControl.tsx
+#. js-lingui-explicit-id
+msgid "voice.availability.error"
+msgstr "Could not update reception"
+
+#. js-lingui-id: tlV9jE
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Checking Voice availability…"
+msgstr ""
+
+#. js-lingui-id: QtnVcI
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Outbound Voice is ready."
+msgstr ""
+
+#. js-lingui-id: s5gUqb
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Outbound Voice is disabled."
+msgstr ""
+
+#. js-lingui-id: S7Icvv
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Voice availability could not be verified for this session."
+msgstr ""
+
+#. js-lingui-id: 1h3ubn
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Connecting to Twilio…"
+msgstr ""
+
+#. js-lingui-id: 2CztXy
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Waiting for destination…"
+msgstr ""
+
+#. js-lingui-id: RLj2uV
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Incoming call"
+msgstr ""
+
+#. js-lingui-id: Q45iVB
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Browser connected to Twilio"
+msgstr ""
+
+#. js-lingui-id: 09Tv5j
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Reconnecting…"
+msgstr ""
+
+#. js-lingui-id: KuqTfM
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Ending call…"
+msgstr ""
+
+#. js-lingui-id: f8vZT3
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Call ended"
+msgstr ""
+
+#. js-lingui-id: g4THm5
+#: src/modules/inconnect-voice/components/VoiceSoftphone.tsx
+msgid "Call completed"
+msgstr ""
+
+#. js-lingui-id: jB38Bk
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Softphone"
+msgstr ""
+
+#. js-lingui-id: g3UF2V
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Accept"
+msgstr ""
+
+#. js-lingui-id: jbq7j2
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Decline"
+msgstr ""
+
+#. js-lingui-id: jw/t1m
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Keypad"
+msgstr ""
+
+#. js-lingui-id: WC0jnW
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Hang up"
+msgstr ""
+
+#. js-lingui-id: n7B4ee
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Connected time"
+msgstr ""
+
+#. js-lingui-id: 7DViYe
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Connected time pending confirmation"
+msgstr ""
+
+#. js-lingui-id: mqa/VK
+#: src/modules/inconnect-voice/components/VoiceSoftphoneView.tsx
+msgid "Incoming call controls"
+msgstr ""
+
+#. js-lingui-id: 7bUtGc
+#: src/modules/inconnect-voice/components/VoiceGlobalSoftphone.tsx
+msgid "Stop receiving calls"
+msgstr ""
+
+#. js-lingui-id: nlIbmj
+#: src/modules/inconnect-voice/components/VoiceGlobalSoftphone.tsx
+msgid "Receive calls"
+msgstr ""
+
+#. js-lingui-id: +1SBe/
+#: src/modules/inconnect-voice/components/VoiceGlobalSoftphone.tsx
+msgid "Ready to receive calls"
+msgstr ""
+
+#. js-lingui-id: lZhbN3
+#: src/modules/inconnect-voice/components/VoiceGlobalSoftphone.tsx
+msgid "Connecting incoming calls…"
+msgstr ""
+
+#. js-lingui-id: fkwgxP
+#: src/modules/inconnect-voice/components/VoiceGlobalSoftphone.tsx
+msgid "Incoming calls unavailable. Try again."
+msgstr ""
+
+#. js-lingui-id: wcXWuo
+#: src/modules/inconnect-voice/components/VoiceGlobalSoftphone.tsx
+msgid "Incoming calls offline"
+msgstr ""

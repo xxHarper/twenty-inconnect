@@ -31,6 +31,8 @@ import {
   runInboundCallback,
 } from 'src/modules/inconnect-voice/inconnect-voice-inbound.service';
 
+import { voicePreferences } from 'src/modules/inconnect-voice/inconnect-voice-availability';
+
 const uuid = z.string().uuid();
 const sessionUpdate = z
   .object({
@@ -73,10 +75,29 @@ export class InconnectVoiceInboundController {
   @Header('Cache-Control', 'no-store')
   @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
   access(@Req() request: Request) {
-    return authenticated(async () => {
-      await this.sessions.authorize(request, configOrDeny());
-      return { available: true };
-    });
+    return authenticated(() =>
+      this.sessions.availability(request, configOrDeny()),
+    );
+  }
+
+  @Post('inbound-preference')
+  @Header('Cache-Control', 'no-store')
+  @UseGuards(JwtAuthGuard, WorkspaceAuthGuard, CustomPermissionGuard)
+  @HttpCode(200)
+  preference(@Req() request: Request, @Body() body: unknown) {
+    const input = z
+      .object({ preference: z.enum(voicePreferences) })
+      .strict()
+      .safeParse(body);
+    if (!input.success)
+      throw new BadRequestException('Invalid Voice preference');
+    return authenticated(() =>
+      this.sessions.availability(
+        request,
+        configOrDeny(),
+        input.data.preference,
+      ),
+    );
   }
 
   @Post('inbound-session')

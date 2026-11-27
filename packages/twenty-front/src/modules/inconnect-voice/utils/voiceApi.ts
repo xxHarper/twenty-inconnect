@@ -60,7 +60,7 @@ const historySchema = z.object({
 });
 
 const inboundOfferSchema = callSchema.extend({
-  recordId: z.string().uuid(),
+  recordId: z.string().uuid().nullable(),
   number: z.string().regex(/^\+[1-9]\d{1,14}$/),
   name: z.string().nullable(),
 });
@@ -164,10 +164,30 @@ export const getVoiceRecents = async (signal: AbortSignal, before?: string) =>
     ),
   );
 
+const inboundPreferenceSchema = z.enum(['available', 'unavailable', 'offline']);
+export type VoiceInboundPreference = z.infer<typeof inboundPreferenceSchema>;
+const inboundAccessSchema = z.object({
+  available: z.literal(true),
+  preference: inboundPreferenceSchema.optional(),
+  registered: z.boolean().optional(),
+  effective: z
+    .enum(['available', 'ringing', 'busy', 'unavailable', 'offline'])
+    .optional(),
+});
+
 export const getVoiceInboundAccess = async (signal: AbortSignal) =>
-  z
-    .object({ available: z.literal(true) })
-    .parse(await requestVoice('inbound-access', signal));
+  inboundAccessSchema.parse(await requestVoice('inbound-access', signal));
+
+export const setVoiceInboundPreference = async (
+  preference: VoiceInboundPreference,
+  signal: AbortSignal,
+) =>
+  inboundAccessSchema.parse(
+    await requestVoice('inbound-preference', signal, {
+      method: 'POST',
+      body: { preference },
+    }),
+  );
 
 export const startVoiceInboundSession = async (signal: AbortSignal) =>
   z

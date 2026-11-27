@@ -73,6 +73,7 @@ type VoiceSoftphoneViewProps = {
   inbound?: boolean;
   terminal?: 'ended' | 'completed';
   idleContent?: ReactNode;
+  availabilityControl?: ReactNode;
   onReturnToDialer?: () => void;
   onReturnToRecents?: () => void;
   onDigit: Extract<
@@ -151,6 +152,7 @@ export const VoiceSoftphoneView = ({
   inbound,
   terminal,
   idleContent,
+  availabilityControl,
   onReturnToDialer,
   onReturnToRecents,
   onDigit,
@@ -228,6 +230,7 @@ export const VoiceSoftphoneView = ({
           )}
         </StyledHeaderGroup>
       </StyledHeader>
+      {!minimized && availabilityControl}
       <StyledSummary data-global-idle={hasIdleContent}>
         {lead && (
           <StyledIdentity>
